@@ -85,3 +85,13 @@ go test ./...
 *   `cmd/please/`: Entry point and CLI flag handling.
 *   `internal/engine/`: Core logic for DAG management, LLM providers, and storage.
 *   `internal/tui/`: Bubble Tea components, modular handlers, and rendering logic.
+
+---
+
+## 🗺️ Roadmap
+
+Future enhancements and "nice-to-have" features:
+*   **System Prompt Library:** Support for multiple assistant personas (e.g., "Code Expert," "Creative Writer") that can be selected when starting a new branch.
+*   **Enhanced Encryption:** Implement robust AES-256 encryption for the conversation vault.
+*   **Refined Graph Construction:** Improve the flow of initializing a graph from a system prompt to make branching even more intuitive.
+*   **UI Hardening:** Continue refining the viewport and input field behaviors for edge cases and large conversation graphs.
