@@ -22,6 +22,7 @@ func init() {
 	commandRegistry["/unmark"] = &UnmarkCommand{}
 	commandRegistry["/persona"] = &PersonaCommand{}
 	commandRegistry["/map"] = &MapCommand{}
+	commandRegistry["/help"] = &HelpCommand{}
 	commandRegistry["/q"] = &QuitCommand{}
 	commandRegistry["/quit"] = &QuitCommand{}
 	commandRegistry["/bye"] = &QuitCommand{}
@@ -147,6 +148,31 @@ type MapCommand struct{}
 
 func (c *MapCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	m.ViewportOverride = m.generateMapString()
+	m.Viewport.SetContent(m.ViewportOverride)
+	m.Viewport.GotoBottom()
+	m.TextInput.SetValue("")
+	return m, nil
+}
+
+type HelpCommand struct{}
+
+func (c *HelpCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
+	var s strings.Builder
+	s.WriteString("--- 🦉 Please Help ---\n\n")
+	s.WriteString("Interactive Commands:\n")
+	s.WriteString("  /help           Show this help message\n")
+	s.WriteString("  /map            Visualize the conversation graph\n")
+	s.WriteString("  /list           List all node IDs in the current graph\n")
+	s.WriteString("  /jump <id>      Jump to a specific node by its ID prefix\n")
+	s.WriteString("  /mark [id]      Bookmark the current or specified node\n")
+	s.WriteString("  /unmark <id>    Remove a bookmark from a node\n")
+	s.WriteString("  /persona        Start a new timeline with a new system prompt\n")
+	s.WriteString("  /q, /quit, /bye Exit the application\n\n")
+	s.WriteString("Navigation:\n")
+	s.WriteString("  Use ↑/↓ or PgUp/PgDn to scroll through the conversation.\n")
+	s.WriteString("  Press ESC to exit /map or /help views.\n")
+
+	m.ViewportOverride = s.String()
 	m.Viewport.SetContent(m.ViewportOverride)
 	m.Viewport.GotoBottom()
 	m.TextInput.SetValue("")

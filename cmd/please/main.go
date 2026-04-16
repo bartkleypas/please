@@ -15,12 +15,21 @@ func main() {
 	// Define flags
 	chatFlag := flag.Bool("chat", false, "Start the TUI chat interface")
 	flag.BoolVar(chatFlag, "c", false, "Start the TUI chat interface (shorthand)")
+
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "🦉 Please: A DAG-based TUI for branching LLM conversations.\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: please [options]\n\n")
+		fmt.Fprintf(os.Stderr, "Options:\n")
+		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\nCommands inside the TUI:\n")
+		fmt.Fprintf(os.Stderr, "  /help    Show internal command list\n")
+		fmt.Fprintf(os.Stderr, "  /map     Visualize conversation branches\n")
+	}
+
 	flag.Parse()
 
 	if !*chatFlag {
-		fmt.Println("Usage: please [options]")
-		fmt.Println("Options:")
-		flag.PrintDefaults()
+		flag.Usage()
 		os.Exit(0)
 	}
 
