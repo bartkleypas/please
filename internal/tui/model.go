@@ -35,6 +35,10 @@ type Model struct {
 	PersonaSetupMode bool
 	// ChatHistoryBuffer stores the rendered chat history to allow incremental updates
 	ChatHistoryBuffer string
+	// CurrentStreamingContent stores the content of the message currently being streamed
+	CurrentStreamingContent string
+	StreamContentChan       <-chan string
+	StreamErrChan           <-chan error
 }
 
 func NewModel(g *engine.Graph, s engine.Storage, p engine.LLMProvider, currentID string) Model {

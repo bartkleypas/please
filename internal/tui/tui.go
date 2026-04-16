@@ -4,136 +4,15 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"org.kleypas.please/internal/engine"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
-
-// tickMsg is sent to trigger the spinner animation
-type tickMsg struct{}
-
-// llmResponseMsg is sent when the LLM provider returns a result
-type llmResponseMsg struct {
-	content  string
-	err      error
-	parentID string
-}
-
-var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇"}
-
-// exportResultMsg is sent when the export file operation completes
-type exportResultMsg struct {
-	filename string
-	err      error
-}
-
-var (
-	titleStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FAFAFA")).Background(lipgloss.Color("#7D56F4")).Padding(0, 1)
-	userStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00"))
-	botStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FFFF"))
-	markStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFCC00"))
-	historyBoxStyle = lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color("#555555")).
-			Padding(0, 1)
-	inputBoxStyle = lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color("#555555")).
-			Padding(0, 1)
-)
-
-// wrapText is a helper to manually insert newlines into long strings
-func wrapText(text string, width int) string {
-	if width <= 0 {
-		return text
-	}
-
-	lines := strings.Split(text, "\n")
-	var wrapped strings.Builder
-
-	for i, line := range lines {
-		if line == "" {
-			wrapped.WriteString("\n")
-			continue
-		}
-
-		// 1. Capture leading whitespace
-		trimmed := strings.TrimLeft(line, " \t")
-		indent := line[:len(line)-len(trimmed)]
-
-		// 2. Wrap the trimmed content
-		words := strings.Fields(trimmed)
-		var lineBuilder strings.Builder
-		currentLineLength := 0
-
-		for _, word := range words {
-			wordLen := len(word)
-			if currentLineLength+wordLen+1 > width {
-				lineBuilder.WriteString("\n")
-				currentLineLength = 0
-			} else if currentLineLength > 0 {
-				lineBuilder.WriteString(" ")
-				currentLineLength++
-			}
-			lineBuilder.WriteString(word)
-			currentLineLength += wordLen
-		}
-
-		// 3. Prepend the original indentation to the first line of the wrapped result
-		wrapped.WriteString(indent + lineBuilder.String())
-
-		if i < len(lines)-1 {
-			wrapped.WriteString("\n")
-		}
-	}
-
-	return wrapped.String()
-}
 
 func (m *Model) Init() tea.Cmd {
 	return textinput.Blink
-}
-
-// callLLM is a Bubble Tea command that wraps the provider's GenerateResponse
-func callLLM(provider engine.LLMProvider, messages []engine.Message, parentID string) tea.Cmd {
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		content, err := provider.GenerateResponse(ctx, messages)
-		return llmResponseMsg{
-			content:  content,
-			err:      err,
-			parentID: parentID,
-		}
-	}
-}
-
-// tick is a command that sends a tickMsg after a short delay
-func tick() tea.Cmd {
-	return tea.Tick(time.Millisecond*100, func(t time.Time) tea.Msg {
-		return tickMsg{}
-	})
-}
-
-// generateMapString builds the full visual tree of the graph
-func (m *Model) generateMapString() string {
-	var s strings.Builder
-	s.WriteString("--- Narrative Graph Map ---\n\n")
-	roots := m.Manager.GetRoots()
-	if len(roots) == 0 {
-		s.WriteString("No nodes found in graph.\n")
-	} else {
-		for i, root := range roots {
-			isLast := i == len(roots)-1
-			m.renderMap(&s, root.ID, "", isLast)
-		}
-	}
-	return s.String()
 }
 
 func (m *Model) updateViewportWithNode(node *engine.Node) {
@@ -151,6 +30,20 @@ func (m *Model) updateViewportWithNode(node *engine.Node) {
 	line := fmt.Sprintf("%s:\n%s\n", role.Render(prefix), wrappedContent)
 	m.ChatHistoryBuffer += line
 	m.Viewport.SetContent(m.ChatHistoryBuffer)
+	m.Viewport.GotoBottom()
+}
+
+func (m *Model) updateViewportWithStreaming() {
+	role := botStyle
+	prefix := string(engine.RoleAssistant)
+	wrapWidth := m.Width - 4
+	if wrapWidth <= 0 {
+		wrapWidth = 80
+	}
+	wrappedContent := wrapText(m.CurrentStreamingContent, wrapWidth)
+
+	line := fmt.Sprintf("%s:\n%s\n", role.Render(prefix), wrappedContent)
+	m.Viewport.SetContent(m.ChatHistoryBuffer + line)
 	m.Viewport.GotoBottom()
 }
 
@@ -198,14 +91,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 
 		if m.ViewMode == ModeChat {
-			var vCmd tea.Cmd
-			m.Viewport, vCmd = m.Viewport.Update(msg)
-			cmd = tea.Batch(cmd, vCmd)
+			// Only send specific scrolling keys to the viewport if we are typing,
+			// or send all keys if the viewport override is active.
+			if m.ViewportOverride != "" || msg.String() == "pgup" || msg.String() == "pgdown" || msg.String() == "up" || msg.String() == "down" {
+				var vCmd tea.Cmd
+				m.Viewport, vCmd = m.Viewport.Update(msg)
+				cmd = tea.Batch(cmd, vCmd)
+			}
 		}
 
 		if m.ViewportOverride != "" {
 			switch msg.String() {
-			case "esc", "backspace":
+			case "esc":
 				m.ViewportOverride = ""
 				m.updateViewportContent()
 				return m, nil
@@ -295,24 +192,38 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			// 3. Trigger the asynchronous LLM call and the spinner
-			return m, tea.Batch(textinput.Blink, callLLM(m.Provider, messages, newNode.ID), tick())
+			m.CurrentStreamingContent = ""
+			m.IsThinking = true
+			ctx := context.Background() // TUI usually manages its own lifecycle
+			m.StreamContentChan, m.StreamErrChan = m.Provider.GenerateResponseStream(ctx, messages)
+
+			return m, tea.Batch(textinput.Blink, waitForStream(m.StreamContentChan, m.StreamErrChan, newNode.ID), tick())
 		}
 
-	case llmResponseMsg:
+	case llmStreamMsg:
+		m.IsThinking = false
+		m.CurrentStreamingContent += msg.content
+		m.updateViewportWithStreaming()
+		return m, waitForStream(m.StreamContentChan, m.StreamErrChan, msg.parentID)
+
+	case llmStreamFinishedMsg:
 		m.IsThinking = false
 		if msg.err != nil {
 			m.Notification = fmt.Sprintf("Error: %v", msg.err)
-			return m, nil
+			m.CurrentStreamingContent = ""
+			return m, textinput.Blink
 		}
 
 		// Create and save the assistant node
-		botNode, err := m.Manager.CreateNode(msg.parentID, engine.RoleAssistant, msg.content)
+		botNode, err := m.Manager.CreateNode(msg.parentID, engine.RoleAssistant, m.CurrentStreamingContent)
 		if err != nil {
 			m.Notification = fmt.Sprintf("Error: %v", err)
+			m.CurrentStreamingContent = ""
 			return m, textinput.Blink
 		}
 		m.CurrentID = botNode.ID
 		m.updateViewportWithNode(botNode)
+		m.CurrentStreamingContent = ""
 
 		return m, textinput.Blink
 
@@ -353,92 +264,4 @@ func (m *Model) updateViewportContent() {
 
 	m.Viewport.SetContent(s.String())
 	m.Viewport.GotoBottom()
-}
-
-func (m Model) View() string {
-	if m.PersonaSetupMode {
-		s := titleStyle.Render(" PLEASE - New Persona ") + "\n\n"
-		s += "Define a new system prompt to switch personas.\n"
-		s += "This will create a new root node and jump you to it.\n"
-		s += "Example: 'You are a grumpy old librarian.'\n\n"
-		s += "Press Enter to initialize the new persona.\n\n"
-		s += "\n\n" + inputBoxStyle.Render(m.TextInput.View())
-		return s
-	}
-
-	if m.SetupMode {
-		s := titleStyle.Render(" PLEASE - Setup ") + "\n\n"
-		s += "Welcome to Please.\n\n"
-		s += "Please define the System Prompt (the rules of this universe) to begin.\n"
-		s += "Example: 'You are a helpful assistant who speaks like a pirate.'\n\n"
-		s += "Press Enter to initialize the graph.\n\n"
-		s += "\n\n" + inputBoxStyle.Render(m.TextInput.View())
-		return s
-	}
-
-	s := titleStyle.Render(" PLEASE - Narrative Graph ") + "\n\n"
-
-	if m.Notification != "" {
-		s += lipgloss.NewStyle().Foreground(lipgloss.Color("#FFCC00")).Render("! "+m.Notification+" !") + "\n\n"
-	}
-
-	s += historyBoxStyle.Render(m.Viewport.View())
-
-	if m.IsThinking {
-		spinner := spinnerFrames[m.SpinnerFrame%len(spinnerFrames)]
-		s += "\n" + botStyle.Render(fmt.Sprintf("%s Thinking...", spinner)) + "\n"
-	}
-
-	s += "\n\n" + inputBoxStyle.Render(m.TextInput.View())
-	s += "\n\n(/q, /quit, or /bye to exit)" // Updated hint
-
-	return s
-}
-
-func (m Model) renderMap(s *strings.Builder, nodeID string, indent string, isLast bool) {
-	node, err := m.Manager.GetNode(nodeID)
-	if err != nil {
-		return
-	}
-
-	prefix := "•"
-	if indent != "" {
-		if isLast {
-			prefix = "└"
-		} else {
-			prefix = "├"
-		}
-	}
-
-	bookmark := ""
-	if node.Metadata != nil && node.Metadata["bookmarked"] == "true" {
-		bookmark = markStyle.Render(" ⭐")
-	}
-
-	shortID := node.ID
-	if len(shortID) > 8 {
-		shortID = shortID[:8]
-	}
-
-	preview := node.Content
-	if len(preview) > 40 {
-		preview = preview[:37] + "..."
-	}
-	preview = strings.ReplaceAll(preview, "\n", " ")
-
-	fmt.Fprintf(s, "%s%s[%s] %s: %s%s\n", indent, prefix, shortID, node.Role, preview, bookmark)
-
-	children := m.Manager.GetChildren(node.ID)
-	for i, child := range children {
-		childIsLast := i == len(children)-1
-		childIndent := indent
-		if indent == "" {
-			childIndent = " "
-		} else if isLast {
-			childIndent += " "
-		} else {
-			childIndent += "│"
-		}
-		m.renderMap(s, child.ID, childIndent, childIsLast)
-	}
 }

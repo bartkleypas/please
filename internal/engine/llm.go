@@ -18,6 +18,7 @@ type Message struct {
 // LLMProvider defines the interface for interacting with different AI backends
 type LLMProvider interface {
 	GenerateResponse(ctx context.Context, messages []Message) (string, error)
+	GenerateResponseStream(ctx context.Context, messages []Message) (<-chan string, <-chan error)
 }
 
 // OllamaProvider implements LLMProvider for local Ollama instances
@@ -46,6 +47,7 @@ type ollamaRequest struct {
 
 type ollamaResponse struct {
 	Message Message `json:"message"`
+	Done    bool    `json:"done"`
 }
 
 func (o *OllamaProvider) GenerateResponse(ctx context.Context, messages []Message) (string, error) {
@@ -88,4 +90,64 @@ func (o *OllamaProvider) GenerateResponse(ctx context.Context, messages []Messag
 	}
 
 	return ollamaResp.Message.Content, nil
+}
+
+func (o *OllamaProvider) GenerateResponseStream(ctx context.Context, messages []Message) (<-chan string, <-chan error) {
+	contentChan := make(chan string)
+	errChan := make(chan error, 1)
+
+	go func() {
+		defer close(contentChan)
+		defer close(errChan)
+
+		reqBody := ollamaRequest{
+			Model:    o.Model,
+			Messages: messages,
+			Stream:   true,
+		}
+
+		jsonBody, err := json.Marshal(reqBody)
+		if err != nil {
+			errChan <- fmt.Errorf("failed to marshal request: %w", err)
+			return
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "POST", o.Endpoint, bytes.NewBuffer(jsonBody))
+		if err != nil {
+			errChan <- fmt.Errorf("failed to create request: %w", err)
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := o.client.Do(req)
+		if err != nil {
+			errChan <- fmt.Errorf("request failed: %w", err)
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			errChan <- fmt.Errorf("ollama returned non-ok status: %d", resp.StatusCode)
+			return
+		}
+
+		decoder := json.NewDecoder(resp.Body)
+		for {
+			var ollamaResp ollamaResponse
+			if err := decoder.Decode(&ollamaResp); err != nil {
+				if err == io.EOF {
+					break
+				}
+				errChan <- fmt.Errorf("failed to decode streaming response: %w", err)
+				return
+			}
+
+			contentChan <- ollamaResp.Message.Content
+			if ollamaResp.Done {
+				break
+			}
+		}
+	}()
+
+	return contentChan, errChan
 }
