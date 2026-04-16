@@ -83,9 +83,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleExportResult(msg)
 	}
 
-	var cmd tea.Cmd
-	m.TextInput, cmd = m.TextInput.Update(msg)
-	return m, cmd
+	return m, nil
 }
 
 func (m *Model) handleTick() (tea.Model, tea.Cmd) {
@@ -136,7 +134,9 @@ func (m *Model) handleKeyEvent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleEnterKey()
 	}
 
-	return m, cmd
+	var tiCmd tea.Cmd
+	m.TextInput, tiCmd = m.TextInput.Update(msg)
+	return m, tea.Batch(cmd, tiCmd)
 }
 
 func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
