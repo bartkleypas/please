@@ -28,13 +28,15 @@ func NewGraph() *Graph {
 }
 
 // AddNode inserts a node into the graph and maintains sorted order for children and roots.
+// Re-sorting by timestamp on every insertion ensures that the DAG always reflects
+// a consistent chronological narrative, even if nodes are loaded out of order.
 func (g *Graph) AddNode(node *Node) {
 	g.Nodes[node.ID] = node
 
 	// Track children
 	if node.ParentID != "" {
 		g.Children[node.ParentID] = append(g.Children[node.ParentID], node.ID)
-		// Re-sort children by timestamp
+		// Re-sort children by timestamp to ensure consistent playback/mapping.
 		childIDs := g.Children[node.ParentID]
 		sort.Slice(childIDs, func(i, j int) bool {
 			nodeI, okI := g.Nodes[childIDs[i]]
@@ -47,7 +49,7 @@ func (g *Graph) AddNode(node *Node) {
 	} else {
 		// Track roots
 		g.Roots = append(g.Roots, node.ID)
-		// Re-sort roots by timestamp
+		// Re-sort roots by timestamp to handle multi-persona initializations.
 		sort.Slice(g.Roots, func(i, j int) bool {
 			nodeI, okI := g.Nodes[g.Roots[i]]
 			nodeJ, okJ := g.Nodes[g.Roots[j]]
@@ -84,7 +86,9 @@ func (g *Graph) FindNodeByPrefix(prefix string) (*Node, error) {
 }
 
 // GetPath returns the linear sequence of nodes from the root to the specified node ID.
-// This is used to provide the "current timeline" context to the LLM.
+// This is used to provide the "current timeline" context to the LLM. It performs
+// a two-pass traversal: first to determine depth, and then to collect nodes from
+// leaf to root. The final slice is reversed to provide a chronological history.
 func (g *Graph) GetPath(nodeID string) ([]*Node, error) {
 	var path []*Node
 	currentID := nodeID

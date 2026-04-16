@@ -51,6 +51,8 @@ func (m *Model) updateViewportWithJump(path []*engine.Node) {
 	m.updateViewportContent()
 }
 
+// Update is the main dispatcher for the Bubble Tea model. It delegates messages
+// to specialized handler methods to maintain a flat and readable structure.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tickMsg:
@@ -70,6 +72,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleTick manages the spinner frame index and keeps the animation alive
+// while the LLM is "thinking."
 func (m *Model) handleTick() (tea.Model, tea.Cmd) {
 	m.SpinnerFrame++
 	if m.SpinnerFrame >= len(spinnerFrames) {
@@ -81,6 +85,8 @@ func (m *Model) handleTick() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleWindowSize responds to terminal resize events by updating viewport
+// dimensions and refreshing the wrapped chat history.
 func (m *Model) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.Width = msg.Width
 	m.Viewport.Width = msg.Width - 4    // Account for borders (2) and padding(2)
@@ -89,6 +95,9 @@ func (m *Model) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleKeyEvent coordinates keyboard navigation and command execution.
+// It ensures navigation keys are sent to the viewport while standard text
+// is sent to the text input.
 func (m *Model) handleKeyEvent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
@@ -123,6 +132,8 @@ func (m *Model) handleKeyEvent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmd, tiCmd)
 }
 
+// handleEnterKey processes the user's input based on the current application mode
+// (Setup, Persona, Command, or Chat).
 func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 	if m.IsThinking {
 		return m, nil
@@ -133,7 +144,7 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// 1. Handle Setup Modes
+	// 1. Handle Setup Modes: Initial system prompt or new persona creation.
 	if m.SetupMode || m.PersonaSetupMode {
 		newNode, err := m.Manager.CreateNode("", engine.RoleSystem, input)
 		if err != nil {
@@ -148,12 +159,12 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// 2. Handle Commands
+	// 2. Handle Commands: Intercept and execute slash commands.
 	if newM, cmd, handled := m.HandleCommand(input); handled {
 		return newM, cmd
 	}
 
-	// 3. Handle Regular Chat
+	// 3. Handle Regular Chat: Create a user node and trigger LLM generation.
 	newNode, err := m.Manager.CreateNode(m.CurrentID, engine.RoleUser, input)
 	if err != nil {
 		m.Notification = fmt.Sprintf("Error: %v", err)
@@ -166,7 +177,7 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 	m.TextInput.SetValue("")
 	m.IsThinking = true
 
-	// Prepare context for LLM
+	// Prepare context for LLM by fetching the linear path from the DAG root.
 	path, err := m.Manager.GetPath(m.CurrentID)
 	if err != nil {
 		m.IsThinking = false
@@ -181,7 +192,7 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 		})
 	}
 
-	// Trigger LLM stream
+	// Trigger asynchronous character-by-character stream from the LLM.
 	m.CurrentStreamingContent = ""
 	ctx := context.Background()
 	m.StreamContentChan, m.StreamErrChan = m.Provider.GenerateResponseStream(ctx, messages)
@@ -189,6 +200,7 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 	return m, tea.Batch(textinput.Blink, waitForStream(m.StreamContentChan, m.StreamErrChan, newNode.ID), tick())
 }
 
+// handleLLMStream appends incoming chunks to the streaming buffer and refreshes the view.
 func (m *Model) handleLLMStream(msg llmStreamMsg) (tea.Model, tea.Cmd) {
 	m.IsThinking = false
 	m.CurrentStreamingContent += msg.content
@@ -196,6 +208,7 @@ func (m *Model) handleLLMStream(msg llmStreamMsg) (tea.Model, tea.Cmd) {
 	return m, waitForStream(m.StreamContentChan, m.StreamErrChan, msg.parentID)
 }
 
+// handleLLMStreamFinished commits the full streamed response to the graph as a new node.
 func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, tea.Cmd) {
 	m.IsThinking = false
 	if msg.err != nil {
@@ -217,6 +230,7 @@ func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, te
 	return m, textinput.Blink
 }
 
+// handleExportResult provides visual feedback for data export operations.
 func (m *Model) handleExportResult(msg exportResultMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		m.Notification = fmt.Sprintf("Export failed: %v", msg.err)

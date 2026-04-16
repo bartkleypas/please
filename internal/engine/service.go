@@ -1,3 +1,5 @@
+// package engine provides the core business logic for the Please application,
+// including DAG management, LLM provider integration, and state persistence.
 package engine
 
 import (
@@ -7,7 +9,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// Manager orchestrates the conversation graph and its persistence
+// Manager is the central coordinator for the application engine. It provides
+// a high-level API that combines graph operations (traversal, branching)
+// with storage persistence, ensuring that all narrative changes are saved.
 type Manager struct {
 	Graph   *Graph
 	Storage Storage
