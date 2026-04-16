@@ -48,23 +48,7 @@ func (m *Model) updateViewportWithStreaming() {
 }
 
 func (m *Model) updateViewportWithJump(path []*engine.Node) {
-	var s_buf strings.Builder
-	wrapWidth := m.Width - 4
-	if wrapWidth <= 0 {
-		wrapWidth = 80
-	}
-	for _, node := range path {
-		role := userStyle
-		if node.Role == engine.RoleAssistant {
-			role = botStyle
-		}
-		prefix := string(node.Role)
-		wrappedContent := wrapText(node.Content, wrapWidth)
-		s_buf.WriteString(fmt.Sprintf("%s:\n%s\n", role.Render(prefix), wrappedContent))
-	}
-	m.ChatHistoryBuffer = s_buf.String()
-	m.Viewport.SetContent(m.ChatHistoryBuffer)
-	m.Viewport.GotoBottom()
+	m.updateViewportContent()
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -259,11 +243,15 @@ func (m *Model) updateViewportContent() {
 			prefix := string(node.Role)
 			// Total overhead = Box borders/padding (4)
 			wrapWidth := m.Width - 4
+			if wrapWidth <= 0 {
+				wrapWidth = 80
+			}
 			wrappedContent := wrapText(node.Content, wrapWidth)
 			s.WriteString(fmt.Sprintf("%s:\n%s\n", role.Render(prefix), wrappedContent))
 		}
 	}
 
-	m.Viewport.SetContent(s.String())
+	m.ChatHistoryBuffer = s.String()
+	m.Viewport.SetContent(m.ChatHistoryBuffer)
 	m.Viewport.GotoBottom()
 }

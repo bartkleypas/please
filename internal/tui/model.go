@@ -1,9 +1,6 @@
 package tui
 
 import (
-	"fmt"
-	"strings"
-
 	"org.kleypas.please/internal/engine"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -57,24 +54,9 @@ func NewModel(g *engine.Graph, s engine.Storage, p engine.LLMProvider, currentID
 		CurrentID: currentID,
 		TextInput: ti,
 		Ready:     true,
-		Width:     80, // Default fallback width
+		Width:     0, // Initialize to 0; wait for WindowSizeMsg
 		Viewport:  viewport.New(80, 80),
 		SetupMode: setupMode,
-	}
-
-	// Initialize the buffer with the current path content if not in setup mode
-	if !setupMode {
-		path, err := g.GetPath(currentID)
-		if err == nil && len(path) > 0 {
-			var s_buf strings.Builder
-			wrapWidth := 80 - 4 // Default fallback width minus borders/padding
-			for _, node := range path {
-				roleStr := string(node.Role)
-				wrappedContent := wrapText(node.Content, wrapWidth)
-				s_buf.WriteString(fmt.Sprintf("%s:\n%s\n", roleStr, wrappedContent))
-			}
-			m.ChatHistoryBuffer = s_buf.String()
-		}
 	}
 
 	return m
