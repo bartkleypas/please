@@ -28,17 +28,4 @@ While in in the app, the following commands allow you to navigate and execute co
 | `/jump <id>` | Navigation | Pivot to a "fuzzy find" node ID in the narrative graph. (must be assistant turn) |
 | `/mark <str>` | Navigation | Place a named bookmark at the current location. |
 | `/bookmarks` | Navigation | List all saved bookmarks in the tree. |
-| `/export <fileName>.jsonl` | System | Append the (decrypted) current conversation to the targetted JSONL training file. |
 | `/q` or `/bye` | System | Gracefully exit, restoring the previous terminal state. |
-
----
-
-## 🦎 The Forge: From Dialog to LoRA
-
-The `Please` app is designed not just for play, but for the deliberate cultivation of a Sovereign Persona. By utilizing the apps built in features, the user can "harvest" specific conversations from the narrative graph into a dataset useful in fine-tuning via something like Axolotl.
-
-1. **Image curation via `/mark`:** To prevent storage and computational overhead while ensuring high-signal data capture, the apps `LogManager` functionality uses an intentional gating system allowing the user to:
-   * **Command:** Use `/mark <label>` to distinguish a specific node in the graph.
-2. **Harvesting via `/export`:** When a narrative branch demonstrates a specific "High resonance" quality, it can be flattened into a **ChatML** multi-turn training sample.
-   * **Command:** `/export <fileName>.jsonl`
-3. **Dataset Stacking:** The `/export` command will append the current conversation to the targetted file. This allows the user to stack multiple distinct timelines into a single training file, creating a robust dataset of diverse reactions and emotional states, perfect for feeding into Axolotl training pipelines.

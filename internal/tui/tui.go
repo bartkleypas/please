@@ -11,7 +11,6 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/google/uuid"
 )
 
 // tickMsg is sent to trigger the spinner animation
@@ -95,7 +94,7 @@ func wrapText(text string, width int) string {
 	return wrapped.String()
 }
 
-func (m Model) Init() tea.Cmd {
+func (m *Model) Init() tea.Cmd {
 	return textinput.Blink
 }
 
@@ -122,22 +121,60 @@ func tick() tea.Cmd {
 }
 
 // generateMapString builds the full visual tree of the graph
-func (m Model) generateMapString() string {
+func (m *Model) generateMapString() string {
 	var s strings.Builder
 	s.WriteString("--- Narrative Graph Map ---\n\n")
-	roots := m.Graph.GetRoots()
+	roots := m.Manager.GetRoots()
 	if len(roots) == 0 {
 		s.WriteString("No nodes found in graph.\n")
 	} else {
 		for i, root := range roots {
 			isLast := i == len(roots)-1
-			s.WriteString(m.renderMap(root.ID, "", isLast))
+			m.renderMap(&s, root.ID, "", isLast)
 		}
 	}
 	return s.String()
 }
 
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *Model) updateViewportWithNode(node *engine.Node) {
+	role := userStyle
+	if node.Role == engine.RoleAssistant {
+		role = botStyle
+	}
+	prefix := string(node.Role)
+	wrapWidth := m.Width - 4
+	if wrapWidth <= 0 {
+		wrapWidth = 80
+	}
+	wrappedContent := wrapText(node.Content, wrapWidth)
+
+	line := fmt.Sprintf("%s:\n%s\n", role.Render(prefix), wrappedContent)
+	m.ChatHistoryBuffer += line
+	m.Viewport.SetContent(m.ChatHistoryBuffer)
+	m.Viewport.GotoBottom()
+}
+
+func (m *Model) updateViewportWithJump(path []*engine.Node) {
+	var s_buf strings.Builder
+	wrapWidth := m.Width - 4
+	if wrapWidth <= 0 {
+		wrapWidth = 80
+	}
+	for _, node := range path {
+		role := userStyle
+		if node.Role == engine.RoleAssistant {
+			role = botStyle
+		}
+		prefix := string(node.Role)
+		wrappedContent := wrapText(node.Content, wrapWidth)
+		s_buf.WriteString(fmt.Sprintf("%s:\n%s\n", role.Render(prefix), wrappedContent))
+	}
+	m.ChatHistoryBuffer = s_buf.String()
+	m.Viewport.SetContent(m.ChatHistoryBuffer)
+	m.Viewport.GotoBottom()
+}
+
+func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
@@ -189,161 +226,61 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			if m.SetupMode {
-				newNode := &engine.Node{
-					ID:        uuid.NewString(),
-					ParentID:  "",
-					Role:      engine.RoleSystem,
-					Content:   input,
-					Timestamp: time.Now(),
+				newNode, err := m.Manager.CreateNode("", engine.RoleSystem, input)
+				if err != nil {
+					m.Notification = fmt.Sprintf("Error: %v", err)
+					return m, nil
 				}
-				m.Graph.AddNode(newNode)
-				m.Storage.SaveNode(newNode)
 				m.CurrentID = newNode.ID
 				m.SetupMode = false
-				m.updateViewportContent()
+				m.updateViewportWithNode(newNode)
 				m.TextInput.SetValue("")
 				return m, nil
 			}
 
 			if m.PersonaSetupMode {
-				newNode := &engine.Node{
-					ID:        uuid.NewString(),
-					ParentID:  "",
-					Role:      engine.RoleSystem,
-					Content:   input,
-					Timestamp: time.Now(),
+				newNode, err := m.Manager.CreateNode("", engine.RoleSystem, input)
+				if err != nil {
+					m.Notification = fmt.Sprintf("Error: %v", err)
+					return m, nil
 				}
-				m.Graph.AddNode(newNode)
-				m.Storage.SaveNode(newNode)
 				m.CurrentID = newNode.ID
 				m.PersonaSetupMode = false
-				m.updateViewportContent()
+				m.updateViewportWithNode(newNode)
 				m.TextInput.SetValue("")
-				return m, nil
-			}
-
-			if input == "" {
-				return m, nil
-			}
-			if input == "" {
 				return m, nil
 			}
 
 			// Handle commands
 			if strings.HasPrefix(input, "/") {
 				parts := strings.Fields(input)
-				command := parts[0]
+				commandName := parts[0]
+				args := parts[1:]
 
-				switch command {
-				case "/jump":
-					if len(parts) == 2 {
-						prefix := parts[1]
-						if node, err := m.Graph.FindNodeByPrefix(prefix); err == nil {
-							m.CurrentID = node.ID
-							m.Notification = fmt.Sprintf("Jumped to %s", node.ID)
-							m.TextInput.SetValue("")
-							m.updateViewportContent()
-							return m, nil
-						}
-						m.Notification = fmt.Sprintf("Error: No node matching %s", prefix)
-					} else {
-						m.Notification = "Usage: /jump <id_prefix>"
-					}
-					m.TextInput.SetValue("")
-					return m, nil
-
-				case "/list":
-					var nodes []string
-					for id := range m.Graph.Nodes {
-						nodes = append(nodes, id)
-					}
-					if len(nodes) == 0 {
-						m.ViewportOverride = "No nodes found in graph."
-					} else {
-						m.ViewportOverride = "--- Node List ---\n" + strings.Join(nodes, "\n")
-					}
-					m.Viewport.SetContent(m.ViewportOverride)
-					m.Viewport.GotoBottom()
-					m.TextInput.SetValue("")
-					return m, nil
-
-				case "/mark":
-					targetID := m.CurrentID
-					if len(parts) == 2 {
-						targetID = parts[1]
-					}
-
-					if node, err := m.Graph.GetNode(targetID); err == nil {
-						if node.Metadata == nil {
-							node.Metadata = make(map[string]string)
-						}
-						node.Metadata["bookmarked"] = "true"
-						m.Notification = fmt.Sprintf("Node %s bookmarked!", targetID)
-					} else {
-						m.Notification = "Error: Node not found"
-					}
-					m.TextInput.SetValue("")
-					return m, nil
-
-				case "/unmark":
-					if len(parts) == 2 {
-						targetID := parts[1]
-						if node, err := m.Graph.GetNode(targetID); err == nil {
-							if node.Metadata != nil {
-								delete(node.Metadata, "bookmarked")
-								m.Notification = "Node " + targetID + " unbookmarked!"
-							} else {
-								m.Notification = "Node has no metadata to unmark."
-							}
-						} else {
-							m.Notification = "Error: Node not found"
-						}
-					} else {
-						m.Notification = "Usage: /unmark <id>"
-					}
-					m.TextInput.SetValue("")
-					return m, nil
-
-				case "/persona":
-					m.PersonaSetupMode = true
-					m.TextInput.SetValue("")
-					return m, nil
-
-				case "/map":
-					m.ViewportOverride = m.generateMapString()
-					m.Viewport.SetContent(m.ViewportOverride)
-					m.Viewport.GotoBottom()
-					m.TextInput.SetValue("")
-					return m, nil
-
-				case "/q", "/quit", "/bye":
-					return m, tea.Quit
-
-				default:
-					m.Notification = "Unknown command: " + command
-					m.TextInput.SetValue("")
-					return m, nil
+				if cmd, ok := commandRegistry[commandName]; ok {
+					return cmd.Execute(m, args)
 				}
+
+				m.Notification = "Unknown command: " + commandName
+				m.TextInput.SetValue("")
+				return m, nil
 			}
 
 			// 1. Create and save the user node
-			newNode := &engine.Node{
-				ID:        uuid.NewString(),
-				ParentID:  m.CurrentID,
-				Role:      engine.RoleUser,
-				Content:   input,
-				Timestamp: time.Now(),
+			newNode, err := m.Manager.CreateNode(m.CurrentID, engine.RoleUser, input)
+			if err != nil {
+				m.Notification = fmt.Sprintf("Error: %v", err)
+				m.TextInput.SetValue("")
+				return m, nil
 			}
-			m.Graph.AddNode(newNode)
-			m.Storage.SaveNode(newNode)
 			m.CurrentID = newNode.ID
-			m.updateViewportContent()
+			m.updateViewportWithNode(newNode)
 
 			m.TextInput.SetValue("")
 			m.IsThinking = true
 
 			// 2. Prepare context for LLM (the linear path)
-			path, err := m.Graph.GetPath(m.CurrentID)
+			path, err := m.Manager.GetPath(m.CurrentID)
 			if err != nil {
 				m.IsThinking = false
 				return m, nil
@@ -369,17 +306,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Create and save the assistant node
-		botNode := &engine.Node{
-			ID:        uuid.NewString(),
-			ParentID:  msg.parentID,
-			Role:      engine.RoleAssistant,
-			Content:   msg.content,
-			Timestamp: time.Now(),
+		botNode, err := m.Manager.CreateNode(msg.parentID, engine.RoleAssistant, msg.content)
+		if err != nil {
+			m.Notification = fmt.Sprintf("Error: %v", err)
+			return m, textinput.Blink
 		}
-		m.Graph.AddNode(botNode)
-		m.Storage.SaveNode(botNode)
 		m.CurrentID = botNode.ID
-		m.updateViewportContent()
+		m.updateViewportWithNode(botNode)
 
 		return m, textinput.Blink
 
@@ -400,7 +333,7 @@ func (m *Model) updateViewportContent() {
 	m.ViewportOverride = "" // Clear override when refreshing chat history
 	var s strings.Builder
 
-	path, err := m.Graph.GetPath(m.CurrentID)
+	path, err := m.Manager.GetPath(m.CurrentID)
 	if err != nil || len(path) == 0 {
 		s.WriteString("Welcome to Please. Start typing to begin the story...\n")
 	} else {
@@ -462,10 +395,10 @@ func (m Model) View() string {
 	return s
 }
 
-func (m Model) renderMap(nodeID string, indent string, isLast bool) string {
-	node, err := m.Graph.GetNode(nodeID)
+func (m Model) renderMap(s *strings.Builder, nodeID string, indent string, isLast bool) {
+	node, err := m.Manager.GetNode(nodeID)
 	if err != nil {
-		return ""
+		return
 	}
 
 	prefix := "•"
@@ -493,9 +426,9 @@ func (m Model) renderMap(nodeID string, indent string, isLast bool) string {
 	}
 	preview = strings.ReplaceAll(preview, "\n", " ")
 
-	res := fmt.Sprintf("%s%s[%s] %s: %s%s\n", indent, prefix, shortID, node.Role, preview, bookmark)
+	fmt.Fprintf(s, "%s%s[%s] %s: %s%s\n", indent, prefix, shortID, node.Role, preview, bookmark)
 
-	children := m.Graph.GetChildren(node.ID)
+	children := m.Manager.GetChildren(node.ID)
 	for i, child := range children {
 		childIsLast := i == len(children)-1
 		childIndent := indent
@@ -506,8 +439,6 @@ func (m Model) renderMap(nodeID string, indent string, isLast bool) string {
 		} else {
 			childIndent += "│"
 		}
-		res += m.renderMap(child.ID, childIndent, childIsLast)
+		m.renderMap(s, child.ID, childIndent, childIsLast)
 	}
-
-	return res
 }

@@ -13,19 +13,50 @@ var (
 
 // Graph manages the collection of conversation nodes
 type Graph struct {
-	Nodes map[string]*Node
+	Nodes    map[string]*Node
+	Children map[string][]string
+	Roots    []string
 }
 
 // NewGraph initializes a new conversation graph
 func NewGraph() *Graph {
 	return &Graph{
-		Nodes: make(map[string]*Node),
+		Nodes:    make(map[string]*Node),
+		Children: make(map[string][]string),
+		Roots:    []string{},
 	}
 }
 
-// AddNode inserts a node into the graph
+// AddNode inserts a node into the graph and maintains sorted order for children and roots.
 func (g *Graph) AddNode(node *Node) {
 	g.Nodes[node.ID] = node
+
+	// Track children
+	if node.ParentID != "" {
+		g.Children[node.ParentID] = append(g.Children[node.ParentID], node.ID)
+		// Re-sort children by timestamp
+		childIDs := g.Children[node.ParentID]
+		sort.Slice(childIDs, func(i, j int) bool {
+			nodeI, okI := g.Nodes[childIDs[i]]
+			nodeJ, okJ := g.Nodes[childIDs[j]]
+			if !okI || !okJ {
+				return false
+			}
+			return nodeI.Timestamp.Before(nodeJ.Timestamp)
+		})
+	} else {
+		// Track roots
+		g.Roots = append(g.Roots, node.ID)
+		// Re-sort roots by timestamp
+		sort.Slice(g.Roots, func(i, j int) bool {
+			nodeI, okI := g.Nodes[g.Roots[i]]
+			nodeJ, okJ := g.Nodes[g.Roots[j]]
+			if !okI || !okJ {
+				return false
+			}
+			return nodeI.Timestamp.Before(nodeJ.Timestamp)
+		})
+	}
 }
 
 // GetNode retrieves a node by its ID
@@ -58,6 +89,24 @@ func (g *Graph) GetPath(nodeID string) ([]*Node, error) {
 	var path []*Node
 	currentID := nodeID
 
+	// First, traverse to find the depth/length of the path
+	depth := 0
+	tempID := nodeID
+	for tempID != "" {
+		if _, ok := g.Nodes[tempID]; !ok {
+			return nil, fmt.Errorf("%w: %s", ErrNodeNotFound, tempID)
+		}
+		depth++
+		// We need to find the parent, so we must look it up
+		// Since we don't have a ParentID map, we have to find the node first
+		node, _ := g.GetNode(tempID)
+		tempID = node.ParentID
+	}
+
+	// Pre-allocate the slice with the known depth
+	path = make([]*Node, 0, depth)
+	currentID = nodeID
+
 	for currentID != "" {
 		node, ok := g.Nodes[currentID]
 		if !ok {
@@ -77,16 +126,17 @@ func (g *Graph) GetPath(nodeID string) ([]*Node, error) {
 
 // GetChildren returns all nodes that have the specified nodeID as their parent, sorted by timestamp.
 func (g *Graph) GetChildren(parentID string) []*Node {
+	childIDs, ok := g.Children[parentID]
+	if !ok {
+		return []*Node{}
+	}
+
 	var children []*Node
-	for _, node := range g.Nodes {
-		if node.ParentID == parentID {
+	for _, id := range childIDs {
+		if node, ok := g.Nodes[id]; ok {
 			children = append(children, node)
 		}
 	}
-
-	sort.Slice(children, func(i, j int) bool {
-		return children[i].Timestamp.Before(children[j].Timestamp)
-	})
 
 	return children
 }
@@ -94,15 +144,11 @@ func (g *Graph) GetChildren(parentID string) []*Node {
 // GetRoots returns all nodes that have no parent, sorted by timestamp.
 func (g *Graph) GetRoots() []*Node {
 	var roots []*Node
-	for _, node := range g.Nodes {
-		if node.ParentID == "" {
+	for _, id := range g.Roots {
+		if node, ok := g.Nodes[id]; ok {
 			roots = append(roots, node)
 		}
 	}
-
-	sort.Slice(roots, func(i, j int) bool {
-		return roots[i].Timestamp.Before(roots[j].Timestamp)
-	})
 
 	return roots
 }

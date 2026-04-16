@@ -44,9 +44,10 @@ func main() {
 
 	// Initialize TUI Model with the last ID retrieved from storage
 	m := tui.NewModel(graph, storage, provider, lastID)
+	mPtr := &m
 
 	// Start Bubble Tea
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(mPtr)
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Alas, there was an error running the TUI: %v", err)
 		os.Exit(1)
