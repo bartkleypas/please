@@ -27,6 +27,31 @@ func init() {
 	commandRegistry["/bye"] = &QuitCommand{}
 }
 
+// HandleCommand checks if the input is a command and executes it.
+// It returns (newModel, cmd, handled).
+func (m *Model) HandleCommand(input string) (tea.Model, tea.Cmd, bool) {
+	if !strings.HasPrefix(input, "/") {
+		return m, nil, false
+	}
+
+	parts := strings.Fields(input)
+	if len(parts) == 0 {
+		return m, nil, false
+	}
+
+	commandName := parts[0]
+	args := parts[1:]
+
+	if cmdImpl, ok := commandRegistry[commandName]; ok {
+		newM, cmd := cmdImpl.Execute(m, args)
+		return newM, cmd, true
+	}
+
+	m.Notification = "Unknown command: " + commandName
+	m.TextInput.SetValue("")
+	return m, nil, true
+}
+
 type JumpCommand struct{}
 
 func (c *JumpCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
