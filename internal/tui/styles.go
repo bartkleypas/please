@@ -9,6 +9,7 @@ var (
 	userStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00"))
 	botStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FFFF"))
 	markStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFCC00"))
+	warningStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF4500")) // Orange-Red
 	historyBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(lipgloss.Color("#555555")).

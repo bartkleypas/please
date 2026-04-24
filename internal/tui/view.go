@@ -34,7 +34,28 @@ func (m Model) View() string {
 
 	s += historyBoxStyle.Render(m.Viewport.View())
 
-	if m.IsThinking {
+	if m.AwaitingToolConfirmation {
+		s += "\n" + markStyle.Render("Tool Call Confirmation Required:") + "\n"
+		hasRedirection := false
+		dangerChars := []string{">", "|", "&", "<"}
+
+		for _, call := range m.PendingToolCalls {
+			args := string(call.Function.Arguments)
+			for _, char := range dangerChars {
+				if strings.Contains(args, char) {
+					hasRedirection = true
+					break
+				}
+			}
+			s += fmt.Sprintf(" - %s(%s)\n", call.Function.Name, args)
+		}
+
+		if hasRedirection {
+			s += "\n" + warningStyle.Render("CAUTION: Shell redirection, piping, or chaining detected!") + "\n"
+		}
+
+		s += "\n" + markStyle.Render("Execute these tools? (y/n)") + "\n"
+	} else if m.IsThinking {
 		spinner := spinnerFrames[m.SpinnerFrame%len(spinnerFrames)]
 		s += "\n" + botStyle.Render(fmt.Sprintf("%s Thinking...", spinner)) + "\n"
 	}

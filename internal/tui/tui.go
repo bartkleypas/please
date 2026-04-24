@@ -7,27 +7,43 @@ import (
 
 	"org.kleypas.please/internal/engine"
 
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 func (m *Model) Init() tea.Cmd {
-	return textinput.Blink
+	return nil
 }
 
 func (m *Model) updateViewportWithNode(node *engine.Node) {
-	role := userStyle
+	roleStyle := userStyle
 	if node.Role == engine.RoleAssistant {
-		role = botStyle
+		roleStyle = botStyle
+	} else if node.Role == engine.RoleTool {
+		roleStyle = markStyle
 	}
 	prefix := string(node.Role)
 	wrapWidth := m.Width - 4
 	if wrapWidth <= 0 {
 		wrapWidth = 80
 	}
-	wrappedContent := wrapText(node.Content, wrapWidth)
 
-	line := fmt.Sprintf("%s:\n%s\n", role.Render(prefix), wrappedContent)
+	content := node.Content
+	if node.Role == engine.RoleAssistant && len(node.ToolCalls) > 0 {
+		var toolStrings []string
+		for _, tc := range node.ToolCalls {
+			toolStrings = append(toolStrings, fmt.Sprintf("[Tool Call: %s(%s)]", tc.Function.Name, string(tc.Function.Arguments)))
+		}
+		if content != "" {
+			content += "\n"
+		}
+		content += strings.Join(toolStrings, "\n")
+	} else if node.Role == engine.RoleTool {
+		content = fmt.Sprintf("[Tool Result (%s)]: %s", node.ToolCallID, content)
+	}
+
+	wrappedContent := wrapText(content, wrapWidth)
+
+	line := fmt.Sprintf("%s:\n%s\n", roleStyle.Render(prefix), wrappedContent)
 	m.ChatHistoryBuffer += line
 	m.Viewport.SetContent(m.ChatHistoryBuffer)
 	m.Viewport.GotoBottom()
@@ -65,6 +81,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleLLMStream(msg)
 	case llmStreamFinishedMsg:
 		return m.handleLLMStreamFinished(msg)
+	case llmResponseMsg:
+		return m.handleLLMResponse(msg)
 	case exportResultMsg:
 		return m.handleExportResult(msg)
 	}
@@ -90,7 +108,9 @@ func (m *Model) handleTick() (tea.Model, tea.Cmd) {
 func (m *Model) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.Width = msg.Width
 	m.Viewport.Width = msg.Width - 4    // Account for borders (2) and padding(2)
-	m.Viewport.Height = msg.Height - 12 // Account for title, notification, input box, and borders
+	m.Viewport.Height = msg.Height - 14 // Increased offset for textarea height
+	m.TextInput.SetWidth(msg.Width - 4)
+	m.TextInput.SetHeight(3) // Multi-line input
 	m.updateViewportContent()
 	return m, nil
 }
@@ -100,6 +120,27 @@ func (m *Model) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 // is sent to the text input.
 func (m *Model) handleKeyEvent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
+
+	if m.AwaitingToolConfirmation {
+		switch msg.String() {
+		case "y", "Y":
+			m.AwaitingToolConfirmation = false
+			m.IsThinking = true
+			return m, m.executeToolsCmd()
+		case "n", "N":
+			m.AwaitingToolConfirmation = false
+			m.PendingToolCalls = nil
+			m.Notification = "Tool calls cancelled by user."
+			return m, nil
+		}
+		// If awaiting confirmation, ignore other keys for now or allow escape?
+		if msg.String() == "esc" {
+			m.AwaitingToolConfirmation = false
+			m.PendingToolCalls = nil
+			return m, nil
+		}
+		return m, nil
+	}
 
 	if m.ViewMode == ModeChat {
 		// Only send specific scrolling keys to the viewport if we are typing,
@@ -155,7 +196,7 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 		m.SetupMode = false
 		m.PersonaSetupMode = false
 		m.updateViewportWithNode(newNode)
-		m.TextInput.SetValue("")
+		m.TextInput.Reset()
 		return m, nil
 	}
 
@@ -168,13 +209,13 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 	newNode, err := m.Manager.CreateNode(m.CurrentID, engine.RoleUser, input)
 	if err != nil {
 		m.Notification = fmt.Sprintf("Error: %v", err)
-		m.TextInput.SetValue("")
+		m.TextInput.Reset()
 		return m, nil
 	}
 	m.CurrentID = newNode.ID
 	m.updateViewportWithNode(newNode)
 
-	m.TextInput.SetValue("")
+	m.TextInput.Reset()
 	m.IsThinking = true
 
 	// Prepare context for LLM by fetching the linear path from the DAG root.
@@ -192,12 +233,13 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 		})
 	}
 
-	// Trigger asynchronous character-by-character stream from the LLM.
-	m.CurrentStreamingContent = ""
-	ctx := context.Background()
-	m.StreamContentChan, m.StreamErrChan = m.Provider.GenerateResponseStream(ctx, messages)
-
-	return m, tea.Batch(textinput.Blink, waitForStream(m.StreamContentChan, m.StreamErrChan, newNode.ID), tick())
+	// Trigger asynchronous generation. Using non-streaming for tool support.
+	m.IsThinking = true
+	return m, tea.Batch(
+		nil,
+		generateResponse(m.Provider, messages, m.Manager.Registry.GetTools(), newNode.ID),
+		tick(),
+	)
 }
 
 // handleLLMStream appends incoming chunks to the streaming buffer and refreshes the view.
@@ -214,20 +256,20 @@ func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, te
 	if msg.err != nil {
 		m.Notification = fmt.Sprintf("Error: %v", msg.err)
 		m.CurrentStreamingContent = ""
-		return m, textinput.Blink
+		return m, nil
 	}
 
 	botNode, err := m.Manager.CreateNode(msg.parentID, engine.RoleAssistant, m.CurrentStreamingContent)
 	if err != nil {
 		m.Notification = fmt.Sprintf("Error: %v", err)
 		m.CurrentStreamingContent = ""
-		return m, textinput.Blink
+		return m, nil
 	}
 	m.CurrentID = botNode.ID
 	m.updateViewportWithNode(botNode)
 	m.CurrentStreamingContent = ""
 
-	return m, textinput.Blink
+	return m, nil
 }
 
 // handleExportResult provides visual feedback for data export operations.
@@ -240,6 +282,75 @@ func (m *Model) handleExportResult(msg exportResultMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *Model) executeToolsCmd() tea.Cmd {
+	return func() tea.Msg {
+		var lastNodeID = m.CurrentID
+		ctx := context.Background()
+
+		for _, call := range m.PendingToolCalls {
+			result, err := m.Manager.ExecuteToolCall(ctx, call)
+			if err != nil {
+				result = fmt.Sprintf("Error: %v", err)
+			}
+
+			toolNode, err := m.Manager.CreateToolNode(lastNodeID, call.ID, result)
+			if err != nil {
+				return llmResponseMsg{err: fmt.Errorf("failed to create tool node: %w", err), parentID: lastNodeID}
+			}
+			lastNodeID = toolNode.ID
+		}
+
+		// After all tools executed, trigger a new LLM response
+		path, err := m.Manager.GetPath(lastNodeID)
+		if err != nil {
+			return llmResponseMsg{err: err, parentID: lastNodeID}
+		}
+
+		var messages []engine.Message
+		for _, node := range path {
+			messages = append(messages, engine.Message{
+				Role:       node.Role,
+				Content:    node.Content,
+				ToolCalls:  node.ToolCalls,
+				ToolCallID: node.ToolCallID,
+			})
+		}
+
+		msg, err := m.Provider.GenerateResponse(ctx, messages, m.Manager.Registry.GetTools())
+		return llmResponseMsg{
+			message:  msg,
+			err:      err,
+			parentID: lastNodeID,
+		}
+	}
+}
+
+// handleLLMResponse handles non-streaming LLM responses, potentially containing tool calls.
+func (m *Model) handleLLMResponse(msg llmResponseMsg) (tea.Model, tea.Cmd) {
+	m.IsThinking = false
+	if msg.err != nil {
+		m.Notification = fmt.Sprintf("Error: %v", msg.err)
+		return m, nil
+	}
+
+	assistantNode, err := m.Manager.CreateAssistantNode(msg.parentID, msg.message.Content, msg.message.ToolCalls)
+	if err != nil {
+		m.Notification = fmt.Sprintf("Error: %v", err)
+		return m, nil
+	}
+
+	m.CurrentID = assistantNode.ID
+	m.updateViewportContent()
+
+	if len(msg.message.ToolCalls) > 0 {
+		m.PendingToolCalls = msg.message.ToolCalls
+		m.AwaitingToolConfirmation = true
+		return m, nil
+	}
+
+	return m, nil
+}
+
 func (m *Model) updateViewportContent() {
 	m.ViewportOverride = "" // Clear override when refreshing chat history
 	var s strings.Builder
@@ -249,19 +360,35 @@ func (m *Model) updateViewportContent() {
 		s.WriteString("Welcome to Please. Start typing to begin the story...\n")
 	} else {
 		for _, node := range path {
-			role := userStyle
+			roleStyle := userStyle
 			if node.Role == engine.RoleAssistant {
-				role = botStyle
+				roleStyle = botStyle
+			} else if node.Role == engine.RoleTool {
+				roleStyle = markStyle
 			}
 
 			prefix := string(node.Role)
-			// Total overhead = Box borders/padding (4)
 			wrapWidth := m.Width - 4
 			if wrapWidth <= 0 {
 				wrapWidth = 80
 			}
-			wrappedContent := wrapText(node.Content, wrapWidth)
-			s.WriteString(fmt.Sprintf("%s:\n%s\n", role.Render(prefix), wrappedContent))
+
+			content := node.Content
+			if node.Role == engine.RoleAssistant && len(node.ToolCalls) > 0 {
+				var toolStrings []string
+				for _, tc := range node.ToolCalls {
+					toolStrings = append(toolStrings, fmt.Sprintf("[Tool Call: %s(%s)]", tc.Function.Name, string(tc.Function.Arguments)))
+				}
+				if content != "" {
+					content += "\n"
+				}
+				content += strings.Join(toolStrings, "\n")
+			} else if node.Role == engine.RoleTool {
+				content = fmt.Sprintf("[Tool Result (%s)]: %s", node.ToolCallID, content)
+			}
+
+			wrappedContent := wrapText(content, wrapWidth)
+			s.WriteString(fmt.Sprintf("%s:\n%s\n", roleStyle.Render(prefix), wrappedContent))
 		}
 	}
 

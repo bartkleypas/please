@@ -1,10 +1,25 @@
 package tui
 
 import (
+	"context"
 	"time"
+
+	"org.kleypas.please/internal/engine"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+func generateResponse(provider engine.LLMProvider, messages []engine.Message, tools []engine.Tool, parentID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		msg, err := provider.GenerateResponse(ctx, messages, tools)
+		return llmResponseMsg{
+			message:  msg,
+			err:      err,
+			parentID: parentID,
+		}
+	}
+}
 
 func waitForStream(contentChan <-chan string, errChan <-chan error, parentID string) tea.Cmd {
 	return func() tea.Msg {

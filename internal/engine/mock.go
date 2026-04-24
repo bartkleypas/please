@@ -13,20 +13,23 @@ type MockLLMProvider struct {
 }
 
 // GenerateResponse implements the LLMProvider interface for testing purposes
-func (m *MockLLMProvider) GenerateResponse(ctx context.Context, messages []Message) (string, error) {
+func (m *MockLLMProvider) GenerateResponse(ctx context.Context, messages []Message, tools []Tool) (*Message, error) {
 	if m.Delay > 0 {
 		select {
 		case <-time.After(m.Delay):
 		case <-ctx.Done():
-			return "", ctx.Err()
+			return nil, ctx.Err()
 		}
 	}
 
 	if m.ResponseErr != nil {
-		return "", m.ResponseErr
+		return nil, m.ResponseErr
 	}
 
-	return m.ResponseContent, nil
+	return &Message{
+		Role:    RoleAssistant,
+		Content: m.ResponseContent,
+	}, nil
 }
 
 // GenerateResponseStream implements the LLMProvider interface for testing purposes

@@ -1,5 +1,9 @@
 package tui
 
+import (
+	"org.kleypas.please/internal/engine"
+)
+
 // tickMsg is sent to trigger the spinner animation
 type tickMsg struct{}
 
@@ -11,6 +15,13 @@ type llmStreamMsg struct {
 
 // llmStreamFinishedMsg is sent when a streaming response completes
 type llmStreamFinishedMsg struct {
+	err      error
+	parentID string
+}
+
+// llmResponseMsg is sent for non-streaming LLM responses
+type llmResponseMsg struct {
+	message  *engine.Message
 	err      error
 	parentID string
 }

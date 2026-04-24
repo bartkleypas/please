@@ -3,6 +3,8 @@
 package engine
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -13,15 +15,17 @@ import (
 // a high-level API that combines graph operations (traversal, branching)
 // with storage persistence, ensuring that all narrative changes are saved.
 type Manager struct {
-	Graph   *Graph
-	Storage Storage
+	Graph    *Graph
+	Storage  Storage
+	Registry *ToolRegistry
 }
 
 // NewManager creates a new Manager instance
 func NewManager(g *Graph, s Storage) *Manager {
 	return &Manager{
-		Graph:   g,
-		Storage: s,
+		Graph:    g,
+		Storage:  s,
+		Registry: NewToolRegistry(),
 	}
 }
 
@@ -42,6 +46,59 @@ func (m *Manager) CreateNode(parentID string, role Role, content string) (*Node,
 	}
 
 	return node, nil
+}
+
+// CreateAssistantNode creates a node for the assistant, potentially containing tool calls
+func (m *Manager) CreateAssistantNode(parentID string, content string, toolCalls []ToolCall) (*Node, error) {
+	node := &Node{
+		ID:        uuid.NewString(),
+		ParentID:  parentID,
+		Role:      RoleAssistant,
+		Content:   content,
+		Timestamp: time.Now(),
+		ToolCalls: toolCalls,
+	}
+
+	m.Graph.AddNode(node)
+	if err := m.Storage.SaveNode(node); err != nil {
+		return nil, fmt.Errorf("failed to persist assistant node: %w", err)
+	}
+
+	return node, nil
+}
+
+// CreateToolNode creates a node containing the result of a tool execution
+func (m *Manager) CreateToolNode(parentID string, toolCallID string, content string) (*Node, error) {
+	node := &Node{
+		ID:         uuid.NewString(),
+		ParentID:   parentID,
+		Role:       RoleTool,
+		Content:    content,
+		Timestamp:  time.Now(),
+		ToolCallID: toolCallID,
+	}
+
+	m.Graph.AddNode(node)
+	if err := m.Storage.SaveNode(node); err != nil {
+		return nil, fmt.Errorf("failed to persist tool node: %w", err)
+	}
+
+	return node, nil
+}
+
+// ExecuteToolCall runs the function associated with a tool call
+func (m *Manager) ExecuteToolCall(ctx context.Context, call ToolCall) (string, error) {
+	tool, ok := m.Registry.Tools[call.Function.Name]
+	if !ok {
+		return "", fmt.Errorf("tool not found: %s", call.Function.Name)
+	}
+
+	var args map[string]interface{}
+	if err := json.Unmarshal(call.Function.Arguments, &args); err != nil {
+		return "", fmt.Errorf("failed to parse tool arguments: %w", err)
+	}
+
+	return tool.Function(ctx, args)
 }
 
 // SetBookmark updates the bookmark status of a node in its metadata

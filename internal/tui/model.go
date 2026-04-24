@@ -3,7 +3,7 @@ package tui
 import (
 	"org.kleypas.please/internal/engine"
 
-	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 )
 
@@ -19,7 +19,7 @@ type Model struct {
 	Provider  engine.LLMProvider
 	CurrentID string
 
-	TextInput        textinput.Model
+	TextInput        textarea.Model
 	IsThinking       bool
 	Ready            bool
 	Width            int
@@ -36,20 +36,28 @@ type Model struct {
 	CurrentStreamingContent string
 	StreamContentChan       <-chan string
 	StreamErrChan           <-chan error
+
+	// Tool handling fields
+	PendingToolCalls         []engine.ToolCall
+	AwaitingToolConfirmation bool
 }
 
 func NewModel(g *engine.Graph, s engine.Storage, p engine.LLMProvider, currentID string) Model {
-	ti := textinput.New()
+	ti := textarea.New()
 	ti.Placeholder = "Type a message or /command..."
 	ti.Focus()
+	ti.ShowLineNumbers = false
 
 	setupMode := true
 	if _, err := g.GetSystemRoot(); err == nil {
 		setupMode = false
 	}
 
+	mgr := engine.NewManager(g, s)
+	mgr.RegisterDefaultTools()
+
 	m := Model{
-		Manager:   engine.NewManager(g, s),
+		Manager:   mgr,
 		Provider:  p,
 		CurrentID: currentID,
 		TextInput: ti,

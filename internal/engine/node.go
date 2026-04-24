@@ -9,6 +9,7 @@ const (
 	RoleSystem    Role = "system"
 	RoleUser      Role = "user"
 	RoleAssistant Role = "assistant"
+	RoleTool      Role = "tool"
 )
 
 // Node represents a single point in the conversation graph
@@ -19,4 +20,8 @@ type Node struct {
 	Content   string            `json:"content"`
 	Timestamp time.Time         `json:"timestamp"`
 	Metadata  map[string]string `json:"metadata,omitempty"`
+
+	// Tool handling fields
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`  // Present if Role == Assistant
+	ToolCallID string     `json:"tool_call_id,omitempty"` // Present if Role == Tool
 }
