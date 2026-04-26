@@ -3,6 +3,8 @@ package tui
 import (
 	"fmt"
 	"strings"
+
+	"org.kleypas.please/internal/engine"
 )
 
 func (m Model) View() string {
@@ -88,18 +90,32 @@ func (m Model) renderMap(s *strings.Builder, nodeID string, indent string, isLas
 		return
 	}
 
-	prefix := "•"
+	treePrefix := "•"
 	if indent != "" {
 		if isLast {
-			prefix = "└"
+			treePrefix = "└"
 		} else {
-			prefix = "├"
+			treePrefix = "├"
 		}
 	}
 
 	bookmark := ""
 	if node.Metadata != nil && node.Metadata["bookmarked"] == "true" {
-		bookmark = markStyle.Render(" ⭐")
+		bookmark = markStyle.Render("⭐")
+	}
+
+	// Tool call indicator
+	toolIndicator := ""
+	if len(node.ToolCalls) > 0 {
+		toolIndicator = markStyle.Render("🛠️")
+	} else if node.Role == engine.RoleTool {
+		toolIndicator = markStyle.Render("⚙️")
+	}
+
+	// Current location marker moved here
+	locationMarker := ""
+	if node.ID == m.CurrentID {
+		locationMarker = markStyle.Render("📍")
 	}
 
 	shortID := node.ID
@@ -107,13 +123,22 @@ func (m Model) renderMap(s *strings.Builder, nodeID string, indent string, isLas
 		shortID = shortID[:8]
 	}
 
+	roleStyle := userStyle
+	if node.Role == engine.RoleAssistant {
+		roleStyle = botStyle
+	} else if node.Role == engine.RoleTool {
+		roleStyle = markStyle
+	} else if node.Role == engine.RoleSystem {
+		roleStyle = titleStyle
+	}
+
 	preview := node.Content
-	if len(preview) > 40 {
-		preview = preview[:37] + "..."
+	if len(preview) > 30 {
+		preview = preview[:27] + "..."
 	}
 	preview = strings.ReplaceAll(preview, "\n", " ")
 
-	fmt.Fprintf(s, "%s%s[%s] %s: %s%s\n", indent, prefix, shortID, node.Role, preview, bookmark)
+	fmt.Fprintf(s, " %s%s[%s]%s%s%s %s:%s\n", indent, treePrefix, shortID, bookmark, toolIndicator, locationMarker, roleStyle.Render(string(node.Role)), preview)
 
 	children := m.Manager.GetChildren(node.ID)
 	for i, child := range children {

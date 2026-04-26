@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -31,6 +33,15 @@ func validatePath(path string) (string, error) {
 	return absPath, nil
 }
 
+// getStringArg is a helper to extract string arguments from tool arguments
+func getStringArg(args map[string]interface{}, key string) (string, error) {
+	val, ok := args[key].(string)
+	if !ok {
+		return "", fmt.Errorf("missing or invalid '%s' argument", key)
+	}
+	return val, nil
+}
+
 // GetDefaultTools returns a list of basic tools for the application
 func GetDefaultTools() []Tool {
 	return []Tool{
@@ -48,9 +59,9 @@ func GetDefaultTools() []Tool {
 				"required": []string{"path"},
 			},
 			Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
-				path, ok := args["path"].(string)
-				if !ok {
-					return "", fmt.Errorf("missing or invalid 'path' argument")
+				path, err := getStringArg(args, "path")
+				if err != nil {
+					return "", err
 				}
 				safePath, err := validatePath(path)
 				if err != nil {
@@ -77,9 +88,9 @@ func GetDefaultTools() []Tool {
 				"required": []string{"path"},
 			},
 			Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
-				path, ok := args["path"].(string)
-				if !ok {
-					return "", fmt.Errorf("missing or invalid 'path' argument")
+				path, err := getStringArg(args, "path")
+				if err != nil {
+					return "", err
 				}
 				safePath, err := validatePath(path)
 				if err != nil {
@@ -120,9 +131,9 @@ func GetDefaultTools() []Tool {
 				"required": []string{"command"},
 			},
 			Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
-				command, ok := args["command"].(string)
-				if !ok {
-					return "", fmt.Errorf("missing or invalid 'command' argument")
+				command, err := getStringArg(args, "command")
+				if err != nil {
+					return "", err
 				}
 
 				parts := strings.Fields(command)
@@ -155,6 +166,199 @@ func GetDefaultTools() []Tool {
 				}
 
 				return string(output), nil
+			},
+		},
+		{
+			Name:        "patch_file",
+			Description: "Search for a string in a file and replace it with another string",
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"path": map[string]interface{}{
+						"type":        "string",
+						"description": "The path to the file to patch",
+					},
+					"search": map[string]interface{}{
+						"type":        "string",
+						"description": "The string to search for",
+					},
+					"replace": map[string]interface{}{
+						"type":        "string",
+						"description": "The string to replace it with",
+					},
+				},
+				"required": []string{"path", "search", "replace"},
+			},
+			Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
+				path, err := getStringArg(args, "path")
+				if err != nil {
+					return "", err
+				}
+				search, err := getStringArg(args, "search")
+				if err != nil {
+					return "", err
+				}
+				replace, err := getStringArg(args, "replace")
+				if err != nil {
+					return "", err
+				}
+
+				safePath, err := validatePath(path)
+				if err != nil {
+					return "", err
+				}
+
+				content, err := os.ReadFile(safePath)
+				if err != nil {
+					return "", fmt.Errorf("failed to read file: %w", err)
+				}
+
+				newContent := strings.Replace(string(content), search, replace, 1)
+				if newContent == string(content) {
+					return "search string not found in file", nil
+				}
+
+				err = os.WriteFile(safePath, []byte(newContent), 0644)
+				if err != nil {
+					return "", fmt.Errorf("failed to write file: %w", err)
+				}
+
+				return "file patched successfully", nil
+			},
+		},
+		{
+			Name:        "edit_file",
+			Description: "Advanced text editing tool supporting regex, line replacement, and insertions",
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"path": map[string]interface{}{
+						"type":        "string",
+						"description": "The path to the file to edit",
+					},
+					"mode": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"replace_string", "replace_regex", "replace_line", "insert_after"},
+						"description": "The mode of operation",
+					},
+					"search": map[string]interface{}{
+						"type":        "string",
+						"description": "The string or regex pattern to search for",
+					},
+					"replace": map[string]interface{}{
+						"type":        "string",
+						"description": "The replacement string",
+					},
+					"line_number": map[string]interface{}{
+						"type":        "integer",
+						"description": "Required if mode is 'replace_line'",
+					},
+				},
+				"required": []string{"path", "mode"},
+			},
+			Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
+				path, err := getStringArg(args, "path")
+				if err != nil {
+					return "", err
+				}
+				mode, err := getStringArg(args, "mode")
+				if err != nil {
+					return "", err
+				}
+
+				safePath, err := validatePath(path)
+				if err != nil {
+					return "", err
+				}
+
+				contentBytes, err := os.ReadFile(safePath)
+				if err != nil {
+					return "", fmt.Errorf("failed to read file: %w", err)
+				}
+				content := string(contentBytes)
+				lines := strings.Split(content, "\n")
+
+				var newContent string
+
+				switch mode {
+				case "replace_string":
+					search, err := getStringArg(args, "search")
+					if err != nil {
+						return "", err
+					}
+					replace, err := getStringArg(args, "replace")
+					if err != nil {
+						return "", err
+					}
+					newContent = strings.Replace(content, search, replace, 1)
+
+				case "replace_regex":
+					search, err := getStringArg(args, "search")
+					if err != nil {
+						return "", err
+					}
+					replace, err := getStringArg(args, "replace")
+					if err != nil {
+						return "", err
+					}
+					re, err := regexp.Compile(search)
+					if err != nil {
+						return "", fmt.Errorf("invalid regex: %w", err)
+					}
+					newContent = re.ReplaceAllString(content, replace)
+
+				case "replace_line":
+					lineNumVal, ok := args["line_number"]
+					if !ok {
+						return "", fmt.Errorf("missing line_number for replace_line mode")
+					}
+					lineNum, err := strconv.Atoi(fmt.Sprintf("%v", lineNumVal))
+					if err != nil {
+						return "", fmt.Errorf("invalid line_number: %w", err)
+					}
+					if lineNum < 1 || lineNum > len(lines) {
+						return "", fmt.Errorf("line number %d out of range (1-%d)", lineNum, len(lines))
+					}
+					replace, err := getStringArg(args, "replace")
+					if err != nil {
+						return "", err
+					}
+					lines[lineNum-1] = replace
+					newContent = strings.Join(lines, "\n")
+
+				case "insert_after":
+					search, err := getStringArg(args, "search")
+					if err != nil {
+						return "", err
+					}
+					replace, err := getStringArg(args, "replace")
+					if err != nil {
+						return "", err
+					}
+					found := false
+					for i, line := range lines {
+						if strings.Contains(line, search) {
+							newLines := append(lines[:i+1], append([]string{replace}, lines[i+1:]...)...)
+							lines = newLines
+							found = true
+							break
+						}
+					}
+					if !found {
+						return "search pattern not found", nil
+					}
+					newContent = strings.Join(lines, "\n")
+
+				default:
+					return "", fmt.Errorf("unknown mode: %s", mode)
+				}
+
+				err = os.WriteFile(safePath, []byte(newContent), 0644)
+				if err != nil {
+					return "", fmt.Errorf("failed to write file: %w", err)
+				}
+
+				return "file edited successfully", nil
 			},
 		},
 	}
