@@ -16,11 +16,13 @@ func (m *Model) Init() tea.Cmd {
 
 func (m *Model) updateViewportWithNode(node *engine.Node) {
 	roleStyle := userStyle
-	if node.Role == engine.RoleAssistant {
+	switch node.Role {
+	case engine.RoleAssistant:
 		roleStyle = botStyle
-	} else if node.Role == engine.RoleTool {
+	case engine.RoleTool:
 		roleStyle = markStyle
 	}
+
 	prefix := string(node.Role)
 	wrapWidth := m.Width - 4
 	if wrapWidth <= 0 {
@@ -63,7 +65,7 @@ func (m *Model) updateViewportWithStreaming() {
 	m.Viewport.GotoBottom()
 }
 
-func (m *Model) updateViewportWithJump(path []*engine.Node) {
+func (m *Model) updateViewportWithJump() {
 	m.updateViewportContent()
 }
 
@@ -361,9 +363,10 @@ func (m *Model) updateViewportContent() {
 	} else {
 		for _, node := range path {
 			roleStyle := userStyle
-			if node.Role == engine.RoleAssistant {
+			switch node.Role {
+			case engine.RoleAssistant:
 				roleStyle = botStyle
-			} else if node.Role == engine.RoleTool {
+			case engine.RoleTool:
 				roleStyle = markStyle
 			}
 

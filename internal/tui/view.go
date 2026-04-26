@@ -124,11 +124,12 @@ func (m Model) renderMap(s *strings.Builder, nodeID string, indent string, isLas
 	}
 
 	roleStyle := userStyle
-	if node.Role == engine.RoleAssistant {
+	switch node.Role {
+	case engine.RoleAssistant:
 		roleStyle = botStyle
-	} else if node.Role == engine.RoleTool {
+	case engine.RoleTool:
 		roleStyle = markStyle
-	} else if node.Role == engine.RoleSystem {
+	case engine.RoleSystem:
 		roleStyle = titleStyle
 	}
 

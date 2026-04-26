@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"org.kleypas.please/internal/engine"
 )
 
 // Command defines the interface for TUI commands
@@ -68,7 +69,8 @@ func (c *JumpCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		m.Notification = fmt.Sprintf("Jumped to %s", node.ID)
 		m.TextInput.SetValue("")
 		path, _ := m.Manager.GetPath(node.ID)
-		m.updateViewportWithJump(path)
+		var _ []*engine.Node = path
+		m.updateViewportWithJump()
 		return m, nil
 	}
 
