@@ -15,7 +15,8 @@ func main() {
 	// Define flags
 	chatFlag := flag.Bool("chat", false, "Start the TUI chat interface")
 	flag.BoolVar(chatFlag, "c", false, "Start the TUI chat interface (shorthand)")
-
+	vaultPath := flag.String("vault", "", "Path to a custom vault.jsonl file")
+	flag.StringVar(vaultPath, "v", "", "Path to a custom vault.jsonl file (shorthand)")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "🦉 Please: A DAG-based TUI for branching LLM conversations.\n\n")
 		fmt.Fprintf(os.Stderr, "Usage: please [options]\n\n")
@@ -40,8 +41,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Initialize Storage and Graph using the path from config
-	storage := engine.NewJSONLStorage(cfg.VaultPath)
+	// Initialize Storage and Graph using the path from flag if provided, otherwise config
+	finalVaultPath := cfg.VaultPath
+	if *vaultPath != "" {
+	        finalVaultPath = *vaultPath
+	}
+	storage := engine.NewJSONLStorage(finalVaultPath)
+
 	graph, lastID, err := storage.LoadGraph()
 	if err != nil {
 		fmt.Printf("Error loading graph: %v\n", err)
