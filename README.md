@@ -20,6 +20,31 @@ Unlike linear chat applications, `Please` treats conversations as a Directed Acy
 
 ---
 
+## 🔗 CLI Pipe Mode & Chaining
+
+`Please` can be used programmatically to build narratives via shell scripts or external agents.
+
+### Add a node via Pipe
+```bash
+echo "As the fog cleared, a mysterious figure appeared." | please --pipe
+```
+*Outputs the new Node ID.*
+
+### Chain messages
+```bash
+ROOT_ID=$(echo "You are a detective in 1920s London." | please --pipe --role system)
+MSG_ID=$(echo "I want to investigate the docks." | please --pipe --parent $ROOT_ID)
+please -c --jump $MSG_ID
+```
+
+### One-shot Generation
+```bash
+please --pipe --message "Tell me a joke about Go." --generate
+```
+*Appends the joke to your history and outputs the assistant's node ID.*
+
+---
+
 ## 🚀 Getting Started
 
 ### Prerequisites
