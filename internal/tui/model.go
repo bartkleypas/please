@@ -15,6 +15,7 @@ const (
 )
 
 type Model struct {
+	Config    *engine.Config
 	Manager   *engine.Manager
 	Provider  engine.LLMProvider
 	CurrentID string
@@ -43,7 +44,7 @@ type Model struct {
 	AwaitingToolConfirmation bool
 }
 
-func NewModel(g *engine.Graph, s engine.Storage, p engine.LLMProvider, currentID string) Model {
+func NewModel(cfg *engine.Config, g *engine.Graph, s engine.Storage, p engine.LLMProvider, currentID string) Model {
 	ti := textarea.New()
 	ti.Placeholder = "Type a message or /command..."
 	ti.Focus()
@@ -58,6 +59,7 @@ func NewModel(g *engine.Graph, s engine.Storage, p engine.LLMProvider, currentID
 	mgr.RegisterDefaultTools()
 
 	m := Model{
+		Config:    cfg,
 		Manager:   mgr,
 		Provider:  p,
 		CurrentID: currentID,

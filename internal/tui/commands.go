@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"org.kleypas.please/internal/engine"
 )
 
 // Command defines the interface for TUI commands
@@ -22,6 +23,7 @@ func init() {
 	commandRegistry["/unmark"] = &UnmarkCommand{}
 	commandRegistry["/persona"] = &PersonaCommand{}
 	commandRegistry["/map"] = &MapCommand{}
+	commandRegistry["/config"] = &ConfigCommand{}
 	commandRegistry["/help"] = &HelpCommand{}
 	commandRegistry["/q"] = &QuitCommand{}
 	commandRegistry["/quit"] = &QuitCommand{}
@@ -145,6 +147,58 @@ func (c *MapCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+type ConfigCommand struct{}
+
+func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
+	if len(args) == 0 {
+		var s strings.Builder
+		s.WriteString("--- ⚙️ Current Configuration ---\n\n")
+		s.WriteString(fmt.Sprintf("  Model:    %s\n", m.Config.Model))
+		s.WriteString(fmt.Sprintf("  Endpoint: %s\n", m.Config.Endpoint))
+		s.WriteString(fmt.Sprintf("  Vault:    %s\n", m.Config.VaultPath))
+		s.WriteString("\nUsage:\n")
+		s.WriteString("  /config model <name>      Change the LLM model\n")
+		s.WriteString("  /config endpoint <url>   Change the API endpoint\n")
+
+		m.ViewportOverride = s.String()
+		m.Viewport.SetContent(m.ViewportOverride)
+		m.Viewport.GotoBottom()
+		return m, nil
+	}
+
+	if len(args) < 2 {
+		m.Notification = "Usage: /config <model|endpoint> <value>"
+		return m, nil
+	}
+
+	key := args[0]
+	value := args[1]
+
+	switch key {
+	case "model":
+		m.Config.Model = value
+		if op, ok := m.Provider.(*engine.OllamaProvider); ok {
+			op.Model = value
+		}
+		m.Notification = "Model updated to " + value
+	case "endpoint":
+		m.Config.Endpoint = value
+		if op, ok := m.Provider.(*engine.OllamaProvider); ok {
+			op.Endpoint = value
+		}
+		m.Notification = "Endpoint updated to " + value
+	default:
+		m.Notification = "Unknown config key: " + key
+		return m, nil
+	}
+
+	if err := m.Config.Save(); err != nil {
+		m.Notification = fmt.Sprintf("Error saving config: %v", err)
+	}
+
+	return m, nil
+}
+
 type HelpCommand struct{}
 
 func (c *HelpCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
@@ -158,6 +212,7 @@ func (c *HelpCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	s.WriteString("  /mark [id]      Bookmark the current or specified node\n")
 	s.WriteString("  /unmark <id>    Remove a bookmark from a node\n")
 	s.WriteString("  /persona        Start a new timeline with a new system prompt\n")
+	s.WriteString("  /config         View or update application settings\n")
 	s.WriteString("  /q, /quit, /bye Exit the application\n\n")
 	s.WriteString("Navigation:\n")
 	s.WriteString("  Use ↑/↓ or PgUp/PgDn to scroll through the conversation.\n")

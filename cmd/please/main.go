@@ -52,7 +52,8 @@ func main() {
 	provider := engine.NewOllamaProvider(cfg.Endpoint, cfg.Model)
 
 	// Initialize TUI Model with the last ID retrieved from storage
-	m := tui.NewModel(graph, storage, provider, lastID)
+	m := tui.NewModel(cfg, graph, storage, provider, lastID)
+
 	mPtr := &m
 
 	// Start Bubble Tea

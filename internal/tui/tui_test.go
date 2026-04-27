@@ -26,7 +26,8 @@ func TestUpdateStateTransitions(t *testing.T) {
 	}
 
 	// 2. Initialize Model
-	m := NewModel(graph, storage, mockProvider, "")
+	cfg := &engine.Config{}
+	m := NewModel(cfg, graph, storage, mockProvider, "")
 	
 	// Ensure we start in SetupMode if graph is empty
 	if !m.SetupMode {
@@ -74,7 +75,8 @@ func TestHandleCommand(t *testing.T) {
 	storage := engine.NewJSONLStorage(":memory:")
 	graph := engine.NewGraph()
 	mockProvider := &engine.MockLLMProvider{}
-	m := NewModel(graph, storage, mockProvider, "")
+	cfg := &engine.Config{}
+	m := NewModel(cfg, graph, storage, mockProvider, "")
 
 	tests := []struct {
 		input    string
