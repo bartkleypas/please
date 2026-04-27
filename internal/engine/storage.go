@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"syscall"
 )
 
 // Storage defines the interface for persisting the conversation graph
@@ -31,6 +32,12 @@ func (s *JSONLStorage) SaveNode(node *Node) error {
 	}
 	defer file.Close()
 
+	// Obtain an exclusive lock on the file
+	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("failed to lock storage file: %w", err)
+	}
+	defer syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+
 	data, err := json.Marshal(node)
 	if err != nil {
 		return fmt.Errorf("failed to marshal node: %w", err)
@@ -54,6 +61,12 @@ func (s *JSONLStorage) LoadGraph() (*Graph, string, error) {
 		return nil, "", fmt.Errorf("failed to open storage file: %w", err)
 	}
 	defer file.Close()
+
+	// Obtain a shared lock on the file for reading
+	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_SH); err != nil {
+		return nil, "", fmt.Errorf("failed to lock storage file: %w", err)
+	}
+	defer syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
 
 	graph := NewGraph()
 	var lastID string

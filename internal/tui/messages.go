@@ -40,3 +40,8 @@ type exportResultMsg struct {
 	filename string
 	err      error
 }
+
+// syncResultMsg is sent after a manual synchronization with the vault
+type syncResultMsg struct {
+	err error
+}

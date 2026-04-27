@@ -24,6 +24,7 @@ func init() {
 	commandRegistry["/persona"] = &PersonaCommand{}
 	commandRegistry["/map"] = &MapCommand{}
 	commandRegistry["/config"] = &ConfigCommand{}
+	commandRegistry["/sync"] = &SyncCommand{}
 	commandRegistry["/help"] = &HelpCommand{}
 	commandRegistry["/q"] = &QuitCommand{}
 	commandRegistry["/quit"] = &QuitCommand{}
@@ -199,6 +200,13 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+type SyncCommand struct{}
+
+func (c *SyncCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
+	m.Notification = "Synchronizing with vault..."
+	return m, syncVault(m.Manager)
+}
+
 type HelpCommand struct{}
 
 func (c *HelpCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
@@ -213,6 +221,7 @@ func (c *HelpCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	s.WriteString("  /unmark <id>    Remove a bookmark from a node\n")
 	s.WriteString("  /persona        Start a new timeline with a new system prompt\n")
 	s.WriteString("  /config         View or update application settings\n")
+	s.WriteString("  /sync           Reload the graph from disk to sync sessions\n")
 	s.WriteString("  /q, /quit, /bye Exit the application\n\n")
 	s.WriteString("Navigation:\n")
 	s.WriteString("  Use ↑/↓ or PgUp/PgDn to scroll through the conversation.\n")

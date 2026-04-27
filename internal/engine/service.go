@@ -101,6 +101,17 @@ func (m *Manager) ExecuteToolCall(ctx context.Context, call ToolCall) (string, e
 	return tool.Function(ctx, args)
 }
 
+// Sync reloads the graph from storage, effectively synchronizing the in-memory state
+// with any external changes (e.g., from other 'please' sessions).
+func (m *Manager) Sync() (*Graph, string, error) {
+	graph, lastID, err := m.Storage.LoadGraph()
+	if err != nil {
+		return nil, "", err
+	}
+	m.Graph = graph
+	return graph, lastID, nil
+}
+
 // SetBookmark updates the bookmark status of a node in its metadata
 func (m *Manager) SetBookmark(nodeID string, bookmarked bool) error {
 	node, err := m.Graph.GetNode(nodeID)

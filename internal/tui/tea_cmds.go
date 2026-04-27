@@ -61,6 +61,13 @@ func waitForStream(contentChan <-chan string, toolCallChan <-chan []engine.ToolC
 	}
 }
 
+func syncVault(mgr *engine.Manager) tea.Cmd {
+	return func() tea.Msg {
+		_, _, err := mgr.Sync()
+		return syncResultMsg{err: err}
+	}
+}
+
 // tick is a command that sends a tickMsg after a short delay
 func tick() tea.Cmd {
 	return tea.Tick(time.Millisecond*100, func(t time.Time) tea.Msg {

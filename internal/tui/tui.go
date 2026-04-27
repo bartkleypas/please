@@ -82,6 +82,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleStreamResponse(msg)
 	case llmResponseMsg:
 		return m.handleLLMResponse(msg)
+	case syncResultMsg:
+		return m.handleSyncResult(msg)
 	case exportResultMsg:
 		return m.handleExportResult(msg)
 	}
@@ -288,6 +290,17 @@ func (m *Model) handleExportResult(msg exportResultMsg) (tea.Model, tea.Cmd) {
 		m.Notification = fmt.Sprintf("Export failed: %v", msg.err)
 	} else {
 		m.Notification = fmt.Sprintf("Successfully exported to %s", msg.filename)
+	}
+	return m, nil
+}
+
+// handleSyncResult refreshes the view after a manual synchronization.
+func (m *Model) handleSyncResult(msg syncResultMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.Notification = fmt.Sprintf("Sync failed: %v", msg.err)
+	} else {
+		m.Notification = "Graph synchronized with disk."
+		m.updateViewportContent()
 	}
 	return m, nil
 }
