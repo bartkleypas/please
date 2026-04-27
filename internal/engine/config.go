@@ -81,7 +81,7 @@ func defaultConfig() *Config {
 	_ = os.MkdirAll(vaultDir, 0755)
 
 	return &Config{
-		Model:     "llama3",
+		Model:     "gemma4:e4b",
 		Endpoint:  "http://localhost:11434/api/chat",
 		VaultPath: filepath.Join(vaultDir, "vault.jsonl"),
 	}

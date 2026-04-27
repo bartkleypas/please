@@ -24,7 +24,7 @@ Unlike linear chat applications, `Please` treats conversations as a Directed Acy
 
 ### Prerequisites
 *   **Go:** 1.26 or higher.
-*   **Ollama:** A local Ollama instance running with your preferred model (default: `llama3`).
+*   **Ollama:** A local Ollama instance running with your preferred model (default: `gemma4:e4b`, though `gemma4:26b` is recommended for superior performance).
 
 ### Installation
 1.  Clone the repository:
