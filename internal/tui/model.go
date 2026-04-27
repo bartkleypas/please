@@ -35,6 +35,7 @@ type Model struct {
 	// CurrentStreamingContent stores the content of the message currently being streamed
 	CurrentStreamingContent string
 	StreamContentChan       <-chan string
+	StreamToolCallChan      <-chan []engine.ToolCall
 	StreamErrChan           <-chan error
 
 	// Tool handling fields

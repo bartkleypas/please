@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"org.kleypas.please/internal/engine"
 )
 
 // Command defines the interface for TUI commands
@@ -45,12 +44,13 @@ func (m *Model) HandleCommand(input string) (tea.Model, tea.Cmd, bool) {
 	args := parts[1:]
 
 	if cmdImpl, ok := commandRegistry[commandName]; ok {
+		m.TextInput.Reset()
 		newM, cmd := cmdImpl.Execute(m, args)
 		return newM, cmd, true
 	}
 
 	m.Notification = "Unknown command: " + commandName
-	m.TextInput.SetValue("")
+	m.TextInput.Reset()
 	return m, nil, true
 }
 
@@ -59,7 +59,6 @@ type JumpCommand struct{}
 func (c *JumpCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	if len(args) != 1 {
 		m.Notification = "Usage: /jump <id_prefix>"
-		m.TextInput.SetValue("")
 		return m, nil
 	}
 
@@ -67,15 +66,11 @@ func (c *JumpCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	if node, err := m.Manager.FindNodeByPrefix(prefix); err == nil {
 		m.CurrentID = node.ID
 		m.Notification = fmt.Sprintf("Jumped to %s", node.ID)
-		m.TextInput.SetValue("")
-		path, _ := m.Manager.GetPath(node.ID)
-		var _ []*engine.Node = path
 		m.updateViewportWithJump()
 		return m, nil
 	}
 
 	m.Notification = fmt.Sprintf("Error: No node matching %s", prefix)
-	m.TextInput.SetValue("")
 	return m, nil
 }
 
@@ -90,7 +85,6 @@ func (c *ListCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	}
 	m.Viewport.SetContent(m.ViewportOverride)
 	m.Viewport.GotoBottom()
-	m.TextInput.SetValue("")
 	return m, nil
 }
 
@@ -111,7 +105,6 @@ func (c *MarkCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	} else {
 		m.Notification = "Error: Node not found"
 	}
-	m.TextInput.SetValue("")
 	return m, nil
 }
 
@@ -120,7 +113,6 @@ type UnmarkCommand struct{}
 func (c *UnmarkCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	if len(args) != 1 {
 		m.Notification = "Usage: /unmark <id>"
-		m.TextInput.SetValue("")
 		return m, nil
 	}
 
@@ -134,7 +126,6 @@ func (c *UnmarkCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	} else {
 		m.Notification = "Error: Node not found"
 	}
-	m.TextInput.SetValue("")
 	return m, nil
 }
 
@@ -142,7 +133,6 @@ type PersonaCommand struct{}
 
 func (c *PersonaCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	m.PersonaSetupMode = true
-	m.TextInput.SetValue("")
 	return m, nil
 }
 
@@ -152,7 +142,6 @@ func (c *MapCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	m.ViewportOverride = m.generateMapString()
 	m.Viewport.SetContent(m.ViewportOverride)
 	m.Viewport.GotoBottom()
-	m.TextInput.SetValue("")
 	return m, nil
 }
 
@@ -177,7 +166,6 @@ func (c *HelpCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	m.ViewportOverride = s.String()
 	m.Viewport.SetContent(m.ViewportOverride)
 	m.Viewport.GotoBottom()
-	m.TextInput.SetValue("")
 	return m, nil
 }
 

@@ -20,7 +20,7 @@ type Message struct {
 // LLMProvider defines the interface for interacting with different AI backends
 type LLMProvider interface {
 	GenerateResponse(ctx context.Context, messages []Message, tools []Tool) (*Message, error)
-	GenerateResponseStream(ctx context.Context, messages []Message) (<-chan string, <-chan error)
+	GenerateResponseStream(ctx context.Context, messages []Message, tools []Tool) (<-chan string, <-chan []ToolCall, <-chan error)
 }
 
 // OllamaProvider implements LLMProvider for local Ollama instances
@@ -115,18 +115,32 @@ func (o *OllamaProvider) GenerateResponse(ctx context.Context, messages []Messag
 	return &ollamaResp.Message, nil
 }
 
-func (o *OllamaProvider) GenerateResponseStream(ctx context.Context, messages []Message) (<-chan string, <-chan error) {
+func (o *OllamaProvider) GenerateResponseStream(ctx context.Context, messages []Message, tools []Tool) (<-chan string, <-chan []ToolCall, <-chan error) {
 	contentChan := make(chan string)
+	toolCallChan := make(chan []ToolCall, 1)
 	errChan := make(chan error, 1)
 
 	go func() {
 		defer close(contentChan)
+		defer close(toolCallChan)
 		defer close(errChan)
+
+		var oTools []ollamaTool
+		for _, t := range tools {
+			ot := ollamaTool{
+				Type: "function",
+			}
+			ot.Function.Name = t.Name
+			ot.Function.Description = t.Description
+			ot.Function.Parameters = t.Parameters
+			oTools = append(oTools, ot)
+		}
 
 		reqBody := ollamaRequest{
 			Model:    o.Model,
 			Messages: messages,
 			Stream:   true,
+			Tools:    oTools,
 		}
 
 		jsonBody, err := json.Marshal(reqBody)
@@ -155,6 +169,8 @@ func (o *OllamaProvider) GenerateResponseStream(ctx context.Context, messages []
 		}
 
 		decoder := json.NewDecoder(resp.Body)
+		var collectedToolCalls []ToolCall
+
 		for {
 			var ollamaResp ollamaResponse
 			if err := decoder.Decode(&ollamaResp); err != nil {
@@ -165,12 +181,25 @@ func (o *OllamaProvider) GenerateResponseStream(ctx context.Context, messages []
 				return
 			}
 
-			contentChan <- ollamaResp.Message.Content
+			// Send content if present
+			if ollamaResp.Message.Content != "" {
+				contentChan <- ollamaResp.Message.Content
+			}
+
+			// Collect tool calls if present
+			if len(ollamaResp.Message.ToolCalls) > 0 {
+				collectedToolCalls = append(collectedToolCalls, ollamaResp.Message.ToolCalls...)
+			}
+
 			if ollamaResp.Done {
 				break
 			}
 		}
+
+		if len(collectedToolCalls) > 0 {
+			toolCallChan <- collectedToolCalls
+		}
 	}()
 
-	return contentChan, errChan
+	return contentChan, toolCallChan, errChan
 }

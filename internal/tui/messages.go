@@ -15,8 +15,17 @@ type llmStreamMsg struct {
 
 // llmStreamFinishedMsg is sent when a streaming response completes
 type llmStreamFinishedMsg struct {
-	err      error
-	parentID string
+	err       error
+	parentID  string
+	toolCalls []engine.ToolCall
+}
+
+// streamResponseMsg is sent to initialize the streaming channels in the model
+type streamResponseMsg struct {
+	contentChan  <-chan string
+	toolCallChan <-chan []engine.ToolCall
+	errChan      <-chan error
+	parentID     string
 }
 
 // llmResponseMsg is sent for non-streaming LLM responses

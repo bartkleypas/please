@@ -123,15 +123,7 @@ func (m Model) renderMap(s *strings.Builder, nodeID string, indent string, isLas
 		shortID = shortID[:8]
 	}
 
-	roleStyle := userStyle
-	switch node.Role {
-	case engine.RoleAssistant:
-		roleStyle = botStyle
-	case engine.RoleTool:
-		roleStyle = markStyle
-	case engine.RoleSystem:
-		roleStyle = titleStyle
-	}
+	roleStyle := getRoleStyle(node.Role)
 
 	preview := node.Content
 	if len(preview) > 30 {

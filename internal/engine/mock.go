@@ -33,12 +33,14 @@ func (m *MockLLMProvider) GenerateResponse(ctx context.Context, messages []Messa
 }
 
 // GenerateResponseStream implements the LLMProvider interface for testing purposes
-func (m *MockLLMProvider) GenerateResponseStream(ctx context.Context, messages []Message) (<-chan string, <-chan error) {
+func (m *MockLLMProvider) GenerateResponseStream(ctx context.Context, messages []Message, tools []Tool) (<-chan string, <-chan []ToolCall, <-chan error) {
 	contentChan := make(chan string)
+	toolCallChan := make(chan []ToolCall, 1)
 	errChan := make(chan error, 1)
 
 	go func() {
 		defer close(contentChan)
+		defer close(toolCallChan)
 		defer close(errChan)
 
 		if m.Delay > 0 {
@@ -59,5 +61,5 @@ func (m *MockLLMProvider) GenerateResponseStream(ctx context.Context, messages [
 		contentChan <- m.ResponseContent
 	}()
 
-	return contentChan, errChan
+	return contentChan, toolCallChan, errChan
 }

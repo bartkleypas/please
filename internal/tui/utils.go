@@ -1,6 +1,24 @@
 package tui
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+	"org.kleypas.please/internal/engine"
+)
+
+func getRoleStyle(role engine.Role) lipgloss.Style {
+	switch role {
+	case engine.RoleAssistant:
+		return botStyle
+	case engine.RoleTool:
+		return markStyle
+	case engine.RoleSystem:
+		return titleStyle
+	default:
+		return userStyle
+	}
+}
 
 // wrapText is a helper to manually insert newlines into long strings
 func wrapText(text string, width int) string {
