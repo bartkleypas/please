@@ -2,6 +2,7 @@ package tui
 
 import (
 	"org.kleypas.please/internal/engine"
+	"org.kleypas.please/internal/server"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -18,6 +19,7 @@ type Model struct {
 	Config    *engine.Config
 	Manager   *engine.Manager
 	Provider  engine.LLMProvider
+	Server    *server.Server
 	CurrentID string
 
 	TextInput        textarea.Model

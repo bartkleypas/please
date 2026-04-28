@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Please - Narrative Graph</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f6f6ef;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #ff6600;
+            font-size: 1.5rem;
+            border-bottom: 2px solid #ff6600;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        .node {
+            margin-left: 20px;
+            border-left: 1px solid #ddd;
+            padding-left: 15px;
+            margin-top: 10px;
+        }
+        .node.root {
+            margin-left: 0;
+            border-left: none;
+            padding-left: 0;
+        }
+        .node-header {
+            font-size: 0.8rem;
+            color: #828282;
+            margin-bottom: 5px;
+        }
+        .role {
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .role-system { color: #8b0000; }
+        .role-user { color: #0000ff; }
+        .role-assistant { color: #006400; }
+        .role-tool { color: #800080; }
+        
+        .content {
+            font-size: 0.95rem;
+            line-height: 1.4;
+            white-space: pre-wrap;
+            background: #fff;
+            padding: 10px;
+            border-radius: 4px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+        .node-id {
+            font-family: monospace;
+            background: #eee;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+        .timestamp {
+            font-style: italic;
+        }
+        .meta {
+            margin-top: 5px;
+            font-size: 0.8rem;
+        }
+        .bookmark { color: #ff6600; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🦉 Please Narrative Graph</h1>
+        <div id="graph-container">Loading graph...</div>
+    </div>
+
+    <script>
+        async function fetchGraph() {
+            try {
+                const response = await fetch('/api/graph');
+                const data = await response.json();
+                renderGraph(data);
+            } catch (error) {
+                console.error('Error fetching graph:', error);
+                document.getElementById('graph-container').innerText = 'Error loading graph.';
+            }
+        }
+
+        function renderGraph(graph) {
+            const container = document.getElementById('graph-container');
+            container.innerHTML = '';
+
+            if (!graph.Roots || graph.Roots.length === 0) {
+                container.innerText = 'No nodes found in graph.';
+                return;
+            }
+
+            // Copy and reverse roots to show most recent first
+            const roots = [...graph.Roots].reverse();
+
+            roots.forEach(rootID => {
+                const rootNode = graph.Nodes[rootID];
+                if (rootNode) {
+                    container.appendChild(createNodeElement(rootNode, graph, true));
+                }
+            });
+        }
+
+        function createNodeElement(node, graph, isRoot = false) {
+            const nodeDiv = document.createElement('div');
+            nodeDiv.className = 'node' + (isRoot ? ' root' : '');
+
+            const header = document.createElement('div');
+            header.className = 'node-header';
+            
+            const roleSpan = document.createElement('span');
+            roleSpan.className = `role role-${node.role}`;
+            roleSpan.innerText = node.role;
+
+            const idSpan = document.createElement('span');
+            idSpan.className = 'node-id';
+            idSpan.innerText = node.id.substring(0, 8);
+            idSpan.style.marginLeft = '10px';
+
+            const timeSpan = document.createElement('span');
+            timeSpan.className = 'timestamp';
+            timeSpan.innerText = new Date(node.timestamp).toLocaleString();
+            timeSpan.style.marginLeft = '10px';
+
+            header.appendChild(roleSpan);
+            header.appendChild(idSpan);
+            header.appendChild(timeSpan);
+
+            if (node.metadata && node.metadata.bookmarked === "true") {
+                const bookmark = document.createElement('span');
+                bookmark.className = 'bookmark';
+                bookmark.innerText = ' ⭐';
+                header.appendChild(bookmark);
+            }
+
+            const content = document.createElement('div');
+            content.className = 'content';
+            content.innerText = node.content;
+
+            nodeDiv.appendChild(header);
+            nodeDiv.appendChild(content);
+
+            const childrenIDs = graph.Children[node.id];
+            if (childrenIDs && childrenIDs.length > 0) {
+                childrenIDs.forEach(childID => {
+                    const childNode = graph.Nodes[childID];
+                    if (childNode) {
+                        nodeDiv.appendChild(createNodeElement(childNode, graph));
+                    }
+                });
+            }
+
+            return nodeDiv;
+        }
+
+        // Initial fetch
+        fetchGraph();
+        // Poll every 2 seconds
+        setInterval(fetchGraph, 2000);
+    </script>
+</body>
+</html>

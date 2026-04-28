@@ -25,6 +25,7 @@ func init() {
 	commandRegistry["/map"] = &MapCommand{}
 	commandRegistry["/config"] = &ConfigCommand{}
 	commandRegistry["/sync"] = &SyncCommand{}
+	commandRegistry["/server"] = &ServerCommand{}
 	commandRegistry["/help"] = &HelpCommand{}
 	commandRegistry["/q"] = &QuitCommand{}
 	commandRegistry["/quit"] = &QuitCommand{}
@@ -207,6 +208,48 @@ func (c *SyncCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	return m, syncVault(m.Manager)
 }
 
+type ServerCommand struct{}
+
+func (c *ServerCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
+	if m.Server == nil {
+		m.Notification = "Error: Server not initialized"
+		return m, nil
+	}
+
+	if len(args) == 0 || args[0] == "status" {
+		running, port := m.Server.Status()
+		if running {
+			m.Notification = fmt.Sprintf("Server is running on http://localhost:%d", port)
+		} else {
+			m.Notification = "Server is stopped"
+		}
+		return m, nil
+	}
+
+	switch args[0] {
+	case "on":
+		port := 8080
+		if len(args) > 1 {
+			fmt.Sscanf(args[1], "%d", &port)
+		}
+		if err := m.Server.Start(port); err != nil {
+			m.Notification = fmt.Sprintf("Error starting server: %v", err)
+		} else {
+			m.Notification = fmt.Sprintf("Server started on http://localhost:%d", port)
+		}
+	case "off":
+		if err := m.Server.Stop(); err != nil {
+			m.Notification = fmt.Sprintf("Error stopping server: %v", err)
+		} else {
+			m.Notification = "Server stopped"
+		}
+	default:
+		m.Notification = "Usage: /server <on|off|status> [port]"
+	}
+
+	return m, nil
+}
+
 type HelpCommand struct{}
 
 func (c *HelpCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
@@ -222,6 +265,7 @@ func (c *HelpCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	s.WriteString("  /persona        Start a new timeline with a new system prompt\n")
 	s.WriteString("  /config         View or update application settings\n")
 	s.WriteString("  /sync           Reload the graph from disk to sync sessions\n")
+	s.WriteString("  /server         Control the web visualization server (/server on|off|status)\n")
 	s.WriteString("  /q, /quit, /bye Exit the application\n\n")
 	s.WriteString("Navigation:\n")
 	s.WriteString("  Use ↑/↓ or PgUp/PgDn to scroll through the conversation.\n")

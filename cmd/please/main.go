@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"org.kleypas.please/internal/engine"
+	"org.kleypas.please/internal/server"
 	"org.kleypas.please/internal/tui"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -35,6 +36,11 @@ func main() {
 
 	generate := flag.Bool("generate", false, "Trigger LLM generation in pipe mode")
 	flag.BoolVar(generate, "g", false, "Trigger LLM generation in pipe mode (shorthand)")
+
+	serverFlag := flag.Bool("server", false, "Start the web server for graph visualization")
+	flag.BoolVar(serverFlag, "s", false, "Start the web server (shorthand)")
+	serverPort := flag.Int("port", 8080, "Port for the web server")
+
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "🦉 Please: A DAG-based TUI for branching LLM conversations.\n\n")
 		fmt.Fprintf(os.Stderr, "Usage: please [options]\n\n")
@@ -43,11 +49,12 @@ func main() {
 		fmt.Fprintf(os.Stderr, "\nCommands inside the TUI:\n")
 		fmt.Fprintf(os.Stderr, "  /help    Show internal command list\n")
 		fmt.Fprintf(os.Stderr, "  /map     Visualize conversation branches\n")
+		fmt.Fprintf(os.Stderr, "  /server  Control the web visualization server\n")
 	}
 
 	flag.Parse()
 
-	if !*chatFlag && !*pipeMode {
+	if !*chatFlag && !*pipeMode && !*serverFlag {
 		flag.Usage()
 		os.Exit(0)
 	}
@@ -93,6 +100,16 @@ func main() {
 	// Initialize LLM Provider using settings from config
 	provider := engine.NewOllamaProvider(cfg.Endpoint, cfg.Model)
 	mgr := engine.NewManager(graph, storage)
+
+	// Initialize Web Server
+	webServer := server.NewServer(mgr)
+	if *serverFlag {
+		if err := webServer.Start(*serverPort); err != nil {
+			fmt.Printf("Error starting web server: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Web server started on http://localhost:%d\n", *serverPort)
+	}
 
 	if *pipeMode {
 		content := *message
@@ -166,6 +183,7 @@ func main() {
 	}
 
 	m := tui.NewModel(cfg, graph, storage, provider, startID)
+	m.Server = webServer
 	mPtr := &m
 
 	// Start Bubble Tea

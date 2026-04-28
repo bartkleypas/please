@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 )
 
 var (
@@ -16,6 +17,7 @@ type Graph struct {
 	Nodes    map[string]*Node
 	Children map[string][]string
 	Roots    []string
+	mu       sync.RWMutex
 }
 
 // NewGraph initializes a new conversation graph
@@ -31,6 +33,9 @@ func NewGraph() *Graph {
 // Re-sorting by timestamp on every insertion ensures that the DAG always reflects
 // a consistent chronological narrative, even if nodes are loaded out of order.
 func (g *Graph) AddNode(node *Node) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
 	g.Nodes[node.ID] = node
 
 	// Track children
@@ -63,6 +68,9 @@ func (g *Graph) AddNode(node *Node) {
 
 // GetNode retrieves a node by its ID
 func (g *Graph) GetNode(id string) (*Node, error) {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
 	node, ok := g.Nodes[id]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrNodeNotFound, id)
@@ -72,6 +80,9 @@ func (g *Graph) GetNode(id string) (*Node, error) {
 
 // FindNodeByPrefix searches for the first node whose ID starts with the given prefix.
 func (g *Graph) FindNodeByPrefix(prefix string) (*Node, error) {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
 	if prefix == "" {
 		return nil, fmt.Errorf("prefix cannot be empty")
 	}
@@ -90,6 +101,9 @@ func (g *Graph) FindNodeByPrefix(prefix string) (*Node, error) {
 // a two-pass traversal: first to determine depth, and then to collect nodes from
 // leaf to root. The final slice is reversed to provide a chronological history.
 func (g *Graph) GetPath(nodeID string) ([]*Node, error) {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
 	var path []*Node
 	currentID := nodeID
 
@@ -97,13 +111,11 @@ func (g *Graph) GetPath(nodeID string) ([]*Node, error) {
 	depth := 0
 	tempID := nodeID
 	for tempID != "" {
-		if _, ok := g.Nodes[tempID]; !ok {
+		node, ok := g.Nodes[tempID]
+		if !ok {
 			return nil, fmt.Errorf("%w: %s", ErrNodeNotFound, tempID)
 		}
 		depth++
-		// We need to find the parent, so we must look it up
-		// Since we don't have a ParentID map, we have to find the node first
-		node, _ := g.GetNode(tempID)
 		tempID = node.ParentID
 	}
 
@@ -130,6 +142,9 @@ func (g *Graph) GetPath(nodeID string) ([]*Node, error) {
 
 // GetChildren returns all nodes that have the specified nodeID as their parent, sorted by timestamp.
 func (g *Graph) GetChildren(parentID string) []*Node {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
 	childIDs, ok := g.Children[parentID]
 	if !ok {
 		return []*Node{}
@@ -147,6 +162,9 @@ func (g *Graph) GetChildren(parentID string) []*Node {
 
 // GetRoots returns all nodes that have no parent, sorted by timestamp.
 func (g *Graph) GetRoots() []*Node {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
 	var roots []*Node
 	for _, id := range g.Roots {
 		if node, ok := g.Nodes[id]; ok {
@@ -169,3 +187,4 @@ func (g *Graph) GetSystemRoot() (*Node, error) {
 	}
 	return root, nil
 }
+
