@@ -91,6 +91,24 @@
             }
         }
 
+        // Memoization for subtree activity timestamps
+        function getLatestActivity(nodeID, graph, memo) {
+            if (memo[nodeID]) return memo[nodeID];
+            
+            const node = graph.Nodes[nodeID];
+            if (!node) return 0;
+
+            let latest = new Date(node.timestamp).getTime();
+            
+            const childrenIDs = graph.Children[nodeID] || [];
+            childrenIDs.forEach(childID => {
+                latest = Math.max(latest, getLatestActivity(childID, graph, memo));
+            });
+
+            memo[nodeID] = latest;
+            return latest;
+        }
+
         function renderGraph(graph) {
             const container = document.getElementById('graph-container');
             container.innerHTML = '';
@@ -100,18 +118,21 @@
                 return;
             }
 
-            // Copy and reverse roots to show most recent first
-            const roots = [...graph.Roots].reverse();
+            const memo = {};
+            // Sort roots by latest activity in their subtree (descending)
+            const sortedRoots = [...graph.Roots].sort((a, b) => {
+                return getLatestActivity(b, graph, memo) - getLatestActivity(a, graph, memo);
+            });
 
-            roots.forEach(rootID => {
+            sortedRoots.forEach(rootID => {
                 const rootNode = graph.Nodes[rootID];
                 if (rootNode) {
-                    container.appendChild(createNodeElement(rootNode, graph, true));
+                    container.appendChild(createNodeElement(rootNode, graph, memo, true));
                 }
             });
         }
 
-        function createNodeElement(node, graph, isRoot = false) {
+        function createNodeElement(node, graph, memo, isRoot = false) {
             const nodeDiv = document.createElement('div');
             nodeDiv.className = 'node' + (isRoot ? ' root' : '');
 
@@ -150,15 +171,18 @@
             nodeDiv.appendChild(header);
             nodeDiv.appendChild(content);
 
-            const childrenIDs = graph.Children[node.id];
-            if (childrenIDs && childrenIDs.length > 0) {
-                childrenIDs.forEach(childID => {
-                    const childNode = graph.Nodes[childID];
-                    if (childNode) {
-                        nodeDiv.appendChild(createNodeElement(childNode, graph));
-                    }
-                });
-            }
+            const childrenIDs = graph.Children[node.id] || [];
+            // Sort children by latest activity in their subtree (descending)
+            const sortedChildrenIDs = [...childrenIDs].sort((a, b) => {
+                return getLatestActivity(b, graph, memo) - getLatestActivity(a, graph, memo);
+            });
+
+            sortedChildrenIDs.forEach(childID => {
+                const childNode = graph.Nodes[childID];
+                if (childNode) {
+                    nodeDiv.appendChild(createNodeElement(childNode, graph, memo));
+                }
+            });
 
             return nodeDiv;
         }
