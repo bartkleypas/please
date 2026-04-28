@@ -9,9 +9,10 @@ import (
 
 // Config holds the application settings
 type Config struct {
-	Model     string `json:"model"`
-	Endpoint  string `json:"endpoint"`
-	VaultPath string `json:"vault_path"`
+	Model       string `json:"model"`
+	Endpoint    string `json:"endpoint"`
+	VaultPath   string `json:"vault_path"`
+	StorageType string `json:"storage_type"` // "jsonl" or "sqlite"
 }
 
 // LoadConfig attempts to load the config from the user's config directory.
@@ -50,6 +51,11 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config JSON: %w", err)
 	}
 
+	// Backward compatibility: default to jsonl if not specified
+	if cfg.StorageType == "" {
+		cfg.StorageType = "jsonl"
+	}
+
 	return &cfg, nil
 }
 
@@ -81,8 +87,9 @@ func defaultConfig() *Config {
 	_ = os.MkdirAll(vaultDir, 0755)
 
 	return &Config{
-		Model:     "gemma4:e4b",
-		Endpoint:  "http://localhost:11434/api/chat",
-		VaultPath: filepath.Join(vaultDir, "vault.jsonl"),
+		Model:       "gemma4:e4b",
+		Endpoint:    "http://localhost:11434/api/chat",
+		VaultPath:   filepath.Join(vaultDir, "vault.db"),
+		StorageType: "sqlite",
 	}
 }

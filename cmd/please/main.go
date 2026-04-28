@@ -59,12 +59,30 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Initialize Storage and Graph using the path from flag if provided, otherwise config
+	// Initialize Storage based on config or flag
 	finalVaultPath := cfg.VaultPath
 	if *vaultPath != "" {
 		finalVaultPath = *vaultPath
 	}
-	storage := engine.NewJSONLStorage(finalVaultPath)
+
+	storageType := cfg.StorageType
+	if strings.HasSuffix(finalVaultPath, ".db") {
+		storageType = "sqlite"
+	} else if strings.HasSuffix(finalVaultPath, ".jsonl") {
+		storageType = "jsonl"
+	}
+
+	var storage engine.Storage
+	if storageType == "sqlite" {
+		var err error
+		storage, err = engine.NewSQLiteStorage(finalVaultPath)
+		if err != nil {
+			fmt.Printf("Error initializing sqlite storage: %v\n", err)
+			os.Exit(1)
+		}
+	} else {
+		storage = engine.NewJSONLStorage(finalVaultPath)
+	}
 
 	graph, lastID, err := storage.LoadGraph()
 	if err != nil {
