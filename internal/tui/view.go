@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"org.kleypas.please/internal/engine"
@@ -72,19 +73,57 @@ func (m Model) View() string {
 func (m *Model) generateMapString() string {
 	var s strings.Builder
 	s.WriteString("--- Narrative Graph Map ---\n\n")
+
 	roots := m.Manager.GetRoots()
 	if len(roots) == 0 {
 		s.WriteString("No nodes found in graph.\n")
 	} else {
-		for i, root := range roots {
-			isLast := i == len(roots)-1
-			m.renderMap(&s, root.ID, "", isLast)
+		// Use a cache for subtree activity to avoid redundant traversals
+		activityCache := make(map[string]int64)
+
+		// Sort roots by latest activity in their subtree (descending)
+		sortedRoots := make([]*engine.Node, len(roots))
+		copy(sortedRoots, roots)
+		importSort(sortedRoots, activityCache, m)
+
+		for i, root := range sortedRoots {
+			isLast := i == len(sortedRoots)-1
+			m.renderMap(&s, root.ID, "", isLast, activityCache)
 		}
 	}
 	return s.String()
 }
 
-func (m Model) renderMap(s *strings.Builder, nodeID string, indent string, isLast bool) {
+func importSort(nodes []*engine.Node, cache map[string]int64, m *Model) {
+	sort.Slice(nodes, func(i, j int) bool {
+		return m.getLatestActivity(nodes[i].ID, cache) > m.getLatestActivity(nodes[j].ID, cache)
+	})
+}
+
+func (m *Model) getLatestActivity(nodeID string, cache map[string]int64) int64 {
+	if val, ok := cache[nodeID]; ok {
+		return val
+	}
+
+	node, err := m.Manager.GetNode(nodeID)
+	if err != nil {
+		return 0
+	}
+
+	latest := node.Timestamp.UnixNano()
+	children := m.Manager.GetChildren(node.ID)
+	for _, child := range children {
+		childActivity := m.getLatestActivity(child.ID, cache)
+		if childActivity > latest {
+			latest = childActivity
+		}
+	}
+
+	cache[nodeID] = latest
+	return latest
+}
+
+func (m Model) renderMap(s *strings.Builder, nodeID string, indent string, isLast bool, activityCache map[string]int64) {
 	node, err := m.Manager.GetNode(nodeID)
 	if err != nil {
 		return
@@ -134,8 +173,13 @@ func (m Model) renderMap(s *strings.Builder, nodeID string, indent string, isLas
 	fmt.Fprintf(s, " %s%s[%s]%s%s%s %s:%s\n", indent, treePrefix, shortID, bookmark, toolIndicator, locationMarker, roleStyle.Render(string(node.Role)), preview)
 
 	children := m.Manager.GetChildren(node.ID)
-	for i, child := range children {
-		childIsLast := i == len(children)-1
+	// Sort children by latest activity in their subtree (descending)
+	sortedChildren := make([]*engine.Node, len(children))
+	copy(sortedChildren, children)
+	importSort(sortedChildren, activityCache, &m)
+
+	for i, child := range sortedChildren {
+		childIsLast := i == len(sortedChildren)-1
 		childIndent := indent
 		if indent == "" {
 			childIndent = " "
@@ -144,6 +188,6 @@ func (m Model) renderMap(s *strings.Builder, nodeID string, indent string, isLas
 		} else {
 			childIndent += "│"
 		}
-		m.renderMap(s, child.ID, childIndent, childIsLast)
+		m.renderMap(s, child.ID, childIndent, childIsLast, activityCache)
 	}
 }
