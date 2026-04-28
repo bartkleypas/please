@@ -26,6 +26,10 @@ The project is split into two primary internal modules:
 - **`Commands` (`commands.go`)**: Implementation of slash commands (e.g., `/jump`, `/persona`, `/mark`).
 - **`Messages` (`messages.go`)**: Definitions for Bubble Tea messages used for internal communication and streaming.
 
+### `internal/server` (Web Visualization)
+- **`Server` (`server.go`)**: Embedded HTTP server providing a real-time, threaded web view of the conversation graph.
+- **`Assets` (`assets/index.html`)**: HTML/JS frontend for the web visualization, using "bubble-up" activity sorting.
+
 ## Building, Running, and Testing
 
 ### Build
@@ -37,6 +41,9 @@ go build -o please ./cmd/please
 ```bash
 # Run the application in chat mode
 go run cmd/please/main.go -c
+
+# Run with the web visualization server enabled
+go run cmd/please/main.go -c -s
 ```
 
 ### Test

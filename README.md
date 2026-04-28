@@ -16,6 +16,7 @@ Unlike linear chat applications, `Please` treats conversations as a Directed Acy
 ### 🎭 Narrative Interaction
 *   **Modular TUI:** Built with [Charm Bubble Tea](https://github.com/charmbracelet/bubbletea), featuring a flattened state machine and specialized event handlers.
 *   **Visual Mapping:** Use `/map` to visualize the branching paths of your story in a tree-like view.
+*   **Web Visualization:** Run with `-s` to start an embedded web server that provides a real-time, threaded, "Hacker News" style view of your graph.
 *   **Persona Management:** Easily switch between different system prompts and characters using the `/persona` command.
 
 ---
@@ -88,6 +89,7 @@ Inside the app, use these interactive commands to navigate your story:
 | `/mark [id]` | Place a bookmark at the current or specified node. |
 | `/unmark <id>` | Remove a bookmark from a node. |
 | `/persona` | Branch the story into a new timeline with a new system prompt. |
+| `/server` | Control the web visualization server (`/server on`, `/server off`). |
 | `/q` or `/bye` | Gracefully exit the application. |
 
 **Navigation Tips:**
