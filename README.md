@@ -10,7 +10,7 @@ Unlike linear chat applications, `Please` treats conversations as a Directed Acy
 
 ### 🏗️ Engine Architecture
 *   **DAG-Based Navigation:** Breaks the linear chat mold by allowing users to branch, prune, and jump across multiple conversation timelines.
-*   **Persistent Storage:** Narrative history is stored in a local JSONL format, ensuring your stories are saved across sessions.
+*   **Persistent Storage:** Narrative history is stored in a robust SQLite database (default) or legacy JSONL format, ensuring your stories are saved safely and concurrently.
 *   **Streaming Responses:** Real-time, character-by-character output for a responsive and interactive experience.
 
 ### 🎭 Narrative Interaction

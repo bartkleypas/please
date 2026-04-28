@@ -17,7 +17,7 @@ The project is split into two primary internal modules:
 - **`Graph` (`graph.go`)**: Manages the DAG of `Node` objects. Each node represents a message in the conversation.
 - **`Manager` (`service.go`)**: The central coordinator that links the graph, storage, and tool registry.
 - **`LLMProvider` (`llm.go`)**: Interface for LLM backends. Currently implements `OllamaProvider` with support for both standard and streaming responses.
-- **`Storage` (`storage.go`)**: Persistence layer using JSONL format (`vault.jsonl`).
+- **`Storage` (`storage.go`)**: Persistence layer supporting both SQLite (with WAL mode) and legacy JSONL formats.
 - **`Tool` (`tool.go`)**: Framework for LLM tool calling (function calling).
 
 ### `internal/tui` (User Interface)
@@ -48,7 +48,7 @@ go test ./...
 ## Configuration and Storage
 The application automatically manages its configuration and data directories:
 - **Configuration:** `~/.config/please/config.json` (Customizable model and endpoint).
-- **Storage (Vault):** `~/.local/share/please/vault.jsonl` (Append-only record of all conversation nodes).
+- **Storage (Vault):** `~/.local/share/please/vault.db` (SQLite database containing all conversation nodes).
 
 ## Development Conventions
 - **DAG Navigation:** Always consider that a "current" state in the app is a specific leaf node in the DAG. History is reconstructed by traversing up to the root.
