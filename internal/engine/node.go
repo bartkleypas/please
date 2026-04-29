@@ -10,6 +10,7 @@ const (
 	RoleUser      Role = "user"
 	RoleAssistant Role = "assistant"
 	RoleTool      Role = "tool"
+	RoleSummary   Role = "summary"
 )
 
 // Node represents a single point in the conversation graph

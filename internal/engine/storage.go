@@ -18,6 +18,7 @@ type Storage interface {
 	LoadGraph() (*Graph, string, error)
 	GarbageCollect() (int64, error)
 	UpdateNodeMetadata(node *Node) error
+	UpdateNodeParentID(nodeID, newParentID string) error
 }
 
 // SQLiteStorage implements Storage using an SQLite database
@@ -148,6 +149,16 @@ func (s *SQLiteStorage) GarbageCollect() (int64, error) {
 	return rows, nil
 }
 
+// UpdateNodeParentID updates the parent reference of a node in the database
+func (s *SQLiteStorage) UpdateNodeParentID(nodeID, newParentID string) error {
+	query := `UPDATE nodes SET parent_id = ? WHERE id = ?`
+	_, err := s.db.Exec(query, newParentID, nodeID)
+	if err != nil {
+		return fmt.Errorf("failed to update node parent in sqlite: %w", err)
+	}
+	return nil
+}
+
 // LoadGraph reads all nodes from the SQLite database and reconstructs the Graph.
 func (s *SQLiteStorage) LoadGraph() (*Graph, string, error) {
 	query := `SELECT id, parent_id, role, content, timestamp, tool_calls, tool_call_id, metadata, deleted FROM nodes ORDER BY timestamp ASC`
@@ -218,6 +229,10 @@ func (s *JSONLStorage) GarbageCollect() (int64, error) {
 
 func (s *JSONLStorage) UpdateNodeMetadata(node *Node) error {
 	return fmt.Errorf("metadata updates not implemented for JSONL storage")
+}
+
+func (s *JSONLStorage) UpdateNodeParentID(nodeID, newParentID string) error {
+	return fmt.Errorf("parent updates not implemented for JSONL storage")
 }
 
 // SaveNode appends a single node to the JSONL file

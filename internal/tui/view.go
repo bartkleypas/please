@@ -37,6 +37,11 @@ func (m Model) View() string {
 	if m.AwaitingPruneConfirmation {
 		s += "\n" + warningStyle.Render("PRUNE BRANCH: This will hide this node and all descendants.") + "\n"
 		s += markStyle.Render("Confirm pruning? (y/n)") + "\n"
+	} else if m.AwaitingCompactConfirmation {
+		s += "\n" + warningStyle.Render(fmt.Sprintf("COMPACT BRANCH: Summarize %d nodes into a Supernode?", len(m.CompactTargetIDs))) + "\n"
+		s += markStyle.Render("Confirm compaction? (y/n)") + "\n"
+	} else if m.IsCompressing {
+		s += "\n" + botStyle.Render("Compressing narrative into Supernode...") + "\n"
 	} else if m.AwaitingToolConfirmation {
 		s += "\n" + markStyle.Render("Tool Call Confirmation Required:") + "\n"
 		hasRedirection := false
@@ -67,8 +72,8 @@ func (m Model) View() string {
 	if m.ViewMode == ModeMap {
 		if m.Searching {
 			s += "\n\n" + inputBoxStyle.Render(m.SearchInput.View())
-		} else if !m.AwaitingPruneConfirmation {
-			s += "\n\n" + helpStyle.Render("h/l: fold/unfold • j/k: move • g/G: top/end • /: search • d: prune • esc: chat")
+		} else if !m.AwaitingPruneConfirmation && !m.AwaitingCompactConfirmation && !m.IsCompressing {
+			s += "\n\n" + helpStyle.Render("h/l: fold/unfold • j/k: move • g/G: top/end • /: search • c: compact • d: prune • esc: chat")
 		}
 	} else {
 		s += "\n\n" + inputBoxStyle.Render(m.TextInput.View())

@@ -45,3 +45,8 @@ type exportResultMsg struct {
 type syncResultMsg struct {
 	err error
 }
+
+type compactionFinishedMsg struct {
+	node *engine.Node
+	err  error
+}

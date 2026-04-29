@@ -30,6 +30,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleSyncResult(msg)
 	case exportResultMsg:
 		return m.handleExportResult(msg)
+	case compactionFinishedMsg:
+		return m.handleCompactionFinished(msg)
 	}
 
 	return m, nil

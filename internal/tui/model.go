@@ -56,6 +56,11 @@ type Model struct {
 	AwaitingPruneConfirmation bool
 	PruneTargetID             string
 
+	// Compaction state
+	AwaitingCompactConfirmation bool
+	CompactTargetIDs            []string
+	IsCompressing               bool
+
 	// Tool handling fields
 	PendingToolCalls         []engine.ToolCall
 	AwaitingToolConfirmation bool

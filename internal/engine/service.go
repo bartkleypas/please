@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -196,6 +197,77 @@ func (m *Manager) GarbageCollect() (int64, error) {
 
 	_, _, err = m.Sync()
 	return count, err
+}
+
+// CompactRange summarizes a set of nodes and grafts them into the graph as a Supernode
+func (m *Manager) CompactRange(ctx context.Context, provider LLMProvider, nodeIDs []string) (*Node, error) {
+	if len(nodeIDs) == 0 {
+		return nil, fmt.Errorf("no nodes provided for compaction")
+	}
+
+	var contentToSummarize strings.Builder
+	for _, id := range nodeIDs {
+		node, err := m.Graph.GetNode(id)
+		if err != nil {
+			continue
+		}
+		fmt.Fprintf(&contentToSummarize, "[%s]: %s\n", node.Role, node.Content)
+	}
+
+	// 1. Generate Summary
+	summaryPrompt := "You are a concise narrative archivist. Summarize the following conversation segment into a single, high-density paragraph. Preserve key facts, decisions, and the current state of the world. Do not use filler or introductory phrases."
+	messages := []Message{
+		{Role: RoleSystem, Content: summaryPrompt},
+		{Role: RoleUser, Content: contentToSummarize.String()},
+	}
+
+	resp, err := provider.GenerateResponse(ctx, messages, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate summary: %w", err)
+	}
+
+	// 2. Determine Parentage
+	firstNode, err := m.Graph.GetNode(nodeIDs[0]) // Assumes IDs are in chronological order
+	if err != nil {
+		return nil, fmt.Errorf("failed to find first node in range: %w", err)
+	}
+	parentID := firstNode.ParentID
+
+	// 3. Create Supernode
+	superNode, err := m.createSupernode(parentID, resp.Content)
+	if err != nil {
+		return nil, err
+	}
+
+	// 4. Graft children of the LAST node in the range onto the Supernode
+	lastNodeID := nodeIDs[len(nodeIDs)-1]
+	children := m.Graph.GetChildren(lastNodeID)
+	for _, child := range children {
+		if err := m.Storage.UpdateNodeParentID(child.ID, superNode.ID); err != nil {
+			return nil, fmt.Errorf("failed to re-parent child %s: %w", child.ID, err)
+		}
+	}
+
+	// 5. Sync to reflect structural changes
+	_, _, err = m.Sync()
+	return superNode, err
+}
+
+func (m *Manager) createSupernode(parentID string, content string) (*Node, error) {
+	node := &Node{
+		ID:        uuid.NewString(),
+		ParentID:  parentID,
+		Role:      RoleSummary,
+		Content:   content,
+		Timestamp: time.Now(),
+	}
+
+	m.Graph.AddNode(node)
+	if err := m.Storage.SaveNode(node); err != nil {
+		return nil, fmt.Errorf("failed to persist supernode: %w", err)
+	}
+
+	return node, nil
 }
 
 func (m *Manager) GetSystemRoot() (*Node, error) {
