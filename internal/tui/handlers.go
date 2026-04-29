@@ -95,9 +95,8 @@ func (m *Model) handleKeyEvent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.executeToolsCmd()
 		case "n", "N":
 			m.AwaitingToolConfirmation = false
-			m.PendingToolCalls = nil
-			m.Notification = "Tool calls cancelled by user."
-			return m, nil
+			m.IsThinking = true
+			return m, m.cancelToolsCmd()
 		}
 		// If awaiting confirmation, ignore other keys for now or allow escape?
 		if msg.String() == "esc" {
@@ -350,7 +349,8 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 
 // handleLLMStream appends incoming chunks to the streaming buffer and refreshes the view.
 func (m *Model) handleLLMStream(msg llmStreamMsg) (tea.Model, tea.Cmd) {
-	m.IsThinking = false
+	// Keep IsThinking true while streaming to maintain the spinner/animation
+	m.IsThinking = true
 	m.CurrentStreamingContent += msg.content
 	m.updateViewportWithStreaming()
 	return m, waitForStream(m.StreamContentChan, m.StreamToolCallChan, m.StreamErrChan, msg.parentID)
@@ -378,6 +378,27 @@ func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, te
 
 	if len(msg.toolCalls) > 0 {
 		m.PendingToolCalls = msg.toolCalls
+
+		// Check if all tool calls are non-interactive
+		allNonInteractive := true
+		for _, call := range msg.toolCalls {
+			if tool, ok := m.Manager.Registry.Tools[call.Function.Name]; ok {
+				if tool.Interactive {
+					allNonInteractive = false
+					break
+				}
+			} else {
+				// Unknown tools default to interactive for safety
+				allNonInteractive = false
+				break
+			}
+		}
+
+		if allNonInteractive {
+			m.IsThinking = true
+			return m, m.executeToolsCmd()
+		}
+
 		m.AwaitingToolConfirmation = true
 	}
 
@@ -440,6 +461,45 @@ func (m *Model) executeToolsCmd() tea.Cmd {
 		}
 
 		contentChan, toolCallChan, errChan := m.Provider.GenerateResponseStream(ctx, messages, m.Manager.Registry.GetTools())
+		return streamResponseMsg{
+			contentChan:  contentChan,
+			toolCallChan: toolCallChan,
+			errChan:      errChan,
+			parentID:     lastNodeID,
+		}
+	}
+}
+
+func (m *Model) cancelToolsCmd() tea.Cmd {
+	return func() tea.Msg {
+		var lastNodeID = m.CurrentID
+
+		for _, call := range m.PendingToolCalls {
+			result := "Error: Tool call cancelled by user."
+			toolNode, err := m.Manager.CreateToolNode(lastNodeID, call.ID, result)
+			if err != nil {
+				return llmResponseMsg{err: fmt.Errorf("failed to create cancellation node: %w", err), parentID: lastNodeID}
+			}
+			lastNodeID = toolNode.ID
+		}
+
+		// Trigger a new LLM response so the model knows the tools were cancelled
+		path, err := m.Manager.GetPath(lastNodeID)
+		if err != nil {
+			return llmResponseMsg{err: err, parentID: lastNodeID}
+		}
+
+		var messages []engine.Message
+		for _, node := range path {
+			messages = append(messages, engine.Message{
+				Role:       node.Role,
+				Content:    node.Content,
+				ToolCalls:  node.ToolCalls,
+				ToolCallID: node.ToolCallID,
+			})
+		}
+
+		contentChan, toolCallChan, errChan := m.Provider.GenerateResponseStream(context.Background(), messages, m.Manager.Registry.GetTools())
 		return streamResponseMsg{
 			contentChan:  contentChan,
 			toolCallChan: toolCallChan,

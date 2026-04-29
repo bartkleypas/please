@@ -48,6 +48,7 @@ func GetDefaultTools() []Tool {
 		{
 			Name:        "read_file",
 			Description: "Read the contents of a file from the local filesystem",
+			Interactive: false,
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -77,6 +78,7 @@ func GetDefaultTools() []Tool {
 		{
 			Name:        "list_directory",
 			Description: "List the contents of a directory on the local filesystem",
+			Interactive: false,
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -120,6 +122,7 @@ func GetDefaultTools() []Tool {
 		{
 			Name:        "execute_command",
 			Description: "Execute a shell command and return the combined output",
+			Interactive: true,
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -171,6 +174,7 @@ func GetDefaultTools() []Tool {
 		{
 			Name:        "patch_file",
 			Description: "Search for a string in a file and replace it with another string",
+			Interactive: true,
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -229,6 +233,7 @@ func GetDefaultTools() []Tool {
 		{
 			Name:        "edit_file",
 			Description: "Advanced text editing tool supporting regex, line replacement, and insertions",
+			Interactive: true,
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{

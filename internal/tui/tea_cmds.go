@@ -50,13 +50,29 @@ func waitForStream(contentChan <-chan string, toolCallChan <-chan []engine.ToolC
 				}
 			}
 			return llmStreamMsg{content: content, parentID: parentID}
-		case tc := <-toolCallChan:
-			return llmStreamFinishedMsg{parentID: parentID, toolCalls: tc}
-		case err := <-errChan:
-			if err != nil {
-				return llmStreamFinishedMsg{err: err, parentID: parentID}
+		default:
+			// If contentChan is not immediately ready, check all channels
+			select {
+			case content, ok := <-contentChan:
+				if !ok {
+					select {
+					case tc := <-toolCallChan:
+						return llmStreamFinishedMsg{parentID: parentID, toolCalls: tc}
+					case err := <-errChan:
+						return llmStreamFinishedMsg{parentID: parentID, err: err}
+					default:
+						return llmStreamFinishedMsg{parentID: parentID}
+					}
+				}
+				return llmStreamMsg{content: content, parentID: parentID}
+			case tc := <-toolCallChan:
+				return llmStreamFinishedMsg{parentID: parentID, toolCalls: tc}
+			case err := <-errChan:
+				if err != nil {
+					return llmStreamFinishedMsg{err: err, parentID: parentID}
+				}
+				return llmStreamFinishedMsg{parentID: parentID}
 			}
-			return llmStreamFinishedMsg{parentID: parentID}
 		}
 	}
 }

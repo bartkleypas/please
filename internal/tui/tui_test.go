@@ -56,8 +56,8 @@ func TestUpdateStateTransitions(t *testing.T) {
 	// 5. Simulate LLM Stream Message
 	m, _ = updateModel(m, llmStreamMsg{content: "Hello", parentID: m.CurrentID})
 
-	if m.IsThinking {
-		t.Error("Expected IsThinking to be false after first stream chunk")
+	if !m.IsThinking {
+		t.Error("Expected IsThinking to be true during streaming")
 	}
 	if m.CurrentStreamingContent != "Hello" {
 		t.Errorf("Expected CurrentStreamingContent to be 'Hello', got '%s'", m.CurrentStreamingContent)
@@ -66,6 +66,9 @@ func TestUpdateStateTransitions(t *testing.T) {
 	// 6. Simulate LLM Stream Finished
 	m, _ = updateModel(m, llmStreamFinishedMsg{parentID: m.CurrentID})
 
+	if m.IsThinking {
+		t.Error("Expected IsThinking to be false after stream finished")
+	}
 	if m.CurrentStreamingContent != "" {
 		t.Error("Expected CurrentStreamingContent to be cleared after finish")
 	}
