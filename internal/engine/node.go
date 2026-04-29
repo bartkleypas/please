@@ -24,4 +24,7 @@ type Node struct {
 	// Tool handling fields
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`  // Present if Role == Assistant
 	ToolCallID string     `json:"tool_call_id,omitempty"` // Present if Role == Tool
+
+	// Deletion state
+	Deleted bool `json:"deleted,omitempty"`
 }

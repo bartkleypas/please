@@ -26,6 +26,8 @@ func init() {
 	commandRegistry["/config"] = &ConfigCommand{}
 	commandRegistry["/sync"] = &SyncCommand{}
 	commandRegistry["/server"] = &ServerCommand{}
+	commandRegistry["/gc"] = &GCCommand{}
+	commandRegistry["/emptytrash"] = &GCCommand{}
 	commandRegistry["/help"] = &HelpCommand{}
 	commandRegistry["/q"] = &QuitCommand{}
 	commandRegistry["/quit"] = &QuitCommand{}
@@ -210,6 +212,19 @@ func (c *SyncCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	return m, syncVault(m.Manager)
 }
 
+type GCCommand struct{}
+
+func (c *GCCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
+	count, err := m.Manager.GarbageCollect()
+	if err != nil {
+		m.Notification = fmt.Sprintf("GC failed: %v", err)
+	} else {
+		m.Notification = fmt.Sprintf("Garbage collection complete. %d nodes scrubbed.", count)
+	}
+	m.updateViewportContent()
+	return m, nil
+}
+
 type ServerCommand struct{}
 
 func (c *ServerCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
@@ -267,6 +282,7 @@ func (c *HelpCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	s.WriteString("  /persona        Start a new timeline with a new system prompt\n")
 	s.WriteString("  /config         View or update application settings\n")
 	s.WriteString("  /sync           Reload the graph from disk to sync sessions\n")
+	s.WriteString("  /gc             Permanently scrub soft-deleted nodes from disk\n")
 	s.WriteString("  /server         Control the web visualization server (/server on|off|status)\n")
 	s.WriteString("  /q, /quit, /bye Exit the application\n\n")
 	s.WriteString("Navigation:\n")

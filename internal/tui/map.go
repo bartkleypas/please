@@ -13,7 +13,11 @@ import (
 // generateMapString builds the full visual tree of the graph
 func (m *Model) generateMapString() string {
 	var s strings.Builder
-	s.WriteString("--- Narrative Graph Map ---\n\n")
+	title := "--- Narrative Graph Map ---"
+	if m.SearchQuery != "" {
+		title = fmt.Sprintf("--- Search Results: \"%s\" ---", m.SearchQuery)
+	}
+	s.WriteString(title + "\n\n")
 
 	m.MapNodeIDs = nil // Clear IDs for fresh traversal
 
@@ -34,6 +38,11 @@ func (m *Model) generateMapString() string {
 			m.renderMap(&s, root.ID, "", isLast, activityCache)
 		}
 	}
+
+	if len(m.MapNodeIDs) == 0 && m.SearchQuery != "" {
+		s.WriteString("No nodes match your search query.\n")
+	}
+
 	return s.String()
 }
 
@@ -72,70 +81,93 @@ func (m *Model) renderMap(s *strings.Builder, nodeID string, indent string, isLa
 		return
 	}
 
-	// Track rendered ID for navigation
-	m.MapNodeIDs = append(m.MapNodeIDs, node.ID)
+	// Filter by search query if present
+	matchesSearch := true
+	if m.SearchQuery != "" {
+		matchesSearch = strings.Contains(strings.ToLower(node.Content), strings.ToLower(m.SearchQuery)) ||
+			strings.Contains(strings.ToLower(node.ID), strings.ToLower(m.SearchQuery))
+	}
 
-	treePrefix := "•"
-	if indent != "" {
-		if isLast {
-			treePrefix = "└"
-		} else {
-			treePrefix = "├"
+	if matchesSearch {
+		// Track rendered ID for navigation
+		m.MapNodeIDs = append(m.MapNodeIDs, node.ID)
+
+		treePrefix := "•"
+		if indent != "" {
+			if isLast {
+				treePrefix = "└"
+			} else {
+				treePrefix = "├"
+			}
 		}
+
+		bookmark := ""
+		if node.Metadata != nil && node.Metadata["bookmarked"] == "true" {
+			bookmark = markStyle.Render("⭐")
+		}
+
+		// Tool call indicator
+		toolIndicator := ""
+		if len(node.ToolCalls) > 0 {
+			toolIndicator = markStyle.Render("🛠️")
+		} else if node.Role == engine.RoleTool {
+			toolIndicator = markStyle.Render("⚙️")
+		}
+
+		// Current location marker moved here
+		locationMarker := ""
+		if node.ID == m.CurrentID {
+			locationMarker = markStyle.Render("📍")
+		}
+
+		shortID := node.ID
+		if len(shortID) > 8 {
+			shortID = shortID[:8]
+		}
+
+		idStr := "[" + shortID + "]"
+		// Apply highlight if selected
+		if m.ViewMode == ModeMap && len(m.MapNodeIDs)-1 == m.MapSelectionIndex {
+			idStr = highlightStyle.Render(idStr)
+		}
+
+		// Folded Indicator
+		foldedIndicator := ""
+		children := m.Manager.GetChildren(node.ID)
+		if len(children) > 0 {
+			if m.CollapsedNodes[node.ID] {
+				foldedIndicator = " " + markStyle.Render(fmt.Sprintf("[+%d]", len(children)))
+			}
+		}
+
+		// Pulse Effect Logic
+		age := time.Since(node.Timestamp)
+		var roleStyle lipgloss.Style
+
+		if age < 500*time.Millisecond {
+			// Phase 1: Immediate Growth (Luminous Mint)
+			roleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#4ade80")).Bold(true)
+		} else if age < 2*time.Second {
+			// Phase 2: Settling (Muted Green)
+			roleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#2d5a45"))
+		} else {
+			// Phase 3: Resting (Standard Theme)
+			roleStyle = getRoleStyle(node.Role)
+		}
+
+		preview := node.Content
+		if len(preview) > 30 {
+			preview = preview[:27] + "..."
+		}
+		preview = strings.ReplaceAll(preview, "\n", " ")
+
+		fmt.Fprintf(s, " %s%s%s%s%s%s %s:%s%s\n", indent, treePrefix, idStr, bookmark, toolIndicator, locationMarker, roleStyle.Render(string(node.Role)), preview, foldedIndicator)
 	}
 
-	bookmark := ""
-	if node.Metadata != nil && node.Metadata["bookmarked"] == "true" {
-		bookmark = markStyle.Render("⭐")
+	// If collapsed, don't render children
+	if m.CollapsedNodes[nodeID] {
+		return
 	}
-
-	// Tool call indicator
-	toolIndicator := ""
-	if len(node.ToolCalls) > 0 {
-		toolIndicator = markStyle.Render("🛠️")
-	} else if node.Role == engine.RoleTool {
-		toolIndicator = markStyle.Render("⚙️")
-	}
-
-	// Current location marker moved here
-	locationMarker := ""
-	if node.ID == m.CurrentID {
-		locationMarker = markStyle.Render("📍")
-	}
-
-	shortID := node.ID
-	if len(shortID) > 8 {
-		shortID = shortID[:8]
-	}
-
-	idStr := "[" + shortID + "]"
-	// Apply highlight if selected
-	if m.ViewMode == ModeMap && len(m.MapNodeIDs)-1 == m.MapSelectionIndex {
-		idStr = highlightStyle.Render(idStr)
-	}
-
-	// Pulse Effect Logic
-	age := time.Since(node.Timestamp)
-	var roleStyle lipgloss.Style
-
-	if age < 500*time.Millisecond {
-		// Phase 1: Immediate Growth (Luminous Mint)
-		roleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#4ade80")).Bold(true)
-	} else if age < 2*time.Second {
-		// Phase 2: Settling (Muted Green)
-		roleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#2d5a45"))
-	} else {
-		// Phase 3: Resting (Standard Theme)
-		roleStyle = getRoleStyle(node.Role)
-	}
-
-	preview := node.Content
-	if len(preview) > 30 {
-		preview = preview[:27] + "..."
-	}
-	preview = strings.ReplaceAll(preview, "\n", " ")
-
-	fmt.Fprintf(s, " %s%s%s%s%s%s %s:%s\n", indent, treePrefix, idStr, bookmark, toolIndicator, locationMarker, roleStyle.Render(string(node.Role)), preview)
 
 	children := m.Manager.GetChildren(node.ID)
 	// Sort children by latest activity in their subtree (descending)

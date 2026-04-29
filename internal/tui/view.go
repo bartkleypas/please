@@ -34,7 +34,10 @@ func (m Model) View() string {
 
 	s += historyBoxStyle.Render(m.Viewport.View())
 
-	if m.AwaitingToolConfirmation {
+	if m.AwaitingPruneConfirmation {
+		s += "\n" + warningStyle.Render("PRUNE BRANCH: This will hide this node and all descendants.") + "\n"
+		s += markStyle.Render("Confirm pruning? (y/n)") + "\n"
+	} else if m.AwaitingToolConfirmation {
 		s += "\n" + markStyle.Render("Tool Call Confirmation Required:") + "\n"
 		hasRedirection := false
 		dangerChars := []string{">", "|", "&", "<"}

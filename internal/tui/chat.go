@@ -55,6 +55,28 @@ func (m *Model) updateViewportWithStreaming() {
 	m.Viewport.GotoBottom()
 }
 
+func (m *Model) syncMapSelection() {
+	m.ViewportOverride = m.generateMapString()
+	m.Viewport.SetContent(m.ViewportOverride)
+
+	// Ensure selection is within bounds (important after pruning)
+	if m.MapSelectionIndex >= len(m.MapNodeIDs) {
+		m.MapSelectionIndex = len(m.MapNodeIDs) - 1
+	}
+	if m.MapSelectionIndex < 0 {
+		m.MapSelectionIndex = 0
+	}
+
+	// Ensure selected node is in view
+	if len(m.MapNodeIDs) > 0 {
+		if m.MapSelectionIndex < m.Viewport.YOffset {
+			m.Viewport.SetYOffset(m.MapSelectionIndex)
+		} else if m.MapSelectionIndex >= m.Viewport.YOffset+m.Viewport.Height-2 {
+			m.Viewport.SetYOffset(m.MapSelectionIndex - m.Viewport.Height + 3)
+		}
+	}
+}
+
 func (m *Model) updateViewportWithJump() {
 	m.updateViewportContent()
 }

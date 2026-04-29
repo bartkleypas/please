@@ -53,6 +53,26 @@ func (m *Model) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 func (m *Model) handleKeyEvent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
+	if m.AwaitingPruneConfirmation {
+		switch msg.String() {
+		case "y", "Y":
+			m.AwaitingPruneConfirmation = false
+			err := m.Manager.PruneBranch(m.PruneTargetID)
+			if err != nil {
+				m.Notification = fmt.Sprintf("Prune failed: %v", err)
+			} else {
+				m.Notification = "Branch pruned."
+			}
+			m.syncMapSelection()
+			return m, nil
+		case "n", "N", "esc":
+			m.AwaitingPruneConfirmation = false
+			m.PruneTargetID = ""
+			return m, nil
+		}
+		return m, nil
+	}
+
 	if m.AwaitingToolConfirmation {
 		switch msg.String() {
 		case "y", "Y":
@@ -83,27 +103,115 @@ func (m *Model) handleKeyEvent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			cmd = tea.Batch(cmd, vCmd)
 		}
 	} else if m.ViewMode == ModeMap {
+		if m.Searching {
+			switch msg.String() {
+			case "enter":
+				m.SearchQuery = m.SearchInput.Value()
+				m.Searching = false
+				m.ViewportOverride = m.generateMapString()
+				m.Viewport.SetContent(m.ViewportOverride)
+				return m, nil
+			case "esc":
+				m.Searching = false
+				m.SearchInput.Reset()
+				m.SearchQuery = ""
+				m.ViewportOverride = m.generateMapString()
+				m.Viewport.SetContent(m.ViewportOverride)
+				return m, nil
+			}
+			var siCmd tea.Cmd
+			m.SearchInput, siCmd = m.SearchInput.Update(msg)
+			return m, siCmd
+		}
+
 		switch msg.String() {
-		case "up":
+		case "up", "k":
 			if m.MapSelectionIndex > 0 {
 				m.MapSelectionIndex--
-				m.ViewportOverride = m.generateMapString()
-				m.Viewport.SetContent(m.ViewportOverride)
-				// Ensure selected node is in view
-				if m.MapSelectionIndex < m.Viewport.YOffset {
-					m.Viewport.SetYOffset(m.MapSelectionIndex)
-				}
+				m.syncMapSelection()
 			}
-		case "down":
+		case "down", "j":
 			if m.MapSelectionIndex < len(m.MapNodeIDs)-1 {
 				m.MapSelectionIndex++
-				m.ViewportOverride = m.generateMapString()
-				m.Viewport.SetContent(m.ViewportOverride)
-				// Ensure selected node is in view
-				if m.MapSelectionIndex >= m.Viewport.YOffset+m.Viewport.Height-2 {
-					m.Viewport.SetYOffset(m.MapSelectionIndex - m.Viewport.Height + 3)
+				m.syncMapSelection()
+			}
+		case "h":
+			// Collapse or Ascend
+			if m.MapSelectionIndex >= 0 && m.MapSelectionIndex < len(m.MapNodeIDs) {
+				currentID := m.MapNodeIDs[m.MapSelectionIndex]
+				children := m.Manager.GetChildren(currentID)
+
+				if len(children) > 0 && !m.CollapsedNodes[currentID] {
+					// Node is expanded, so collapse it
+					m.CollapsedNodes[currentID] = true
+					m.syncMapSelection()
+				} else {
+					// Node is already collapsed or has no children, so ascend to parent
+					node, _ := m.Manager.GetNode(currentID)
+					if node != nil && node.ParentID != "" {
+						for i, id := range m.MapNodeIDs {
+							if id == node.ParentID {
+								m.MapSelectionIndex = i
+								m.syncMapSelection()
+								break
+							}
+						}
+					}
 				}
 			}
+		case "l":
+			// Unfold or Descend
+			if m.MapSelectionIndex >= 0 && m.MapSelectionIndex < len(m.MapNodeIDs) {
+				currentID := m.MapNodeIDs[m.MapSelectionIndex]
+				children := m.Manager.GetChildren(currentID)
+
+				if len(children) > 0 && m.CollapsedNodes[currentID] {
+					// Node is collapsed, so unfold it
+					delete(m.CollapsedNodes, currentID)
+					m.syncMapSelection()
+				} else if len(children) > 0 {
+					// Node is already unfolded, so descend to first child
+					for i := m.MapSelectionIndex + 1; i < len(m.MapNodeIDs); i++ {
+						childNode, _ := m.Manager.GetNode(m.MapNodeIDs[i])
+						if childNode != nil && childNode.ParentID == currentID {
+							m.MapSelectionIndex = i
+							m.syncMapSelection()
+							break
+						}
+					}
+				}
+			}
+		case "g":
+			// Snap to Root
+			if len(m.MapNodeIDs) > 0 {
+				m.MapSelectionIndex = 0
+				m.syncMapSelection()
+			}
+		case "G":
+			// Snap to current active Leaf node
+			for i, id := range m.MapNodeIDs {
+				if id == m.CurrentID {
+					m.MapSelectionIndex = i
+					m.syncMapSelection()
+					break
+				}
+			}
+		case "s":
+			// Sync/Refresh
+			m.ViewportOverride = m.generateMapString()
+			m.Viewport.SetContent(m.ViewportOverride)
+			m.Notification = "Map refreshed."
+			return m, nil
+		case "d", "delete":
+			if m.MapSelectionIndex >= 0 && m.MapSelectionIndex < len(m.MapNodeIDs) {
+				m.PruneTargetID = m.MapNodeIDs[m.MapSelectionIndex]
+				m.AwaitingPruneConfirmation = true
+				return m, nil
+			}
+		case "/":
+			m.Searching = true
+			m.SearchInput.Focus()
+			return m, nil
 		case "enter":
 			if m.MapSelectionIndex >= 0 && m.MapSelectionIndex < len(m.MapNodeIDs) {
 				m.CurrentID = m.MapNodeIDs[m.MapSelectionIndex]

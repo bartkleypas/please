@@ -7,6 +7,7 @@ import (
 	"org.kleypas.please/internal/server"
 
 	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 )
 
@@ -46,6 +47,14 @@ type Model struct {
 	// Interactive Map state
 	MapNodeIDs        []string
 	MapSelectionIndex int
+	SearchInput       textinput.Model
+	Searching         bool
+	SearchQuery       string
+	CollapsedNodes    map[string]bool
+
+	// Deletion state
+	AwaitingPruneConfirmation bool
+	PruneTargetID             string
 
 	// Tool handling fields
 	PendingToolCalls         []engine.ToolCall
@@ -69,16 +78,22 @@ func NewModel(cfg *engine.Config, g *engine.Graph, s engine.Storage, p engine.LL
 	mgr := engine.NewManager(g, s)
 	mgr.RegisterDefaultTools()
 
+	si := textinput.New()
+	si.Placeholder = "Fuzzy search content..."
+	si.Prompt = " / "
+
 	m := Model{
-		Config:    cfg,
-		Manager:   mgr,
-		Provider:  p,
-		CurrentID: currentID,
-		TextInput: ti,
-		Ready:     true,
-		Width:     0, // Initialize to 0; wait for WindowSizeMsg
-		Viewport:  viewport.New(80, 80),
-		SetupMode: setupMode,
+		Config:         cfg,
+		Manager:        mgr,
+		Provider:       p,
+		CurrentID:      currentID,
+		TextInput:      ti,
+		SearchInput:    si,
+		Ready:          true,
+		Width:          0, // Initialize to 0; wait for WindowSizeMsg
+		Viewport:       viewport.New(80, 80),
+		SetupMode:      setupMode,
+		CollapsedNodes: make(map[string]bool),
 	}
 
 	return m

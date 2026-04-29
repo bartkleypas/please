@@ -154,6 +154,50 @@ func (m *Manager) GetRoots() []*Node {
 	return m.Graph.GetRoots()
 }
 
+// PruneBranch recursively flags a node and all its descendants as deleted
+func (m *Manager) PruneBranch(nodeID string) error {
+	node, err := m.Graph.GetNode(nodeID)
+	if err != nil {
+		return err
+	}
+
+	// Recursive helper to flag and persist
+	var flagDeleted func(n *Node) error
+	flagDeleted = func(n *Node) error {
+		n.Deleted = true
+		if err := m.Storage.UpdateNodeMetadata(n); err != nil {
+			return err
+		}
+
+		children := m.GetChildren(n.ID)
+		for _, child := range children {
+			if err := flagDeleted(child); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	if err := flagDeleted(node); err != nil {
+		return err
+	}
+
+	// Refresh in-memory graph to reflect deletions
+	_, _, err = m.Sync()
+	return err
+}
+
+// GarbageCollect permanently removes flagged nodes from storage and reloads the graph
+func (m *Manager) GarbageCollect() (int64, error) {
+	count, err := m.Storage.GarbageCollect()
+	if err != nil {
+		return count, err
+	}
+
+	_, _, err = m.Sync()
+	return count, err
+}
+
 func (m *Manager) GetSystemRoot() (*Node, error) {
 	return m.Graph.GetSystemRoot()
 }

@@ -16,6 +16,8 @@ import (
 type Storage interface {
 	SaveNode(node *Node) error
 	LoadGraph() (*Graph, string, error)
+	GarbageCollect() (int64, error)
+	UpdateNodeMetadata(node *Node) error
 }
 
 // SQLiteStorage implements Storage using an SQLite database
@@ -43,12 +45,16 @@ func NewSQLiteStorage(path string) (*SQLiteStorage, error) {
 		timestamp DATETIME,
 		tool_calls TEXT,
 		tool_call_id TEXT,
-		metadata TEXT
+		metadata TEXT,
+		deleted BOOLEAN DEFAULT 0
 	);
 	`
 	if _, err := db.Exec(query); err != nil {
 		return nil, fmt.Errorf("failed to initialize sqlite schema: %w", err)
 	}
+
+	// Migration: Add deleted column if it doesn't exist (ignoring errors if it does)
+	_, _ = db.Exec("ALTER TABLE nodes ADD COLUMN deleted BOOLEAN DEFAULT 0")
 
 	return s, nil
 }
@@ -88,8 +94,8 @@ func (s *SQLiteStorage) SaveNode(node *Node) error {
 	}
 
 	query := `
-	INSERT INTO nodes (id, parent_id, role, content, timestamp, tool_calls, tool_call_id, metadata)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	INSERT INTO nodes (id, parent_id, role, content, timestamp, tool_calls, tool_call_id, metadata, deleted)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err = s.db.Exec(query,
@@ -101,6 +107,7 @@ func (s *SQLiteStorage) SaveNode(node *Node) error {
 		string(toolCallsJSON),
 		node.ToolCallID,
 		string(metadataJSON),
+		node.Deleted,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to insert node into sqlite: %w", err)
@@ -109,9 +116,41 @@ func (s *SQLiteStorage) SaveNode(node *Node) error {
 	return nil
 }
 
+// UpdateNodeMetadata updates the metadata and deletion state of an existing node
+func (s *SQLiteStorage) UpdateNodeMetadata(node *Node) error {
+	metadataJSON, err := json.Marshal(node.Metadata)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metadata: %w", err)
+	}
+
+	query := `UPDATE nodes SET metadata = ?, deleted = ? WHERE id = ?`
+	_, err = s.db.Exec(query, string(metadataJSON), node.Deleted, node.ID)
+	if err != nil {
+		return fmt.Errorf("failed to update node in sqlite: %w", err)
+	}
+	return nil
+}
+
+// GarbageCollect permanently removes deleted nodes and vacuums the database
+func (s *SQLiteStorage) GarbageCollect() (int64, error) {
+	res, err := s.db.Exec("DELETE FROM nodes WHERE deleted = 1")
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete nodes: %w", err)
+	}
+
+	rows, _ := res.RowsAffected()
+
+	_, err = s.db.Exec("VACUUM")
+	if err != nil {
+		return rows, fmt.Errorf("vacuum failed: %w", err)
+	}
+
+	return rows, nil
+}
+
 // LoadGraph reads all nodes from the SQLite database and reconstructs the Graph.
 func (s *SQLiteStorage) LoadGraph() (*Graph, string, error) {
-	query := `SELECT id, parent_id, role, content, timestamp, tool_calls, tool_call_id, metadata FROM nodes ORDER BY timestamp ASC`
+	query := `SELECT id, parent_id, role, content, timestamp, tool_calls, tool_call_id, metadata, deleted FROM nodes ORDER BY timestamp ASC`
 	rows, err := s.db.Query(query)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to query nodes from sqlite: %w", err)
@@ -134,9 +173,14 @@ func (s *SQLiteStorage) LoadGraph() (*Graph, string, error) {
 			&toolCallsJSON,
 			&node.ToolCallID,
 			&metadataJSON,
+			&node.Deleted,
 		)
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to scan node from sqlite: %w", err)
+		}
+
+		if node.Deleted {
+			continue // Skip soft-deleted nodes
 		}
 
 		node.Role = Role(roleStr)
@@ -166,6 +210,14 @@ type JSONLStorage struct {
 // NewJSONLStorage creates a new instance of JSONLStorage
 func NewJSONLStorage(path string) *JSONLStorage {
 	return &JSONLStorage{FilePath: path}
+}
+
+func (s *JSONLStorage) GarbageCollect() (int64, error) {
+	return 0, fmt.Errorf("garbage collection not implemented for JSONL storage")
+}
+
+func (s *JSONLStorage) UpdateNodeMetadata(node *Node) error {
+	return fmt.Errorf("metadata updates not implemented for JSONL storage")
 }
 
 // SaveNode appends a single node to the JSONL file
