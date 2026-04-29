@@ -21,28 +21,33 @@ Unlike linear chat applications, `Please` treats conversations as a Directed Acy
 
 ---
 
-## 🔗 CLI Pipe Mode & Chaining
+## 🔗 CLI Interaction & Chaining
 
-`Please` can be used programmatically to build narratives via shell scripts or external agents.
+`Please` can be used programmatically to build narratives or interact with the graph directly from the terminal.
 
-### Add a node via Pipe
+### Add a message via Stdin (Piping)
 ```bash
-echo "As the fog cleared, a mysterious figure appeared." | please --pipe
+echo "As the fog cleared, a mysterious figure appeared." | please
 ```
-*Outputs the new Node ID.*
+*Infers role as `tool`, generates a response, and outputs the assistant's Node ID.*
+
+### Add a message via Positional Arguments
+```bash
+please "What is the capital of France?"
+```
+*Infers role as `user`, generates a response, and outputs the assistant's Node ID.*
 
 ### Chain messages
 ```bash
-ROOT_ID=$(echo "You are a detective in 1920s London." | please --pipe --role system)
-MSG_ID=$(echo "I want to investigate the docks." | please --pipe --parent $ROOT_ID)
+ROOT_ID=$(please --role system "You are a detective in 1920s London.")
+MSG_ID=$(please --parent $ROOT_ID "I want to investigate the docks.")
 please -c --jump $MSG_ID
 ```
 
-### One-shot Generation
+### One-shot Insertion (No Gen)
 ```bash
-please --pipe --message "Tell me a joke about Go." --generate
+please --no-gen "This message is just for the graph history."
 ```
-*Appends the joke to your history and outputs the assistant's node ID.*
 
 ---
 
@@ -50,7 +55,7 @@ please --pipe --message "Tell me a joke about Go." --generate
 
 ### Prerequisites
 *   **Go:** 1.26 or higher.
-*   **Ollama:** A local Ollama instance running with your preferred model (default: `gemma4:e4b`, though `gemma4:26b` is recommended for superior performance).
+*   **Ollama:** A local Ollama instance running with your preferred model (default: `gemma4:e4b`).
 
 ### Installation
 1.  Clone the repository:
@@ -67,6 +72,10 @@ please --pipe --message "Tell me a joke about Go." --generate
 Launch the TUI chat interface:
 ```bash
 go run cmd/please/main.go -c
+```
+Or start with the web visualization server:
+```bash
+go run cmd/please/main.go -c -s 8080
 ```
 Or build and run:
 ```bash
