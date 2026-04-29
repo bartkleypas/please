@@ -15,7 +15,9 @@ Unlike linear chat applications, `Please` treats conversations as a Directed Acy
 
 ### 🎭 Narrative Interaction
 *   **Modular TUI:** Built with [Charm Bubble Tea](https://github.com/charmbracelet/bubbletea), featuring a flattened state machine and specialized event handlers.
-*   **Visual Mapping:** Use `/map` to visualize the branching paths of your story in a tree-like view.
+*   **Visual Mapping:** Use `/map` to visualize the branching paths of your story with Vim-style navigation (`h/j/k/l`).
+*   **Supernodes (Compaction):** Press `c` in the map to summarize long-winded branches into high-density context nodes, preserving your context window.
+*   **Branch Pruning:** Press `d` in the map to soft-delete unwanted branches, with `/gc` for permanent secure scrubbing.
 *   **Web Visualization:** Run with `-s` to start an embedded web server that provides a real-time, threaded, "Deep Forest Green" dark mode view of your graph.
 *   **Persona Management:** Easily switch between different system prompts and characters using the `/persona` command.
 
@@ -102,7 +104,14 @@ Inside the app, use these interactive commands to navigate your story:
 | `/q` or `/bye` | Gracefully exit the application. |
 
 **Navigation Tips:**
-*   **Scroll:** Use `↑`/`↓` or `PgUp`/`PgDn` to navigate the chat history.
+*   **Chat:** Use `↑`/`↓` or `PgUp`/`PgDn` to scroll history.
+*   **Map Navigation:**
+    *   `j`/`k`: Move selection.
+    *   `h`/`l`: Collapse/Expand or Ascend/Descend branches.
+    *   `g`/`G`: Jump to root/end.
+    *   `/`: Real-time fuzzy search.
+    *   `c`: Compact/Summarize branch.
+    *   `d`: Prune/Delete branch.
 *   **Exit Views:** Press `ESC` to return to the chat from `/map` or `/help` views.
 
 ---

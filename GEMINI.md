@@ -14,17 +14,34 @@
 The project is split into two primary internal modules:
 
 ### `internal/engine` (Core Logic)
-- **`Graph` (`graph.go`)**: Manages the DAG of `Node` objects. Each node represents a message in the conversation.
-- **`Manager` (`service.go`)**: The central coordinator that links the graph, storage, and tool registry.
-- **`LLMProvider` (`llm.go`)**: Interface for LLM backends. Currently implements `OllamaProvider` with support for both standard and streaming responses.
-- **`Storage` (`storage.go`)**: Persistence layer supporting both SQLite (with WAL mode) and legacy JSONL formats.
-- **`Tool` (`tool.go`)**: Framework for LLM tool calling (function calling).
+- **`Graph` (`graph.go`)**: Manages the DAG of `Node` objects. Each node represents a message. Supports real-time re-parenting for branch compaction.
+- **`Manager` (`service.go`)**: The central coordinator. Implements `CompactRange` for generating high-density Supernodes and `PruneBranch` for soft-deleting sub-trees.
+- **`LLMProvider` (`llm.go`)**: Interface for LLM backends. Handles standard, streaming, and specialized summarization calls.
+- **`Storage` (`storage.go`)**: SQLite (WAL mode) persistence. Supports `deleted` flags and secure disk scrubbing via `VACUUM`.
+- **`Tool` (`tool.go`)**: Framework for LLM tool calling.
 
 ### `internal/tui` (User Interface)
-- **`Model` (`model.go`)**: The main Bubble Tea state machine.
-- **`View` (`view.go`)**: Rendering logic for the chat interface and the `/map` DAG visualization.
-- **`Commands` (`commands.go`)**: Implementation of slash commands (e.g., `/jump`, `/persona`, `/mark`).
-- **`Messages` (`messages.go`)**: Definitions for Bubble Tea messages used for internal communication and streaming.
+- **`Model` (`model.go`)**: Main Bubble Tea state machine.
+- **`View` (`view.go`)**: Renders chat, `/map` visualization, and context-aware footers.
+- **`Handlers` (`handlers.go`)**: Manages event logic, including Vim-style navigation (`h/j/k/l`), fuzzy search (`/`), and branch compaction (`c`).
+- **`Commands` (`commands.go`)**: Implementation of slash commands (e.g., `/jump`, `/persona`, `/gc`).
+
+## Key Features & Conventions
+
+### DAG Compaction (Supernodes)
+Users can compress thematic clusters into a single `summary` node by pressing `c` in the map view. This "grafts" the active branch onto a new Supernode, preserving LLM context while decluttering the graph.
+
+### Friction-Free CLI
+The application supports direct interaction via positional arguments and pipes:
+```bash
+please "What is the capital of France?"  # User role inference
+cat README.md | please "Summarize this" # Tool/Context role inference
+```
+
+### Navigation & Management
+- **Vim-style navigation:** `h` (collapse/ascend), `l` (unfold/descend), `j/k` (move).
+- **Pruning:** `d` in map view soft-deletes a branch; `/gc` permanently scrubs the database.
+- **Fuzzy Search:** `/` in map view filters nodes in real-time.
 
 ### `internal/server` (Web Visualization)
 - **`Server` (`server.go`)**: Embedded HTTP server providing a real-time, threaded web view of the conversation graph.
