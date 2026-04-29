@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"time"
+
 	"org.kleypas.please/internal/engine"
 	"org.kleypas.please/internal/server"
 
@@ -41,9 +43,16 @@ type Model struct {
 	StreamToolCallChan      <-chan []engine.ToolCall
 	StreamErrChan           <-chan error
 
+	// Interactive Map state
+	MapNodeIDs        []string
+	MapSelectionIndex int
+
 	// Tool handling fields
 	PendingToolCalls         []engine.ToolCall
 	AwaitingToolConfirmation bool
+
+	// Animation state
+	LastActivity time.Time
 }
 
 func NewModel(cfg *engine.Config, g *engine.Graph, s engine.Storage, p engine.LLMProvider, currentID string) Model {

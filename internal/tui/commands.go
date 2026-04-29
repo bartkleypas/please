@@ -88,7 +88,7 @@ func (c *ListCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		m.ViewportOverride = "--- Node List ---\n" + strings.Join(nodes, "\n")
 	}
 	m.Viewport.SetContent(m.ViewportOverride)
-	m.Viewport.GotoBottom()
+	m.Viewport.GotoTop()
 	return m, nil
 }
 
@@ -143,9 +143,11 @@ func (c *PersonaCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 type MapCommand struct{}
 
 func (c *MapCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
+	m.ViewMode = ModeMap
+	m.MapSelectionIndex = 0
 	m.ViewportOverride = m.generateMapString()
 	m.Viewport.SetContent(m.ViewportOverride)
-	m.Viewport.GotoBottom()
+	m.Viewport.GotoTop()
 	return m, nil
 }
 
@@ -164,7 +166,7 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 
 		m.ViewportOverride = s.String()
 		m.Viewport.SetContent(m.ViewportOverride)
-		m.Viewport.GotoBottom()
+		m.Viewport.GotoTop()
 		return m, nil
 	}
 
@@ -273,7 +275,7 @@ func (c *HelpCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 
 	m.ViewportOverride = s.String()
 	m.Viewport.SetContent(m.ViewportOverride)
-	m.Viewport.GotoBottom()
+	m.Viewport.GotoTop()
 	return m, nil
 }
 

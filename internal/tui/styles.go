@@ -5,17 +5,18 @@ import "github.com/charmbracelet/lipgloss"
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇"}
 
 var (
-	titleStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FAFAFA")).Background(lipgloss.Color("#7D56F4")).Padding(0, 1)
-	userStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00"))
-	botStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FFFF"))
-	markStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFCC00"))
-	warningStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF4500")) // Orange-Red
+	titleStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e0e7e3")).Background(lipgloss.Color("#1e3a2f")).Padding(0, 1)
+	userStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#4ade80"))
+	botStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("#60a5fa"))
+	markStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#facc15"))
+	warningStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#fb7185"))
+	highlightStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#0d1b15")).Background(lipgloss.Color("#4ade80")).Bold(true)
 	historyBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color("#555555")).
+			BorderForeground(lipgloss.Color("#2d5a45")).
 			Padding(0, 1)
 	inputBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color("#555555")).
+			BorderForeground(lipgloss.Color("#2d5a45")).
 			Padding(0, 1)
 )

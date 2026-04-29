@@ -16,7 +16,7 @@ Unlike linear chat applications, `Please` treats conversations as a Directed Acy
 ### 🎭 Narrative Interaction
 *   **Modular TUI:** Built with [Charm Bubble Tea](https://github.com/charmbracelet/bubbletea), featuring a flattened state machine and specialized event handlers.
 *   **Visual Mapping:** Use `/map` to visualize the branching paths of your story in a tree-like view.
-*   **Web Visualization:** Run with `-s` to start an embedded web server that provides a real-time, threaded, "Hacker News" style view of your graph.
+*   **Web Visualization:** Run with `-s` to start an embedded web server that provides a real-time, threaded, "Deep Forest Green" dark mode view of your graph.
 *   **Persona Management:** Easily switch between different system prompts and characters using the `/persona` command.
 
 ---

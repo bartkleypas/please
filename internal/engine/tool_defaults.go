@@ -12,7 +12,7 @@ import (
 )
 
 var allowedCommands = []string{
-	"git", "go", "groovy", "ls", "grep", "cat", "echo", "find", "pwd", "date", "rm",
+	"git", "go", "groovy", "ls", "grep", "cat", "echo", "find", "pwd", "date", "rm", "mkdir",
 }
 
 func validatePath(path string) (string, error) {

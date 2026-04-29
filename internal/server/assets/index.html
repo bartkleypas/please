@@ -6,28 +6,35 @@
     <title>Please - Narrative Graph</title>
     <style>
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: #f6f6ef;
-            color: #333;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #0d1b15;
+            color: #e0e7e3;
             margin: 0;
             padding: 20px;
+            line-height: 1.6;
         }
         .container {
-            max-width: 1200px;
+            max-width: 1100px;
             margin: 0 auto;
         }
         h1 {
-            color: #ff6600;
-            font-size: 1.5rem;
-            border-bottom: 2px solid #ff6600;
-            padding-bottom: 10px;
-            margin-bottom: 20px;
+            color: #4ade80;
+            font-size: 1.8rem;
+            font-weight: 700;
+            border-bottom: 1px solid #1e3a2f;
+            padding-bottom: 15px;
+            margin-bottom: 30px;
+            letter-spacing: -0.025em;
         }
         .node {
-            margin-left: 20px;
-            border-left: 1px solid #ddd;
-            padding-left: 15px;
-            margin-top: 10px;
+            margin-left: 24px;
+            border-left: 1px solid #1e3a2f;
+            padding-left: 20px;
+            margin-top: 16px;
+            transition: border-color 0.2s ease;
+        }
+        .node:hover {
+            border-left-color: #2d5a45;
         }
         .node.root {
             margin-left: 0;
@@ -35,42 +42,57 @@
             padding-left: 0;
         }
         .node-header {
-            font-size: 0.8rem;
-            color: #828282;
-            margin-bottom: 5px;
+            font-size: 0.75rem;
+            color: #8fa397;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
         }
         .role {
-            font-weight: bold;
+            font-weight: 600;
             text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-size: 0.7rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.05);
         }
-        .role-system { color: #8b0000; }
-        .role-user { color: #0000ff; }
-        .role-assistant { color: #006400; }
-        .role-tool { color: #800080; }
+        .role-system { color: #facc15; }
+        .role-user { color: #60a5fa; }
+        .role-assistant { color: #4ade80; }
+        .role-tool { color: #c084fc; }
         
         .content {
             font-size: 0.95rem;
-            line-height: 1.4;
+            line-height: 1.5;
             white-space: pre-wrap;
-            background: #fff;
-            padding: 10px;
-            border-radius: 4px;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            background: #162c23;
+            padding: 14px 18px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -1px rgba(0, 0, 0, 0.1);
+            border: 1px solid #1e3a2f;
+            color: #e2e8f0;
         }
         .node-id {
-            font-family: monospace;
-            background: #eee;
-            padding: 2px 4px;
-            border-radius: 3px;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            background: #1e3a2f;
+            color: #4ade80;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.7rem;
         }
         .timestamp {
-            font-style: italic;
+            opacity: 0.7;
         }
         .meta {
-            margin-top: 5px;
+            margin-top: 8px;
             font-size: 0.8rem;
         }
-        .bookmark { color: #ff6600; }
+        .bookmark { 
+            color: #facc15;
+            font-size: 1rem;
+        }
     </style>
 </head>
 <body>
