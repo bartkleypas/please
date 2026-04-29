@@ -20,32 +20,32 @@ func main() {
 	chatFlag := flag.Bool("chat", false, "Start the TUI chat interface")
 	flag.BoolVar(chatFlag, "c", false, "Start the TUI chat interface (shorthand)")
 
-	vaultPath := flag.String("vault", "", "Path to a custom vault.jsonl file")
-	flag.StringVar(vaultPath, "v", "", "Path to a custom vault.jsonl file (shorthand)")
+	vaultPath := flag.String("vault", "", "Path to a custom vault.jsonl or .db file")
+	flag.StringVar(vaultPath, "v", "", "Path to a custom vault file (shorthand)")
 
-	pipeMode := flag.Bool("pipe", false, "Run in non-interactive pipe mode")
-	flag.BoolVar(pipeMode, "p", false, "Run in non-interactive pipe mode (shorthand)")
+	parent := flag.String("parent", "", "Parent node ID for new message")
+	flag.StringVar(parent, "p", "", "Parent node ID (shorthand)")
 
-	message := flag.String("message", "", "Message content for pipe mode")
-	flag.StringVar(message, "m", "", "Message content for pipe mode (shorthand)")
-
-	parent := flag.String("parent", "", "Parent node ID for pipe mode")
-	roleStr := flag.String("role", string(engine.RoleUser), "Role for the new node (user, assistant, system, tool)")
 	jumpID := flag.String("jump", "", "Node ID to jump to in interactive mode")
 	flag.StringVar(jumpID, "j", "", "Node ID to jump to in interactive mode (shorthand)")
 
-	generate := flag.Bool("generate", false, "Trigger LLM generation in pipe mode")
-	flag.BoolVar(generate, "g", false, "Trigger LLM generation in pipe mode (shorthand)")
+	serverPort := flag.Int("server", 0, "Start visualization server on specified port")
+	flag.IntVar(serverPort, "s", 0, "Start server on port (shorthand)")
 
-	serverFlag := flag.Bool("server", false, "Start the web server for graph visualization")
-	flag.BoolVar(serverFlag, "s", false, "Start the web server (shorthand)")
-	serverPort := flag.Int("port", 8080, "Port for the web server")
+	noGen := flag.Bool("no-gen", false, "Disable automatic LLM generation when passing a message")
+	roleStr := flag.String("role", "", "Override role for the new node (user, assistant, system, tool)")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "🦉 Please: A DAG-based TUI for branching LLM conversations.\n\n")
-		fmt.Fprintf(os.Stderr, "Usage: please [options]\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: please [options] [message...]\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
-		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "  -c, --chat          Start the TUI chat interface\n")
+		fmt.Fprintf(os.Stderr, "  -v, --vault <path>  Path to a custom vault file\n")
+		fmt.Fprintf(os.Stderr, "  -p, --parent <id>   Parent node ID for new message\n")
+		fmt.Fprintf(os.Stderr, "  -j, --jump <id>     Node ID to jump to in interactive mode\n")
+		fmt.Fprintf(os.Stderr, "  -s, --server <port> Start visualization server on port\n")
+		fmt.Fprintf(os.Stderr, "      --no-gen        Disable auto-generation when passing a message\n")
+		fmt.Fprintf(os.Stderr, "      --role <role>   Override role (user, tool, system, assistant)\n")
 		fmt.Fprintf(os.Stderr, "\nCommands inside the TUI:\n")
 		fmt.Fprintf(os.Stderr, "  /help    Show internal command list\n")
 		fmt.Fprintf(os.Stderr, "  /map     Visualize conversation branches\n")
@@ -54,11 +54,6 @@ func main() {
 
 	flag.Parse()
 
-	if !*chatFlag && !*pipeMode && !*serverFlag {
-		flag.Usage()
-		os.Exit(0)
-	}
-
 	// Load Configuration
 	cfg, err := engine.LoadConfig()
 	if err != nil {
@@ -66,7 +61,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Initialize Storage based on config or flag
+	// Initialize Storage
 	finalVaultPath := cfg.VaultPath
 	if *vaultPath != "" {
 		finalVaultPath = *vaultPath
@@ -81,7 +76,6 @@ func main() {
 
 	var storage engine.Storage
 	if storageType == "sqlite" {
-		var err error
 		storage, err = engine.NewSQLiteStorage(finalVaultPath)
 		if err != nil {
 			fmt.Printf("Error initializing sqlite storage: %v\n", err)
@@ -97,45 +91,42 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Initialize LLM Provider using settings from config
 	provider := engine.NewOllamaProvider(cfg.Endpoint, cfg.Model)
 	mgr := engine.NewManager(graph, storage)
-
-	// Initialize Web Server
 	webServer := server.NewServer(mgr)
-	if *serverFlag {
-		if err := webServer.Start(*serverPort); err != nil {
-			fmt.Printf("Error starting web server: %v\n", err)
-			os.Exit(1)
+
+	// Determine if we have a message from args or stdin
+	var content string
+	var inferredRole engine.Role = engine.RoleUser
+
+	if flag.NArg() > 0 {
+		content = strings.Join(flag.Args(), " ")
+		inferredRole = engine.RoleUser
+	} else {
+		stat, _ := os.Stdin.Stat()
+		if (stat.Mode() & os.ModeCharDevice) == 0 {
+			// Data is being piped in
+			bytes, err := io.ReadAll(os.Stdin)
+			if err == nil {
+				content = strings.TrimSpace(string(bytes))
+				inferredRole = engine.RoleTool // Piped input defaults to tool role
+			}
 		}
-		fmt.Printf("Web server started on http://localhost:%d\n", *serverPort)
 	}
 
-	if *pipeMode {
-		content := *message
-		if content == "" {
-			// Read from Stdin if message flag is empty
-			stdinContent, err := io.ReadAll(os.Stdin)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error reading from stdin: %v\n", err)
-				os.Exit(1)
-			}
-			content = strings.TrimSpace(string(stdinContent))
-		}
+	// If explicit role is provided, use it
+	if *roleStr != "" {
+		inferredRole = engine.Role(*roleStr)
+	}
 
-		if content == "" {
-			fmt.Fprintf(os.Stderr, "Error: No message content provided via -m or stdin\n")
-			os.Exit(1)
-		}
-
+	// Handle Message Mode
+	if content != "" {
 		parentID := *parent
 		if parentID == "" {
 			parentID = lastID
 		}
 
-		// Validate role
-		role := engine.Role(*roleStr)
-		newNode, err := mgr.CreateNode(parentID, role, content)
+		newNode, err := mgr.CreateNode(parentID, inferredRole, content)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating node: %v\n", err)
 			os.Exit(1)
@@ -143,7 +134,7 @@ func main() {
 
 		finalID := newNode.ID
 
-		if *generate {
+		if !*noGen {
 			path, err := mgr.GetPath(finalID)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error getting path for generation: %v\n", err)
@@ -176,7 +167,16 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Initialize TUI Model
+	// Handle Server
+	if *serverPort > 0 {
+		if err := webServer.Start(*serverPort); err != nil {
+			fmt.Printf("Error starting web server: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Web server started on http://localhost:%d\n", *serverPort)
+	}
+
+	// Start TUI
 	startID := lastID
 	if *jumpID != "" {
 		startID = *jumpID
@@ -184,10 +184,7 @@ func main() {
 
 	m := tui.NewModel(cfg, graph, storage, provider, startID)
 	m.Server = webServer
-	mPtr := &m
-
-	// Start Bubble Tea
-	p := tea.NewProgram(mPtr)
+	p := tea.NewProgram(&m)
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Alas, there was an error running the TUI: %v", err)
 		os.Exit(1)
