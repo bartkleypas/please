@@ -48,7 +48,8 @@ func (m *Model) updateViewportWithStreaming() {
 	if wrapWidth <= 0 {
 		wrapWidth = 80
 	}
-	wrappedContent := wrapText(m.CurrentStreamingContent, wrapWidth)
+	cleanContent := ScrubThought(m.CurrentStreamingContent)
+	wrappedContent := wrapText(cleanContent, wrapWidth)
 
 	line := fmt.Sprintf("%s:\n%s\n", botStyle.Render(string(engine.RoleAssistant)), wrappedContent)
 	m.Viewport.SetContent(m.ChatHistoryBuffer + line)

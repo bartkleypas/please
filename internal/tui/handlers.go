@@ -365,7 +365,8 @@ func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, te
 		return m, nil
 	}
 
-	botNode, err := m.Manager.CreateAssistantNode(msg.parentID, m.CurrentStreamingContent, msg.toolCalls)
+	cleanContent := ScrubThought(m.CurrentStreamingContent)
+	botNode, err := m.Manager.CreateAssistantNode(msg.parentID, cleanContent, msg.toolCalls)
 	if err != nil {
 		m.Notification = fmt.Sprintf("Error: %v", err)
 		m.CurrentStreamingContent = ""
@@ -517,7 +518,8 @@ func (m *Model) handleLLMResponse(msg llmResponseMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	assistantNode, err := m.Manager.CreateAssistantNode(msg.parentID, msg.message.Content, msg.message.ToolCalls)
+	cleanContent := ScrubThought(msg.message.Content)
+	assistantNode, err := m.Manager.CreateAssistantNode(msg.parentID, cleanContent, msg.message.ToolCalls)
 	if err != nil {
 		m.Notification = fmt.Sprintf("Error: %v", err)
 		return m, nil

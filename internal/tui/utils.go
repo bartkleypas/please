@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -66,4 +67,11 @@ func wrapText(text string, width int) string {
 	}
 
 	return wrapped.String()
+}
+
+var thoughtRegex = regexp.MustCompile(`(?s)<thought>.*?</thought>`)
+
+// ScrubThought removes <thought> tags and their contents from a string
+func ScrubThought(content string) string {
+	return strings.TrimSpace(thoughtRegex.ReplaceAllString(content, ""))
 }
