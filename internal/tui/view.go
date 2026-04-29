@@ -63,8 +63,17 @@ func (m Model) View() string {
 		s += "\n" + botStyle.Render(fmt.Sprintf("%s Thinking...", spinner)) + "\n"
 	}
 
-	s += "\n\n" + inputBoxStyle.Render(m.TextInput.View())
-	s += "\n\n(/q, /quit, or /bye to exit)" // Updated hint
+	// Footer Rendering
+	if m.ViewMode == ModeMap {
+		if m.Searching {
+			s += "\n\n" + inputBoxStyle.Render(m.SearchInput.View())
+		} else if !m.AwaitingPruneConfirmation {
+			s += "\n\n" + helpStyle.Render("h/l: fold/unfold • j/k: move • g/G: top/end • /: search • d: prune • esc: chat")
+		}
+	} else {
+		s += "\n\n" + inputBoxStyle.Render(m.TextInput.View())
+		s += "\n\n" + helpStyle.Render("(/q to exit • /map for graph • /help for more)")
+	}
 
 	return s
 }
