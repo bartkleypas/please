@@ -32,13 +32,14 @@ func NewManager(g *Graph, s Storage) *Manager {
 
 // CreateNode handles the full lifecycle of creating a new node:
 // ID generation, graph insertion, and persistence.
-func (m *Manager) CreateNode(parentID string, role Role, content string) (*Node, error) {
+func (m *Manager) CreateNode(parentID string, role Role, content string, internal bool) (*Node, error) {
 	node := &Node{
 		ID:        uuid.NewString(),
 		ParentID:  parentID,
 		Role:      role,
 		Content:   content,
 		Timestamp: time.Now(),
+		Internal:  internal,
 	}
 
 	m.Graph.AddNode(node)
@@ -50,7 +51,7 @@ func (m *Manager) CreateNode(parentID string, role Role, content string) (*Node,
 }
 
 // CreateAssistantNode creates a node for the assistant, potentially containing tool calls and reasoning
-func (m *Manager) CreateAssistantNode(parentID string, content string, thought string, toolCalls []ToolCall) (*Node, error) {
+func (m *Manager) CreateAssistantNode(parentID string, content string, thought string, toolCalls []ToolCall, internal bool) (*Node, error) {
 	node := &Node{
 		ID:        uuid.NewString(),
 		ParentID:  parentID,
@@ -59,6 +60,7 @@ func (m *Manager) CreateAssistantNode(parentID string, content string, thought s
 		Thought:   thought,
 		Timestamp: time.Now(),
 		ToolCalls: toolCalls,
+		Internal:  internal,
 	}
 
 	m.Graph.AddNode(node)
@@ -70,7 +72,7 @@ func (m *Manager) CreateAssistantNode(parentID string, content string, thought s
 }
 
 // CreateToolNode creates a node containing the result of a tool execution
-func (m *Manager) CreateToolNode(parentID string, toolCallID string, content string) (*Node, error) {
+func (m *Manager) CreateToolNode(parentID string, toolCallID string, content string, internal bool) (*Node, error) {
 	node := &Node{
 		ID:         uuid.NewString(),
 		ParentID:   parentID,
@@ -78,6 +80,7 @@ func (m *Manager) CreateToolNode(parentID string, toolCallID string, content str
 		Content:    content,
 		Timestamp:  time.Now(),
 		ToolCallID: toolCallID,
+		Internal:   internal,
 	}
 
 	m.Graph.AddNode(node)

@@ -42,6 +42,8 @@ type Model struct {
 	CurrentStreamingContent string
 	// CurrentStreamingThought stores the reasoning currently being streamed
 	CurrentStreamingThought string
+	CurrentShadowID         string
+	InReasoningShell        bool
 	StreamContentChan       <-chan string
 	StreamThoughtChan       <-chan string
 	StreamToolCallChan      <-chan []engine.ToolCall

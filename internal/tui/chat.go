@@ -109,6 +109,9 @@ func (m *Model) updateViewportContent() {
 		s.WriteString("Welcome to Please. Start typing to begin the story...\n")
 	} else {
 		for _, node := range path {
+			if node.Internal {
+				continue
+			}
 			s.WriteString(m.renderNode(node))
 		}
 	}

@@ -29,4 +29,7 @@ type Node struct {
 
 	// Deletion state
 	Deleted bool `json:"deleted,omitempty"`
+
+	// Internal state (for reasoning/shadow branches)
+	Internal bool `json:"internal,omitempty"`
 }

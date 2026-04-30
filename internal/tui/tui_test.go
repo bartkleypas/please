@@ -109,13 +109,25 @@ func TestThoughtStreaming(t *testing.T) {
 	// 5. Finish stream
 	m, _ = updateModel(m, llmStreamFinishedMsg{parentID: userID})
 
-	// 6. Verify persistence
-	node, _ := m.Manager.GetNode(m.CurrentID)
-	if node.Thought != "Thinking..." {
-		t.Errorf("Expected saved thought 'Thinking...', got '%s'", node.Thought)
+	// 6. Verify persistence in the Shadow Branch
+	// The path should now be: User -> Thought (Internal) -> Assistant
+	path, _ := m.Manager.GetPath(m.CurrentID)
+	
+	foundThought := false
+	for _, node := range path {
+		if node.Internal && node.Content == "Thinking..." {
+			foundThought = true
+			break
+		}
 	}
-	if node.Content != "Hi!" {
-		t.Errorf("Expected saved content 'Hi!', got '%s'", node.Content)
+
+	if !foundThought {
+		t.Errorf("Expected to find internal thought node with 'Thinking...' in the path")
+	}
+
+	finalNode, _ := m.Manager.GetNode(m.CurrentID)
+	if finalNode.Content != "Hi!" {
+		t.Errorf("Expected saved content 'Hi!', got '%s'", finalNode.Content)
 	}
 }
 

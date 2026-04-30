@@ -126,7 +126,7 @@ func main() {
 			parentID = lastID
 		}
 
-		newNode, err := mgr.CreateNode(parentID, inferredRole, content)
+		newNode, err := mgr.CreateNode(parentID, inferredRole, content, false)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating node: %v\n", err)
 			os.Exit(1)
@@ -144,8 +144,9 @@ func main() {
 			var messages []engine.Message
 			for _, n := range path {
 				messages = append(messages, engine.Message{
-					Role:    n.Role,
-					Content: n.Content,
+					Role:     n.Role,
+					Content:  n.Content,
+					Internal: n.Internal,
 				})
 			}
 
@@ -155,7 +156,7 @@ func main() {
 				os.Exit(1)
 			}
 
-			assistantNode, err := mgr.CreateAssistantNode(finalID, resp.Content, resp.Thought, resp.ToolCalls)
+			assistantNode, err := mgr.CreateAssistantNode(finalID, resp.Content, resp.Thought, resp.ToolCalls, false)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error saving assistant node: %v\n", err)
 				os.Exit(1)

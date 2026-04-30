@@ -17,6 +17,7 @@ type Message struct {
 	Thought    string     `json:"thought,omitempty"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Internal   bool       `json:"internal,omitempty"`
 }
 
 // LLMProvider defines the interface for interacting with different AI backends
@@ -297,7 +298,10 @@ func prepareOllamaMessages(messages []Message) []Message {
 	prepared := make([]Message, len(messages))
 	for i, m := range messages {
 		prepared[i] = m
-		if m.Thought != "" {
+		if m.Internal {
+			prepared[i].Content = "<thought>\n" + m.Content + "\n</thought>"
+		} else if m.Thought != "" {
+			// Legacy/Summary support
 			prepared[i].Content = "<thought>\n" + m.Thought + "\n</thought>\n\n" + m.Content
 		}
 	}

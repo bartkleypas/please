@@ -48,7 +48,8 @@ func NewSQLiteStorage(path string) (*SQLiteStorage, error) {
 		tool_calls TEXT,
 		tool_call_id TEXT,
 		metadata TEXT,
-		deleted BOOLEAN DEFAULT 0
+		deleted BOOLEAN DEFAULT 0,
+		internal BOOLEAN DEFAULT 0
 	);
 	`
 	if _, err := db.Exec(query); err != nil {
@@ -58,6 +59,7 @@ func NewSQLiteStorage(path string) (*SQLiteStorage, error) {
 	// Migrations: Add missing columns if they don't exist
 	_, _ = db.Exec("ALTER TABLE nodes ADD COLUMN deleted BOOLEAN DEFAULT 0")
 	_, _ = db.Exec("ALTER TABLE nodes ADD COLUMN thought TEXT")
+	_, _ = db.Exec("ALTER TABLE nodes ADD COLUMN internal BOOLEAN DEFAULT 0")
 
 	return s, nil
 }
@@ -97,8 +99,8 @@ func (s *SQLiteStorage) SaveNode(node *Node) error {
 	}
 
 	query := `
-	INSERT INTO nodes (id, parent_id, role, content, thought, timestamp, tool_calls, tool_call_id, metadata, deleted)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	INSERT INTO nodes (id, parent_id, role, content, thought, timestamp, tool_calls, tool_call_id, metadata, deleted, internal)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err = s.db.Exec(query,
@@ -112,6 +114,7 @@ func (s *SQLiteStorage) SaveNode(node *Node) error {
 		node.ToolCallID,
 		string(metadataJSON),
 		node.Deleted,
+		node.Internal,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to insert node into sqlite: %w", err)
@@ -164,7 +167,7 @@ func (s *SQLiteStorage) UpdateNodeParentID(nodeID, newParentID string) error {
 
 // LoadGraph reads all nodes from the SQLite database and reconstructs the Graph.
 func (s *SQLiteStorage) LoadGraph() (*Graph, string, error) {
-	query := `SELECT id, parent_id, role, content, thought, timestamp, tool_calls, tool_call_id, metadata, deleted FROM nodes ORDER BY timestamp ASC`
+	query := `SELECT id, parent_id, role, content, thought, timestamp, tool_calls, tool_call_id, metadata, deleted, internal FROM nodes ORDER BY timestamp ASC`
 	rows, err := s.db.Query(query)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to query nodes from sqlite: %w", err)
@@ -190,6 +193,7 @@ func (s *SQLiteStorage) LoadGraph() (*Graph, string, error) {
 			&node.ToolCallID,
 			&metadataJSON,
 			&node.Deleted,
+			&node.Internal,
 		)
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to scan node from sqlite: %w", err)

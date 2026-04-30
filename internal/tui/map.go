@@ -81,6 +81,17 @@ func (m *Model) renderMap(s *strings.Builder, nodeID string, indent string, isLa
 		return
 	}
 
+	// Filter out internal nodes unless we are searching
+	if node.Internal && m.SearchQuery == "" {
+		// Even if we hide the node, we still want to visit its children
+		children := m.Manager.GetChildren(node.ID)
+		for i, child := range children {
+			isLastChild := i == len(children)-1
+			m.renderMap(s, child.ID, indent, isLastChild, activityCache)
+		}
+		return
+	}
+
 	// Filter by search query if present
 	matchesSearch := true
 	if m.SearchQuery != "" {
