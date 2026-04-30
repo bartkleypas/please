@@ -63,6 +63,16 @@
         .role-assistant { color: #4ade80; }
         .role-tool { color: #c084fc; }
         
+        .thought {
+            font-size: 0.85rem;
+            font-style: italic;
+            color: #64748b;
+            margin-bottom: 10px;
+            padding-left: 12px;
+            border-left: 2px solid #334155;
+            white-space: pre-wrap;
+        }
+
         .content {
             font-size: 0.95rem;
             line-height: 1.5;
@@ -186,11 +196,19 @@
                 header.appendChild(bookmark);
             }
 
+            nodeDiv.appendChild(header);
+
+            if (node.thought) {
+                const thought = document.createElement('div');
+                thought.className = 'thought';
+                thought.innerText = node.thought;
+                nodeDiv.appendChild(thought);
+            }
+
             const content = document.createElement('div');
             content.className = 'content';
             content.innerText = node.content;
 
-            nodeDiv.appendChild(header);
             nodeDiv.appendChild(content);
 
             const childrenIDs = graph.Children[node.id] || [];

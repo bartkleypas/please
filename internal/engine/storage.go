@@ -43,6 +43,7 @@ func NewSQLiteStorage(path string) (*SQLiteStorage, error) {
 		parent_id TEXT,
 		role TEXT,
 		content TEXT,
+		thought TEXT,
 		timestamp DATETIME,
 		tool_calls TEXT,
 		tool_call_id TEXT,
@@ -54,8 +55,9 @@ func NewSQLiteStorage(path string) (*SQLiteStorage, error) {
 		return nil, fmt.Errorf("failed to initialize sqlite schema: %w", err)
 	}
 
-	// Migration: Add deleted column if it doesn't exist (ignoring errors if it does)
+	// Migrations: Add missing columns if they don't exist
 	_, _ = db.Exec("ALTER TABLE nodes ADD COLUMN deleted BOOLEAN DEFAULT 0")
+	_, _ = db.Exec("ALTER TABLE nodes ADD COLUMN thought TEXT")
 
 	return s, nil
 }
@@ -95,8 +97,8 @@ func (s *SQLiteStorage) SaveNode(node *Node) error {
 	}
 
 	query := `
-	INSERT INTO nodes (id, parent_id, role, content, timestamp, tool_calls, tool_call_id, metadata, deleted)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	INSERT INTO nodes (id, parent_id, role, content, thought, timestamp, tool_calls, tool_call_id, metadata, deleted)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err = s.db.Exec(query,
@@ -104,6 +106,7 @@ func (s *SQLiteStorage) SaveNode(node *Node) error {
 		node.ParentID,
 		string(node.Role),
 		node.Content,
+		node.Thought,
 		node.Timestamp,
 		string(toolCallsJSON),
 		node.ToolCallID,
@@ -161,7 +164,7 @@ func (s *SQLiteStorage) UpdateNodeParentID(nodeID, newParentID string) error {
 
 // LoadGraph reads all nodes from the SQLite database and reconstructs the Graph.
 func (s *SQLiteStorage) LoadGraph() (*Graph, string, error) {
-	query := `SELECT id, parent_id, role, content, timestamp, tool_calls, tool_call_id, metadata, deleted FROM nodes ORDER BY timestamp ASC`
+	query := `SELECT id, parent_id, role, content, thought, timestamp, tool_calls, tool_call_id, metadata, deleted FROM nodes ORDER BY timestamp ASC`
 	rows, err := s.db.Query(query)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to query nodes from sqlite: %w", err)
@@ -174,12 +177,14 @@ func (s *SQLiteStorage) LoadGraph() (*Graph, string, error) {
 	for rows.Next() {
 		var node Node
 		var roleStr, toolCallsJSON, metadataJSON string
+		var thought sql.NullString
 
 		err := rows.Scan(
 			&node.ID,
 			&node.ParentID,
 			&roleStr,
 			&node.Content,
+			&thought,
 			&node.Timestamp,
 			&toolCallsJSON,
 			&node.ToolCallID,
@@ -194,6 +199,7 @@ func (s *SQLiteStorage) LoadGraph() (*Graph, string, error) {
 			continue // Skip soft-deleted nodes
 		}
 
+		node.Thought = thought.String
 		node.Role = Role(roleStr)
 		if err := json.Unmarshal([]byte(toolCallsJSON), &node.ToolCalls); err != nil {
 			return nil, "", fmt.Errorf("failed to unmarshal tool calls from sqlite: %w", err)

@@ -74,6 +74,51 @@ func TestUpdateStateTransitions(t *testing.T) {
 	}
 }
 
+func TestThoughtStreaming(t *testing.T) {
+	tmpDir, _ := os.MkdirTemp("", "please-test-thought")
+	defer os.RemoveAll(tmpDir)
+	dbPath := filepath.Join(tmpDir, "vault.db")
+
+	storage, _ := engine.NewSQLiteStorage(dbPath)
+	graph := engine.NewGraph()
+	mockProvider := &engine.MockLLMProvider{}
+	cfg := &engine.Config{}
+	m := NewModel(cfg, graph, storage, mockProvider, "")
+
+	// 1. Setup - Create root node
+	m.TextInput.SetValue("System prompt")
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	// 2. User Message
+	m.TextInput.SetValue("Hello")
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+	userID := m.CurrentID
+
+	// 3. Thought stream
+	m, _ = updateModel(m, llmThoughtStreamMsg{thought: "Thinking...", parentID: userID})
+	if m.CurrentStreamingThought != "Thinking..." {
+		t.Errorf("Expected streaming thought 'Thinking...', got '%s'", m.CurrentStreamingThought)
+	}
+
+	// 4. Content stream
+	m, _ = updateModel(m, llmStreamMsg{content: "Hi!", parentID: userID})
+	if m.CurrentStreamingContent != "Hi!" {
+		t.Errorf("Expected streaming content 'Hi!', got '%s'", m.CurrentStreamingContent)
+	}
+
+	// 5. Finish stream
+	m, _ = updateModel(m, llmStreamFinishedMsg{parentID: userID})
+
+	// 6. Verify persistence
+	node, _ := m.Manager.GetNode(m.CurrentID)
+	if node.Thought != "Thinking..." {
+		t.Errorf("Expected saved thought 'Thinking...', got '%s'", node.Thought)
+	}
+	if node.Content != "Hi!" {
+		t.Errorf("Expected saved content 'Hi!', got '%s'", node.Content)
+	}
+}
+
 func TestHandleCommand(t *testing.T) {
 	storage := engine.NewJSONLStorage(":memory:")
 	graph := engine.NewGraph()
