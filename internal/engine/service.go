@@ -49,13 +49,14 @@ func (m *Manager) CreateNode(parentID string, role Role, content string) (*Node,
 	return node, nil
 }
 
-// CreateAssistantNode creates a node for the assistant, potentially containing tool calls
-func (m *Manager) CreateAssistantNode(parentID string, content string, toolCalls []ToolCall) (*Node, error) {
+// CreateAssistantNode creates a node for the assistant, potentially containing tool calls and reasoning
+func (m *Manager) CreateAssistantNode(parentID string, content string, thought string, toolCalls []ToolCall) (*Node, error) {
 	node := &Node{
 		ID:        uuid.NewString(),
 		ParentID:  parentID,
 		Role:      RoleAssistant,
 		Content:   content,
+		Thought:   thought,
 		Timestamp: time.Now(),
 		ToolCalls: toolCalls,
 	}

@@ -12,6 +12,7 @@ var (
 	warningStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#fb7185"))
 	helpStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#4b7a63")).Italic(true)
 	highlightStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#0d1b15")).Background(lipgloss.Color("#4ade80")).Bold(true)
+	thoughtStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#64748b")).Italic(true)
 	historyBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(lipgloss.Color("#2d5a45")).

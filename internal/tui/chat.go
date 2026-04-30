@@ -17,6 +17,13 @@ func (m *Model) renderNode(node *engine.Node) string {
 		wrapWidth = 80
 	}
 
+	var s strings.Builder
+	s.WriteString(roleStyle.Render(prefix) + ":\n")
+
+	if node.Thought != "" {
+		s.WriteString(thoughtStyle.Render(wrapText(node.Thought, wrapWidth)) + "\n")
+	}
+
 	content := node.Content
 	if node.Role == engine.RoleAssistant && len(node.ToolCalls) > 0 {
 		var toolStrings []string
@@ -31,8 +38,11 @@ func (m *Model) renderNode(node *engine.Node) string {
 		content = fmt.Sprintf("[Tool Result (%s)]: %s", node.ToolCallID, content)
 	}
 
-	wrappedContent := wrapText(content, wrapWidth)
-	return fmt.Sprintf("%s:\n%s\n", roleStyle.Render(prefix), wrappedContent)
+	if content != "" {
+		s.WriteString(wrapText(content, wrapWidth) + "\n")
+	}
+
+	return s.String()
 }
 
 func (m *Model) updateViewportWithNode(node *engine.Node) {
@@ -48,11 +58,19 @@ func (m *Model) updateViewportWithStreaming() {
 	if wrapWidth <= 0 {
 		wrapWidth = 80
 	}
-	cleanContent := ScrubThought(m.CurrentStreamingContent)
-	wrappedContent := wrapText(cleanContent, wrapWidth)
 
-	line := fmt.Sprintf("%s:\n%s\n", botStyle.Render(string(engine.RoleAssistant)), wrappedContent)
-	m.Viewport.SetContent(m.ChatHistoryBuffer + line)
+	var s strings.Builder
+	s.WriteString(botStyle.Render(string(engine.RoleAssistant)) + ":\n")
+
+	if m.CurrentStreamingThought != "" {
+		s.WriteString(thoughtStyle.Render(wrapText(m.CurrentStreamingThought, wrapWidth)) + "\n")
+	}
+
+	if m.CurrentStreamingContent != "" {
+		s.WriteString(wrapText(m.CurrentStreamingContent, wrapWidth) + "\n")
+	}
+
+	m.Viewport.SetContent(m.ChatHistoryBuffer + s.String())
 	m.Viewport.GotoBottom()
 }
 

@@ -13,16 +13,24 @@ type llmStreamMsg struct {
 	parentID string
 }
 
+// llmThoughtStreamMsg is sent for each chunk of reasoning in a streaming response
+type llmThoughtStreamMsg struct {
+	thought  string
+	parentID string
+}
+
 // llmStreamFinishedMsg is sent when a streaming response completes
 type llmStreamFinishedMsg struct {
 	err       error
 	parentID  string
+	thought   string
 	toolCalls []engine.ToolCall
 }
 
 // streamResponseMsg is sent to initialize the streaming channels in the model
 type streamResponseMsg struct {
 	contentChan  <-chan string
+	thoughtChan  <-chan string
 	toolCallChan <-chan []engine.ToolCall
 	errChan      <-chan error
 	parentID     string

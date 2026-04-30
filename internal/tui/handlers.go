@@ -12,10 +12,11 @@ import (
 
 func (m *Model) handleStreamResponse(streamMsg streamResponseMsg) (tea.Model, tea.Cmd) {
 	m.StreamContentChan = streamMsg.contentChan
+	m.StreamThoughtChan = streamMsg.thoughtChan
 	m.StreamToolCallChan = streamMsg.toolCallChan
 	m.StreamErrChan = streamMsg.errChan
 	return m, tea.Batch(
-		waitForStream(m.StreamContentChan, m.StreamToolCallChan, m.StreamErrChan, streamMsg.parentID),
+		waitForStream(m.StreamContentChan, m.StreamThoughtChan, m.StreamToolCallChan, m.StreamErrChan, streamMsg.parentID),
 		tick(),
 	)
 }
@@ -336,6 +337,7 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 		messages = append(messages, engine.Message{
 			Role:    node.Role,
 			Content: node.Content,
+			Thought: node.Thought,
 		})
 	}
 
@@ -353,7 +355,15 @@ func (m *Model) handleLLMStream(msg llmStreamMsg) (tea.Model, tea.Cmd) {
 	m.IsThinking = true
 	m.CurrentStreamingContent += msg.content
 	m.updateViewportWithStreaming()
-	return m, waitForStream(m.StreamContentChan, m.StreamToolCallChan, m.StreamErrChan, msg.parentID)
+	return m, waitForStream(m.StreamContentChan, m.StreamThoughtChan, m.StreamToolCallChan, m.StreamErrChan, msg.parentID)
+}
+
+// handleLLMThoughtStream appends incoming reasoning chunks to the streaming thought buffer.
+func (m *Model) handleLLMThoughtStream(msg llmThoughtStreamMsg) (tea.Model, tea.Cmd) {
+	m.IsThinking = true
+	m.CurrentStreamingThought += msg.thought
+	m.updateViewportWithStreaming()
+	return m, waitForStream(m.StreamContentChan, m.StreamThoughtChan, m.StreamToolCallChan, m.StreamErrChan, msg.parentID)
 }
 
 // handleLLMStreamFinished commits the full streamed response to the graph as a new node.
@@ -362,20 +372,24 @@ func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, te
 	if msg.err != nil {
 		m.Notification = fmt.Sprintf("Error: %v", msg.err)
 		m.CurrentStreamingContent = ""
+		m.CurrentStreamingThought = ""
 		return m, nil
 	}
 
-	cleanContent := ScrubThought(m.CurrentStreamingContent)
-	botNode, err := m.Manager.CreateAssistantNode(msg.parentID, cleanContent, msg.toolCalls)
+	// Create assistant node with structural separation of thoughts
+	botNode, err := m.Manager.CreateAssistantNode(msg.parentID, m.CurrentStreamingContent, m.CurrentStreamingThought, msg.toolCalls)
 	if err != nil {
 		m.Notification = fmt.Sprintf("Error: %v", err)
 		m.CurrentStreamingContent = ""
+		m.CurrentStreamingThought = ""
 		return m, nil
 	}
+
 	m.CurrentID = botNode.ID
 	m.LastActivity = time.Now()
 	m.updateViewportContent() // Full refresh to show final formatted node
 	m.CurrentStreamingContent = ""
+	m.CurrentStreamingThought = ""
 
 	if len(msg.toolCalls) > 0 {
 		m.PendingToolCalls = msg.toolCalls
@@ -456,14 +470,16 @@ func (m *Model) executeToolsCmd() tea.Cmd {
 			messages = append(messages, engine.Message{
 				Role:       node.Role,
 				Content:    node.Content,
+				Thought:    node.Thought,
 				ToolCalls:  node.ToolCalls,
 				ToolCallID: node.ToolCallID,
 			})
 		}
 
-		contentChan, toolCallChan, errChan := m.Provider.GenerateResponseStream(ctx, messages, m.Manager.Registry.GetTools())
+		contentChan, thoughtChan, toolCallChan, errChan := m.Provider.GenerateResponseStream(ctx, messages, m.Manager.Registry.GetTools())
 		return streamResponseMsg{
 			contentChan:  contentChan,
+			thoughtChan:  thoughtChan,
 			toolCallChan: toolCallChan,
 			errChan:      errChan,
 			parentID:     lastNodeID,
@@ -495,14 +511,16 @@ func (m *Model) cancelToolsCmd() tea.Cmd {
 			messages = append(messages, engine.Message{
 				Role:       node.Role,
 				Content:    node.Content,
+				Thought:    node.Thought,
 				ToolCalls:  node.ToolCalls,
 				ToolCallID: node.ToolCallID,
 			})
 		}
 
-		contentChan, toolCallChan, errChan := m.Provider.GenerateResponseStream(context.Background(), messages, m.Manager.Registry.GetTools())
+		contentChan, thoughtChan, toolCallChan, errChan := m.Provider.GenerateResponseStream(context.Background(), messages, m.Manager.Registry.GetTools())
 		return streamResponseMsg{
 			contentChan:  contentChan,
+			thoughtChan:  thoughtChan,
 			toolCallChan: toolCallChan,
 			errChan:      errChan,
 			parentID:     lastNodeID,
@@ -518,8 +536,7 @@ func (m *Model) handleLLMResponse(msg llmResponseMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	cleanContent := ScrubThought(msg.message.Content)
-	assistantNode, err := m.Manager.CreateAssistantNode(msg.parentID, cleanContent, msg.message.ToolCalls)
+	assistantNode, err := m.Manager.CreateAssistantNode(msg.parentID, msg.message.Content, msg.message.Thought, msg.message.ToolCalls)
 	if err != nil {
 		m.Notification = fmt.Sprintf("Error: %v", err)
 		return m, nil

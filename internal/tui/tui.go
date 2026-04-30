@@ -20,6 +20,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKeyEvent(msg)
 	case llmStreamMsg:
 		return m.handleLLMStream(msg)
+	case llmThoughtStreamMsg:
+		return m.handleLLMThoughtStream(msg)
 	case llmStreamFinishedMsg:
 		return m.handleLLMStreamFinished(msg)
 	case streamResponseMsg:

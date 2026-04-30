@@ -155,7 +155,7 @@ func main() {
 				os.Exit(1)
 			}
 
-			assistantNode, err := mgr.CreateAssistantNode(finalID, resp.Content, resp.ToolCalls)
+			assistantNode, err := mgr.CreateAssistantNode(finalID, resp.Content, resp.Thought, resp.ToolCalls)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error saving assistant node: %v\n", err)
 				os.Exit(1)

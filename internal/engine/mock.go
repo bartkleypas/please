@@ -8,6 +8,7 @@ import (
 // MockLLMProvider allows us to control the LLM response in tests
 type MockLLMProvider struct {
 	ResponseContent string
+	ResponseThought string
 	ResponseErr     error
 	Delay           time.Duration
 }
@@ -29,17 +30,20 @@ func (m *MockLLMProvider) GenerateResponse(ctx context.Context, messages []Messa
 	return &Message{
 		Role:    RoleAssistant,
 		Content: m.ResponseContent,
+		Thought: m.ResponseThought,
 	}, nil
 }
 
 // GenerateResponseStream implements the LLMProvider interface for testing purposes
-func (m *MockLLMProvider) GenerateResponseStream(ctx context.Context, messages []Message, tools []Tool) (<-chan string, <-chan []ToolCall, <-chan error) {
+func (m *MockLLMProvider) GenerateResponseStream(ctx context.Context, messages []Message, tools []Tool) (<-chan string, <-chan string, <-chan []ToolCall, <-chan error) {
 	contentChan := make(chan string)
+	thoughtChan := make(chan string)
 	toolCallChan := make(chan []ToolCall, 1)
 	errChan := make(chan error, 1)
 
 	go func() {
 		defer close(contentChan)
+		defer close(thoughtChan)
 		defer close(toolCallChan)
 		defer close(errChan)
 
@@ -58,8 +62,11 @@ func (m *MockLLMProvider) GenerateResponseStream(ctx context.Context, messages [
 		}
 
 		// Send content in a single chunk for simplicity in mock
+		if m.ResponseThought != "" {
+			thoughtChan <- m.ResponseThought
+		}
 		contentChan <- m.ResponseContent
 	}()
 
-	return contentChan, toolCallChan, errChan
+	return contentChan, thoughtChan, toolCallChan, errChan
 }

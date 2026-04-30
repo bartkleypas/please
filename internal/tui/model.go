@@ -40,7 +40,10 @@ type Model struct {
 	ChatHistoryBuffer string
 	// CurrentStreamingContent stores the content of the message currently being streamed
 	CurrentStreamingContent string
+	// CurrentStreamingThought stores the reasoning currently being streamed
+	CurrentStreamingThought string
 	StreamContentChan       <-chan string
+	StreamThoughtChan       <-chan string
 	StreamToolCallChan      <-chan []engine.ToolCall
 	StreamErrChan           <-chan error
 

@@ -19,6 +19,7 @@ type Node struct {
 	ParentID  string            `json:"parent_id"` // Empty if root
 	Role      Role              `json:"role"`
 	Content   string            `json:"content"`
+	Thought   string            `json:"thought,omitempty"`
 	Timestamp time.Time         `json:"timestamp"`
 	Metadata  map[string]string `json:"metadata,omitempty"`
 
