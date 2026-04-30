@@ -78,7 +78,7 @@ func (o *OllamaProvider) GenerateResponse(ctx context.Context, messages []Messag
 
 	reqBody := ollamaRequest{
 		Model:    o.Model,
-		Messages: messages,
+		Messages: prepareOllamaMessages(messages),
 		Stream:   false,
 		Tools:    oTools,
 	}
@@ -168,7 +168,7 @@ func (o *OllamaProvider) GenerateResponseStream(ctx context.Context, messages []
 
 		reqBody := ollamaRequest{
 			Model:    o.Model,
-			Messages: messages,
+			Messages: prepareOllamaMessages(messages),
 			Stream:   true,
 			Tools:    oTools,
 		}
@@ -289,4 +289,17 @@ func (s *streamSplitter) flush() {
 		s.contentChan <- s.buffer
 	}
 	s.buffer = ""
+}
+
+// prepareOllamaMessages re-injects thoughts into the content field for the Ollama API,
+// ensuring the model maintains its internal monologue across tool-call boundaries.
+func prepareOllamaMessages(messages []Message) []Message {
+	prepared := make([]Message, len(messages))
+	for i, m := range messages {
+		prepared[i] = m
+		if m.Thought != "" {
+			prepared[i].Content = "<thought>\n" + m.Thought + "\n</thought>\n\n" + m.Content
+		}
+	}
+	return prepared
 }
