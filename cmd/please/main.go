@@ -144,9 +144,12 @@ func main() {
 			var messages []engine.Message
 			for _, n := range path {
 				messages = append(messages, engine.Message{
-					Role:     n.Role,
-					Content:  n.Content,
-					Internal: n.Internal,
+					Role:       n.Role,
+					Content:    n.Content,
+					Thought:    n.Thought,
+					ToolCalls:  n.ToolCalls,
+					ToolCallID: n.ToolCallID,
+					Internal:   n.Internal,
 				})
 			}
 

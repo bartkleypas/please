@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"org.kleypas.please/internal/engine"
@@ -357,10 +358,12 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 	var messages []engine.Message
 	for _, node := range path {
 		messages = append(messages, engine.Message{
-			Role:     node.Role,
-			Content:  node.Content,
-			Thought:  node.Thought,
-			Internal: node.Internal,
+			Role:       node.Role,
+			Content:    node.Content,
+			Thought:    node.Thought,
+			ToolCalls:  node.ToolCalls,
+			ToolCallID: node.ToolCallID,
+			Internal:   node.Internal,
 		})
 	}
 
@@ -399,9 +402,17 @@ func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, te
 		return m, nil
 	}
 
+	toolCalls := msg.toolCalls
+	hasThought := strings.TrimSpace(m.CurrentStreamingThought) != ""
+
+	// Enforcement of the Min-Length Thought Buffer (Lore/REACT_OPTIMIZATION.md)
+	if len(toolCalls) > 0 && !hasThought {
+		toolCalls = nil // Strip tool calls to prevent "The Silent Actor" problem
+	}
+
 	// Create assistant node as child of the designated parent (preserving continuity)
 	// We now store the reasoning (thought) directly in the assistant node.
-	botNode, err := m.Manager.CreateAssistantNode(msg.parentID, m.CurrentStreamingContent, m.CurrentStreamingThought, msg.toolCalls, false)
+	botNode, err := m.Manager.CreateAssistantNode(msg.parentID, m.CurrentStreamingContent, m.CurrentStreamingThought, toolCalls, false)
 	if err != nil {
 		m.Notification = fmt.Sprintf("Error: %v", err)
 		m.CurrentStreamingContent = ""
@@ -415,8 +426,19 @@ func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, te
 	m.CurrentStreamingContent = ""
 	m.CurrentStreamingThought = ""
 
-	if len(msg.toolCalls) > 0 {
-		m.PendingToolCalls = msg.toolCalls
+	// If we stripped tool calls due to lack of reasoning, inject a nudge and re-trigger
+	if len(msg.toolCalls) > 0 && toolCalls == nil {
+		nudgeNode, err := m.Manager.CreateNode(botNode.ID, engine.RoleSystem, "Reasoning required before tool invocation.", true)
+		if err != nil {
+			m.Notification = fmt.Sprintf("Error: %v", err)
+			return m, nil
+		}
+		m.CurrentID = nudgeNode.ID
+		return m, m.resumeStreamCmd(nudgeNode.ID)
+	}
+
+	if len(toolCalls) > 0 {
+		m.PendingToolCalls = toolCalls
 
 		// Check if all tool calls are non-interactive
 		allNonInteractive := true

@@ -205,6 +205,7 @@ func (o *OllamaProvider) GenerateResponseStream(ctx context.Context, messages []
 		splitter := &streamSplitter{
 			thoughtChan: thoughtChan,
 			contentChan: contentChan,
+			toolChan:    toolCallChan,
 		}
 
 		for {
@@ -245,26 +246,42 @@ func (o *OllamaProvider) GenerateResponseStream(ctx context.Context, messages []
 type streamSplitter struct {
 	thoughtChan chan<- string
 	contentChan chan<- string
+	toolChan    chan<- []ToolCall
 	isThinking  bool
+	hasThought  bool
+	isCalling   bool
 	buffer      string
 }
 
 func (s *streamSplitter) process(chunk string) {
 	s.buffer += chunk
 	for {
-		if !s.isThinking {
-			idx := strings.Index(s.buffer, "<thought>")
-			if idx == -1 {
-				if len(s.buffer) > 9 {
-					s.contentChan <- s.buffer[:len(s.buffer)-9]
-					s.buffer = s.buffer[len(s.buffer)-9:]
+		if !s.isThinking && !s.isCalling {
+			// Check for thought start
+			tIdx := strings.Index(s.buffer, "<thought>")
+			// Check for tool call start
+			cIdx := strings.Index(s.buffer, "<tool_call>")
+
+			if tIdx == -1 && cIdx == -1 {
+				// No tags, send safe content
+				if len(s.buffer) > 11 { // Length of longest tag
+					s.contentChan <- s.buffer[:len(s.buffer)-11]
+					s.buffer = s.buffer[len(s.buffer)-11:]
 				}
 				return
 			}
-			s.contentChan <- s.buffer[:idx]
-			s.isThinking = true
-			s.buffer = s.buffer[idx+9:]
-		} else {
+
+			// Determine which tag comes first
+			if tIdx != -1 && (cIdx == -1 || tIdx < cIdx) {
+				s.contentChan <- s.buffer[:tIdx]
+				s.isThinking = true
+				s.buffer = s.buffer[tIdx+9:]
+			} else {
+				s.contentChan <- s.buffer[:cIdx]
+				s.isCalling = true
+				s.buffer = s.buffer[cIdx+11:]
+			}
+		} else if s.isThinking {
 			idx := strings.Index(s.buffer, "</thought>")
 			if idx == -1 {
 				if len(s.buffer) > 10 {
@@ -273,9 +290,25 @@ func (s *streamSplitter) process(chunk string) {
 				}
 				return
 			}
-			s.thoughtChan <- s.buffer[:idx]
+			thought := s.buffer[:idx]
+			s.thoughtChan <- thought
+			if strings.TrimSpace(thought) != "" {
+				s.hasThought = true
+			}
 			s.isThinking = false
 			s.buffer = s.buffer[idx+10:]
+		} else if s.isCalling {
+			idx := strings.Index(s.buffer, "</tool_call>")
+			if idx == -1 {
+				return // Wait for end of tag
+			}
+			callStr := s.buffer[:idx]
+			var call ToolCall
+			if err := json.Unmarshal([]byte(callStr), &call); err == nil {
+				s.toolChan <- []ToolCall{call}
+			}
+			s.isCalling = false
+			s.buffer = s.buffer[idx+12:]
 		}
 	}
 }
@@ -286,6 +319,14 @@ func (s *streamSplitter) flush() {
 	}
 	if s.isThinking {
 		s.thoughtChan <- s.buffer
+		if strings.TrimSpace(s.buffer) != "" {
+			s.hasThought = true
+		}
+	} else if s.isCalling {
+		var call ToolCall
+		if err := json.Unmarshal([]byte(s.buffer), &call); err == nil {
+			s.toolChan <- []ToolCall{call}
+		}
 	} else {
 		s.contentChan <- s.buffer
 	}
