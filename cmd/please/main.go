@@ -123,7 +123,12 @@ func main() {
 	if content != "" {
 		parentID := *parent
 		if parentID == "" {
-			parentID = lastID
+			if inferredRole == engine.RoleSystem {
+				// The Silicon Seed: Create a new narrative root for system prompts
+				parentID = ""
+			} else {
+				parentID = lastID
+			}
 		}
 
 		newNode, err := mgr.CreateNode(parentID, inferredRole, content, false)
