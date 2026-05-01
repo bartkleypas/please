@@ -210,6 +210,16 @@ func (m *Model) handleKeyEvent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					break
 				}
 			}
+		case "v":
+			m.AuditMode = !m.AuditMode
+			if m.AuditMode {
+				m.Notification = "Audit Mode enabled."
+			} else {
+				m.Notification = "Audit Mode disabled."
+			}
+			m.ViewportOverride = m.generateMapString()
+			m.Viewport.SetContent(m.ViewportOverride)
+			return m, nil
 		case "s":
 			// Sync/Refresh
 			m.ViewportOverride = m.generateMapString()
@@ -320,7 +330,6 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.CurrentID = newNode.ID
-	m.CurrentShadowID = newNode.ID // Start the shadow branch from the user node
 	m.updateViewportWithNode(newNode)
 
 	m.TextInput.Reset()
@@ -345,7 +354,6 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 
 	// Trigger asynchronous generation.
 	m.IsThinking = true
-	m.InReasoningShell = false // Reset shell state
 	return m, tea.Batch(
 		streamResponse(m.Provider, messages, m.Manager.Registry.GetTools(), newNode.ID),
 		tick(),
@@ -354,19 +362,6 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 
 // handleLLMStream appends incoming chunks to the streaming buffer and refreshes the view.
 func (m *Model) handleLLMStream(msg llmStreamMsg) (tea.Model, tea.Cmd) {
-	// If we were reasoning, and now we get content, we exit the reasoning shell
-	if m.InReasoningShell {
-		// Finalize the thought node if it has content
-		if m.CurrentStreamingThought != "" {
-			thoughtNode, err := m.Manager.CreateAssistantNode(m.CurrentShadowID, m.CurrentStreamingThought, "", nil, true)
-			if err == nil {
-				m.CurrentShadowID = thoughtNode.ID
-			}
-			m.CurrentStreamingThought = ""
-		}
-		m.InReasoningShell = false
-	}
-
 	// Keep IsThinking true while streaming to maintain the spinner/animation
 	m.IsThinking = true
 	m.CurrentStreamingContent += msg.content
@@ -377,7 +372,6 @@ func (m *Model) handleLLMStream(msg llmStreamMsg) (tea.Model, tea.Cmd) {
 // handleLLMThoughtStream appends incoming reasoning chunks to the streaming thought buffer.
 func (m *Model) handleLLMThoughtStream(msg llmThoughtStreamMsg) (tea.Model, tea.Cmd) {
 	m.IsThinking = true
-	m.InReasoningShell = true
 	m.CurrentStreamingThought += msg.thought
 	m.updateViewportWithStreaming()
 	return m, waitForStream(m.StreamContentChan, m.StreamThoughtChan, m.StreamToolCallChan, m.StreamErrChan, msg.parentID)
@@ -393,19 +387,9 @@ func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, te
 		return m, nil
 	}
 
-	// If we finished while in reasoning shell (e.g. tool call or end of thoughts),
-	// save the last thought block as an internal node.
-	if m.CurrentStreamingThought != "" {
-		thoughtNode, err := m.Manager.CreateAssistantNode(m.CurrentShadowID, m.CurrentStreamingThought, "", nil, true)
-		if err == nil {
-			m.CurrentShadowID = thoughtNode.ID
-		}
-		m.CurrentStreamingThought = ""
-	}
-
-	// Create assistant node as child of the last shadow node (preserving continuity)
-	// But it is NOT internal, so it shows up in the chat.
-	botNode, err := m.Manager.CreateAssistantNode(m.CurrentShadowID, m.CurrentStreamingContent, "", msg.toolCalls, false)
+	// Create assistant node as child of the designated parent (preserving continuity)
+	// We now store the reasoning (thought) directly in the assistant node.
+	botNode, err := m.Manager.CreateAssistantNode(msg.parentID, m.CurrentStreamingContent, m.CurrentStreamingThought, msg.toolCalls, false)
 	if err != nil {
 		m.Notification = fmt.Sprintf("Error: %v", err)
 		m.CurrentStreamingContent = ""
@@ -414,7 +398,6 @@ func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, te
 	}
 
 	m.CurrentID = botNode.ID
-	m.CurrentShadowID = botNode.ID
 	m.LastActivity = time.Now()
 	m.updateViewportContent() // Full refresh to show final formatted node
 	m.CurrentStreamingContent = ""
@@ -472,7 +455,7 @@ func (m *Model) handleSyncResult(msg syncResultMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) executeToolsCmd() tea.Cmd {
 	return func() tea.Msg {
-		var lastShadowID = m.CurrentShadowID
+		var lastNodeID = m.CurrentID // Use main narrative tail
 		ctx := context.Background()
 
 		for _, call := range m.PendingToolCalls {
@@ -481,18 +464,22 @@ func (m *Model) executeToolsCmd() tea.Cmd {
 				result = fmt.Sprintf("Error: %v", err)
 			}
 
-			// Tool results are INTERNAL
-			toolNode, err := m.Manager.CreateToolNode(lastShadowID, call.ID, result, true)
+			// Tool results are INTERNAL but in the main lineage
+			toolNode, err := m.Manager.CreateToolNode(lastNodeID, call.ID, result, true)
 			if err != nil {
-				return llmResponseMsg{err: fmt.Errorf("failed to create tool node: %w", err), parentID: lastShadowID}
+				return llmResponseMsg{err: fmt.Errorf("failed to create tool node: %w", err), parentID: lastNodeID}
 			}
-			lastShadowID = toolNode.ID
+			lastNodeID = toolNode.ID
 		}
 
-		// After all tools executed, trigger a new LLM response (streaming)
-		path, err := m.Manager.GetPath(lastShadowID)
+		// Update CurrentID to the last tool result so the next assistant response
+		// continues from this lineage.
+		// However, we need to return this state change.
+		// Since we're in a Cmd, we'll return a message that updates the model.
+		
+		path, err := m.Manager.GetPath(lastNodeID)
 		if err != nil {
-			return llmResponseMsg{err: err, parentID: lastShadowID}
+			return llmResponseMsg{err: err, parentID: lastNodeID}
 		}
 
 		var messages []engine.Message
@@ -505,7 +492,6 @@ func (m *Model) executeToolsCmd() tea.Cmd {
 				ToolCallID: node.ToolCallID,
 				Internal:   node.Internal,
 			})
-
 		}
 
 		contentChan, thoughtChan, toolCallChan, errChan := m.Provider.GenerateResponseStream(ctx, messages, m.Manager.Registry.GetTools())
@@ -514,29 +500,27 @@ func (m *Model) executeToolsCmd() tea.Cmd {
 			thoughtChan:  thoughtChan,
 			toolCallChan: toolCallChan,
 			errChan:      errChan,
-			parentID:     lastShadowID,
+			parentID:     lastNodeID,
 		}
 	}
 }
 
 func (m *Model) cancelToolsCmd() tea.Cmd {
 	return func() tea.Msg {
-		var lastShadowID = m.CurrentShadowID
+		var lastNodeID = m.CurrentID
 
 		for _, call := range m.PendingToolCalls {
 			result := "Error: Tool call cancelled by user."
-			// Tool results are INTERNAL
-			toolNode, err := m.Manager.CreateToolNode(lastShadowID, call.ID, result, true)
+			toolNode, err := m.Manager.CreateToolNode(lastNodeID, call.ID, result, true)
 			if err != nil {
-				return llmResponseMsg{err: fmt.Errorf("failed to create cancellation node: %w", err), parentID: lastShadowID}
+				return llmResponseMsg{err: fmt.Errorf("failed to create cancellation node: %w", err), parentID: lastNodeID}
 			}
-			lastShadowID = toolNode.ID
+			lastNodeID = toolNode.ID
 		}
 
-		// Trigger a new LLM response so the model knows the tools were cancelled
-		path, err := m.Manager.GetPath(lastShadowID)
+		path, err := m.Manager.GetPath(lastNodeID)
 		if err != nil {
-			return llmResponseMsg{err: err, parentID: lastShadowID}
+			return llmResponseMsg{err: err, parentID: lastNodeID}
 		}
 
 		var messages []engine.Message
@@ -549,7 +533,6 @@ func (m *Model) cancelToolsCmd() tea.Cmd {
 				ToolCallID: node.ToolCallID,
 				Internal:   node.Internal,
 			})
-
 		}
 
 		contentChan, thoughtChan, toolCallChan, errChan := m.Provider.GenerateResponseStream(context.Background(), messages, m.Manager.Registry.GetTools())
@@ -558,7 +541,7 @@ func (m *Model) cancelToolsCmd() tea.Cmd {
 			thoughtChan:  thoughtChan,
 			toolCallChan: toolCallChan,
 			errChan:      errChan,
-			parentID:     lastShadowID,
+			parentID:     lastNodeID,
 		}
 	}
 }
@@ -571,14 +554,13 @@ func (m *Model) handleLLMResponse(msg llmResponseMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	assistantNode, err := m.Manager.CreateAssistantNode(m.CurrentShadowID, msg.message.Content, msg.message.Thought, msg.message.ToolCalls, false)
+	assistantNode, err := m.Manager.CreateAssistantNode(msg.parentID, msg.message.Content, msg.message.Thought, msg.message.ToolCalls, false)
 	if err != nil {
 		m.Notification = fmt.Sprintf("Error: %v", err)
 		return m, nil
 	}
 
 	m.CurrentID = assistantNode.ID
-	m.CurrentShadowID = assistantNode.ID
 	m.LastActivity = time.Now()
 	m.updateViewportContent()
 

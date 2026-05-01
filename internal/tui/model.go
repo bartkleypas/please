@@ -42,8 +42,6 @@ type Model struct {
 	CurrentStreamingContent string
 	// CurrentStreamingThought stores the reasoning currently being streamed
 	CurrentStreamingThought string
-	CurrentShadowID         string
-	InReasoningShell        bool
 	StreamContentChan       <-chan string
 	StreamThoughtChan       <-chan string
 	StreamToolCallChan      <-chan []engine.ToolCall
@@ -72,6 +70,9 @@ type Model struct {
 
 	// Animation state
 	LastActivity time.Time
+
+	// Audit mode state
+	AuditMode bool
 }
 
 func NewModel(cfg *engine.Config, g *engine.Graph, s engine.Storage, p engine.LLMProvider, currentID string) Model {
@@ -104,6 +105,7 @@ func NewModel(cfg *engine.Config, g *engine.Graph, s engine.Storage, p engine.LL
 		Viewport:       viewport.New(80, 80),
 		SetupMode:      setupMode,
 		CollapsedNodes: make(map[string]bool),
+		AuditMode:      false,
 	}
 
 	return m

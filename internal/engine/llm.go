@@ -298,10 +298,10 @@ func prepareOllamaMessages(messages []Message) []Message {
 	prepared := make([]Message, len(messages))
 	for i, m := range messages {
 		prepared[i] = m
-		if m.Internal {
+		if m.Internal && m.Role == RoleAssistant {
 			prepared[i].Content = "<thought>\n" + m.Content + "\n</thought>"
 		} else if m.Thought != "" {
-			// Legacy/Summary support
+			// Support for structural thoughts
 			prepared[i].Content = "<thought>\n" + m.Thought + "\n</thought>\n\n" + m.Content
 		}
 	}

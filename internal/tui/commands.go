@@ -32,6 +32,29 @@ func init() {
 	commandRegistry["/q"] = &QuitCommand{}
 	commandRegistry["/quit"] = &QuitCommand{}
 	commandRegistry["/bye"] = &QuitCommand{}
+	commandRegistry["/audit"] = &AuditCommand{}
+}
+
+// ... rest of HandleCommand ...
+
+type AuditCommand struct{}
+
+func (c *AuditCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
+	m.AuditMode = !m.AuditMode
+	if m.AuditMode {
+		m.Notification = "Audit Mode enabled: Internal nodes visible."
+	} else {
+		m.Notification = "Audit Mode disabled: Internal nodes hidden."
+	}
+
+	if m.ViewMode == ModeChat {
+		m.updateViewportContent()
+	} else if m.ViewMode == ModeMap {
+		m.ViewportOverride = m.generateMapString()
+		m.Viewport.SetContent(m.ViewportOverride)
+	}
+
+	return m, nil
 }
 
 // HandleCommand checks if the input is a command and executes it.

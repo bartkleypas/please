@@ -109,23 +109,14 @@ func TestThoughtStreaming(t *testing.T) {
 	// 5. Finish stream
 	m, _ = updateModel(m, llmStreamFinishedMsg{parentID: userID})
 
-	// 6. Verify persistence in the Shadow Branch
-	// The path should now be: User -> Thought (Internal) -> Assistant
-	path, _ := m.Manager.GetPath(m.CurrentID)
-	
-	foundThought := false
-	for _, node := range path {
-		if node.Internal && node.Content == "Thinking..." {
-			foundThought = true
-			break
-		}
-	}
-
-	if !foundThought {
-		t.Errorf("Expected to find internal thought node with 'Thinking...' in the path")
-	}
-
+	// 6. Verify persistence in the Assistant Node
+	// The path should now be: User -> Assistant (containing Thought)
 	finalNode, _ := m.Manager.GetNode(m.CurrentID)
+	
+	if finalNode.Thought != "Thinking..." {
+		t.Errorf("Expected saved thought 'Thinking...', got '%s'", finalNode.Thought)
+	}
+
 	if finalNode.Content != "Hi!" {
 		t.Errorf("Expected saved content 'Hi!', got '%s'", finalNode.Content)
 	}
@@ -146,6 +137,7 @@ func TestHandleCommand(t *testing.T) {
 		{"hello", false, ""},
 		{"/unknown", true, "Unknown command: /unknown"},
 		{"/persona", true, ""}, // Persona setup mode triggered
+		{"/audit", true, "Audit Mode enabled: Internal nodes visible."},
 	}
 
 	for _, tt := range tests {
@@ -161,6 +153,10 @@ func TestHandleCommand(t *testing.T) {
 		
 		if tt.input == "/persona" && !resModel.PersonaSetupMode {
 			t.Errorf("input %s: expected PersonaSetupMode to be true", tt.input)
+		}
+
+		if tt.input == "/audit" && !resModel.AuditMode {
+			t.Errorf("input %s: expected AuditMode to be true", tt.input)
 		}
 	}
 }

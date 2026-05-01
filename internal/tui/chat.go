@@ -12,6 +12,9 @@ func (m *Model) renderNode(node *engine.Node) string {
 	roleStyle := getRoleStyle(node.Role)
 
 	prefix := string(node.Role)
+	if node.Internal {
+		prefix = "INTERNAL " + prefix
+	}
 	wrapWidth := m.Width - 4
 	if wrapWidth <= 0 {
 		wrapWidth = 80
@@ -109,7 +112,7 @@ func (m *Model) updateViewportContent() {
 		s.WriteString("Welcome to Please. Start typing to begin the story...\n")
 	} else {
 		for _, node := range path {
-			if node.Internal {
+			if node.Internal && !m.AuditMode {
 				continue
 			}
 			s.WriteString(m.renderNode(node))
