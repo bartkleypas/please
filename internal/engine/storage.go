@@ -57,11 +57,49 @@ func NewSQLiteStorage(path string) (*SQLiteStorage, error) {
 	}
 
 	// Migrations: Add missing columns if they don't exist
-	_, _ = db.Exec("ALTER TABLE nodes ADD COLUMN deleted BOOLEAN DEFAULT 0")
-	_, _ = db.Exec("ALTER TABLE nodes ADD COLUMN thought TEXT")
-	_, _ = db.Exec("ALTER TABLE nodes ADD COLUMN internal BOOLEAN DEFAULT 0")
+	if err := s.migrate(db); err != nil {
+		return nil, fmt.Errorf("migration failed: %w", err)
+	}
 
 	return s, nil
+}
+
+func (s *SQLiteStorage) migrate(db *sql.DB) error {
+	columns := make(map[string]bool)
+	rows, err := db.Query("PRAGMA table_info(nodes)")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var name, dtype string
+		var cid, notnull, pk int
+		var dfltValue interface{}
+		if err := rows.Scan(&cid, &name, &dtype, &notnull, &dfltValue, &pk); err != nil {
+			return err
+		}
+		columns[name] = true
+	}
+
+	migrations := []struct {
+		column string
+		query  string
+	}{
+		{"deleted", "ALTER TABLE nodes ADD COLUMN deleted BOOLEAN DEFAULT 0"},
+		{"thought", "ALTER TABLE nodes ADD COLUMN thought TEXT"},
+		{"internal", "ALTER TABLE nodes ADD COLUMN internal BOOLEAN DEFAULT 0"},
+	}
+
+	for _, m := range migrations {
+		if !columns[m.column] {
+			if _, err := db.Exec(m.query); err != nil {
+				return fmt.Errorf("failed to add column %s: %w", m.column, err)
+			}
+		}
+	}
+
+	return nil
 }
 
 func (s *SQLiteStorage) open() (*sql.DB, error) {
@@ -69,6 +107,10 @@ func (s *SQLiteStorage) open() (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite database: %w", err)
 	}
+
+	// For SQLite, we want a single connection for writing to avoid BUSY errors,
+	// especially in WAL mode where readers are non-blocking.
+	db.SetMaxOpenConns(1)
 
 	// Try to set pragmas with aggressive retries to handle concurrent initialization
 	var lastErr error
@@ -181,6 +223,7 @@ func (s *SQLiteStorage) LoadGraph() (*Graph, string, error) {
 		var node Node
 		var roleStr, toolCallsJSON, metadataJSON string
 		var thought sql.NullString
+		var deleted bool
 
 		err := rows.Scan(
 			&node.ID,
@@ -192,14 +235,14 @@ func (s *SQLiteStorage) LoadGraph() (*Graph, string, error) {
 			&toolCallsJSON,
 			&node.ToolCallID,
 			&metadataJSON,
-			&node.Deleted,
+			&deleted,
 			&node.Internal,
 		)
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to scan node from sqlite: %w", err)
 		}
 
-		if node.Deleted {
+		if deleted {
 			continue // Skip soft-deleted nodes
 		}
 

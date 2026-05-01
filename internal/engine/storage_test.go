@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -45,5 +46,145 @@ func TestJSONLStorage(t *testing.T) {
 
 	if len(path) != 3 || path[0].ID != "root" || path[2].ID != "2" {
 		t.Errorf("Path integrity lost after reload. Path: %v", path)
+	}
+}
+
+func TestSQLiteStorage(t *testing.T) {
+	tmpDB := "test_vault.db"
+	defer os.Remove(tmpDB)
+	defer os.Remove(tmpDB + "-shm")
+	defer os.Remove(tmpDB + "-wal")
+
+	storage, err := NewSQLiteStorage(tmpDB)
+	if err != nil {
+		t.Fatalf("Failed to create SQLite storage: %v", err)
+	}
+
+	now := time.Now().Truncate(time.Second) // SQLite precision
+
+	// 1. Test Saving and Loading
+	nodes := []*Node{
+		{ID: "root", Role: RoleSystem, Content: "Root", Timestamp: now, Metadata: map[string]string{"key": "val"}},
+		{ID: "1", ParentID: "root", Role: RoleUser, Content: "Hello", Timestamp: now, Internal: true},
+		{ID: "2", ParentID: "1", Role: RoleAssistant, Content: "World", Thought: "Thinking...", Timestamp: now, ToolCallID: "call_1"},
+	}
+
+	for _, n := range nodes {
+		if err := storage.SaveNode(n); err != nil {
+			t.Fatalf("SaveNode failed: %v", err)
+		}
+	}
+
+	graph, lastID, err := storage.LoadGraph()
+	if err != nil {
+		t.Fatalf("LoadGraph failed: %v", err)
+	}
+
+	if len(graph.Nodes) != 3 {
+		t.Errorf("Expected 3 nodes, got %d", len(graph.Nodes))
+	}
+	if lastID != "2" {
+		t.Errorf("Expected lastID '2', got %s", lastID)
+	}
+
+	// Verify details
+	root := graph.Nodes["root"]
+	if root.Metadata["key"] != "val" {
+		t.Errorf("Metadata not persisted")
+	}
+
+	n2 := graph.Nodes["2"]
+	if n2.Thought != "Thinking..." {
+		t.Errorf("Thought not persisted")
+	}
+	if n2.ToolCallID != "call_1" {
+		t.Errorf("ToolCallID not persisted")
+	}
+	if !graph.Nodes["1"].Internal {
+		t.Errorf("Internal flag not persisted")
+	}
+
+	// 2. Test Updates
+	if err := storage.UpdateNodeParentID("2", "root"); err != nil {
+		t.Fatalf("UpdateNodeParentID failed: %v", err)
+	}
+
+	n2.Deleted = true
+	if err := storage.UpdateNodeMetadata(n2); err != nil {
+		t.Fatalf("UpdateNodeMetadata failed: %v", err)
+	}
+
+	graph2, _, _ := storage.LoadGraph()
+	if node2, ok := graph2.Nodes["2"]; ok {
+		if node2.ParentID != "root" {
+			t.Errorf("ParentID update failed, got %s", node2.ParentID)
+		}
+		t.Errorf("Deleted node should not be loaded into graph")
+	}
+
+	// 3. Test Garbage Collection
+	affected, err := storage.GarbageCollect()
+	if err != nil {
+		t.Fatalf("GarbageCollect failed: %v", err)
+	}
+	if affected != 1 {
+		t.Errorf("Expected 1 row affected, got %d", affected)
+	}
+
+	// Double check deletion via raw SQL
+	var count int
+	err = storage.db.QueryRow("SELECT COUNT(*) FROM nodes WHERE id = '2'").Scan(&count)
+	if err != nil {
+		t.Fatalf("Raw query failed: %v", err)
+	}
+	if count != 0 {
+		t.Error("GarbageCollect failed to permanently delete node")
+	}
+}
+
+func TestSQLiteStorage_Concurrency(t *testing.T) {
+	tmpDB := "stress_vault.db"
+	defer os.Remove(tmpDB)
+	defer os.Remove(tmpDB + "-shm")
+	defer os.Remove(tmpDB + "-wal")
+
+	storage, err := NewSQLiteStorage(tmpDB)
+	if err != nil {
+		t.Fatalf("Failed to create SQLite storage: %v", err)
+	}
+
+	const numGoroutines = 10
+	const nodesPerGoroutine = 50
+	done := make(chan bool)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			for j := 0; j < nodesPerGoroutine; j++ {
+				node := &Node{
+					ID:        fmt.Sprintf("node-%d-%d", id, j),
+					Role:      RoleUser,
+					Content:   "stress",
+					Timestamp: time.Now(),
+				}
+				if err := storage.SaveNode(node); err != nil {
+					t.Errorf("Concurrent SaveNode failed: %v", err)
+				}
+			}
+			done <- true
+		}(i)
+	}
+
+	for i := 0; i < numGoroutines; i++ {
+		<-done
+	}
+
+	graph, _, err := storage.LoadGraph()
+	if err != nil {
+		t.Fatalf("LoadGraph after stress failed: %v", err)
+	}
+
+	expected := numGoroutines * nodesPerGoroutine
+	if len(graph.Nodes) != expected {
+		t.Errorf("Expected %d nodes after stress test, got %d", expected, len(graph.Nodes))
 	}
 }
