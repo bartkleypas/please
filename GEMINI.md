@@ -14,9 +14,9 @@
 The project is split into two primary internal modules:
 
 ### `internal/engine` (Core Logic)
-- **`Graph` (`graph.go`)**: Manages the DAG of `Node` objects. Each node represents a message. Supports real-time re-parenting for branch compaction.
-- **`Manager` (`service.go`)**: The central coordinator. Implements `CompactRange` for generating high-density Supernodes and `PruneBranch` for soft-deleting sub-trees.
-- **`LLMProvider` (`llm.go`)**: Interface for LLM backends. Handles standard, streaming, and specialized summarization calls.
+- **`Graph` (`graph.go`)**: Manages the DAG of `Node` objects. Each node represents a message. Supports real-time re-parenting for branch compaction and cycle detection.
+- **`Manager` (`service.go`)**: The central coordinator. Implements `CompactRange` for generating high-density Supernodes, `PruneBranch` for soft-deleting sub-trees, and **Adversarial Validation** to ensure structural integrity.
+- **`LLMProvider` (`llm.go`)**: Interface for LLM backends. Handles standard, streaming, and specialized summarization calls. Features hybrid tool parsing (Native Ollama + Manual `<tool_call>` tags).
 - **`Storage` (`storage.go`)**: SQLite (WAL mode) persistence. Supports `deleted` flags and secure disk scrubbing via `VACUUM`.
 - **`Tool` (`tool.go`)**: Framework for LLM tool calling.
 
@@ -37,9 +37,11 @@ The application supports direct interaction via positional arguments and pipes:
 please "What is the capital of France?"  # User role inference
 cat README.md | please "Summarize this" # Tool/Context role inference
 ```
+- **The Silicon Seed:** Piping a document with `--role system` (and no parent) automatically births a new DAG Root, enabling isolated agent bootstrapping.
 
 ### Navigation & Management
 - **Vim-style navigation:** `h` (collapse/ascend), `l` (unfold/descend), `j/k` (move).
+- **Audit Mode:** Toggle with `v` or `/audit` to reveal internal reasoning nodes and full UUIDs.
 - **Pruning:** `d` in map view soft-deletes a branch; `/gc` permanently scrubs the database.
 - **Fuzzy Search:** `/` in map view filters nodes in real-time.
 
