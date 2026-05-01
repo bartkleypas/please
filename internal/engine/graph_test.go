@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -74,5 +75,49 @@ func TestGraph_GetPath(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestGraph_GetPath_Cycle(t *testing.T) {
+	g := NewGraph()
+	now := time.Now()
+
+	// Inject a cycle: A -> B -> A
+	nodeA := &Node{ID: "A", ParentID: "B", Role: RoleUser, Content: "I am A", Timestamp: now}
+	nodeB := &Node{ID: "B", ParentID: "A", Role: RoleAssistant, Content: "I am B", Timestamp: now}
+
+	g.AddNode(nodeA)
+	g.AddNode(nodeB)
+
+	// GetPath should now return an error immediately instead of hanging
+	path, err := g.GetPath("B")
+	if err == nil {
+		t.Errorf("GetPath() expected error for cyclic graph, got nil")
+	} else if !strings.Contains(err.Error(), "cycle detected") {
+		t.Errorf("GetPath() expected cycle error, got: %v", err)
+	}
+
+	if path != nil {
+		t.Errorf("GetPath() expected nil path for cyclic graph, got %v", path)
+	}
+}
+
+func TestGraph_GetPath_Orphan(t *testing.T) {
+	g := NewGraph()
+	now := time.Now()
+
+	// Inject an orphan: B points to A, but A is missing from the graph
+	nodeB := &Node{ID: "B", ParentID: "A", Role: RoleAssistant, Content: "I am an orphan", Timestamp: now}
+	g.AddNode(nodeB)
+
+	path, err := g.GetPath("B")
+	if err == nil {
+		t.Errorf("GetPath() expected error for orphaned node, got nil")
+	} else if !strings.Contains(err.Error(), "node not found") {
+		t.Errorf("GetPath() expected 'node not found' error, got: %v", err)
+	}
+
+	if path != nil {
+		t.Errorf("GetPath() expected nil path for orphan, got %v", path)
 	}
 }

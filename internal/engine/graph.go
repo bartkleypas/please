@@ -106,11 +106,17 @@ func (g *Graph) GetPath(nodeID string) ([]*Node, error) {
 
 	var path []*Node
 	currentID := nodeID
+	visited := make(map[string]bool)
 
-	// First, traverse to find the depth/length of the path
+	// First, traverse to find the depth/length of the path and detect cycles
 	depth := 0
 	tempID := nodeID
 	for tempID != "" {
+		if visited[tempID] {
+			return nil, fmt.Errorf("cycle detected in graph lineage at node: %s", tempID)
+		}
+		visited[tempID] = true
+
 		node, ok := g.Nodes[tempID]
 		if !ok {
 			return nil, fmt.Errorf("%w: %s", ErrNodeNotFound, tempID)

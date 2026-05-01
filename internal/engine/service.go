@@ -42,6 +42,10 @@ func (m *Manager) CreateNode(parentID string, role Role, content string, interna
 		Internal:  internal,
 	}
 
+	if err := m.validateNode(node); err != nil {
+		return nil, fmt.Errorf("node validation failed: %w", err)
+	}
+
 	m.Graph.AddNode(node)
 	if err := m.Storage.SaveNode(node); err != nil {
 		return nil, fmt.Errorf("failed to persist new node: %w", err)
@@ -61,6 +65,10 @@ func (m *Manager) CreateAssistantNode(parentID string, content string, thought s
 		Timestamp: time.Now(),
 		ToolCalls: toolCalls,
 		Internal:  internal,
+	}
+
+	if err := m.validateNode(node); err != nil {
+		return nil, fmt.Errorf("assistant node validation failed: %w", err)
 	}
 
 	m.Graph.AddNode(node)
@@ -83,12 +91,37 @@ func (m *Manager) CreateToolNode(parentID string, toolCallID string, content str
 		Internal:   internal,
 	}
 
+	if err := m.validateNode(node); err != nil {
+		return nil, fmt.Errorf("tool node validation failed: %w", err)
+	}
+
 	m.Graph.AddNode(node)
 	if err := m.Storage.SaveNode(node); err != nil {
 		return nil, fmt.Errorf("failed to persist tool node: %w", err)
 	}
 
 	return node, nil
+}
+
+func (m *Manager) validateNode(node *Node) error {
+	if node.ID == "" {
+		return fmt.Errorf("node ID cannot be empty")
+	}
+	if node.ID == node.ParentID {
+		return fmt.Errorf("node cannot be its own parent (cycle detected)")
+	}
+	if node.Role == RoleUser && strings.TrimSpace(node.Content) == "" {
+		return fmt.Errorf("user message content cannot be empty")
+	}
+	if node.Role == RoleTool {
+		if node.ToolCallID == "" {
+			return fmt.Errorf("tool node must have a ToolCallID")
+		}
+		if strings.TrimSpace(node.Content) == "" {
+			return fmt.Errorf("tool result content cannot be empty")
+		}
+	}
+	return nil
 }
 
 // ExecuteToolCall runs the function associated with a tool call
