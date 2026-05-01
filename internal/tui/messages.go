@@ -58,3 +58,10 @@ type compactionFinishedMsg struct {
 	node *engine.Node
 	err  error
 }
+
+// toolsExecutedMsg is sent when tool calls have been executed and saved to the DAG,
+// but before the resumption stream has started.
+type toolsExecutedMsg struct {
+	lastNodeID string
+	err        error
+}

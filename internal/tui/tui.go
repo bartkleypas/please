@@ -30,6 +30,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleLLMResponse(msg)
 	case syncResultMsg:
 		return m.handleSyncResult(msg)
+	case toolsExecutedMsg:
+		return m.handleToolsExecuted(msg)
 	case exportResultMsg:
 		return m.handleExportResult(msg)
 	case compactionFinishedMsg:

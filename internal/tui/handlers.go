@@ -21,6 +21,18 @@ func (m *Model) handleStreamResponse(streamMsg streamResponseMsg) (tea.Model, te
 	)
 }
 
+func (m *Model) handleToolsExecuted(msg toolsExecutedMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.Notification = fmt.Sprintf("Tool execution failed: %v", msg.err)
+		m.IsThinking = false
+		return m, nil
+	}
+
+	m.CurrentID = msg.lastNodeID
+	m.updateViewportContent() // Snap UI attention to the tool results
+	return m, m.resumeStreamCmd(msg.lastNodeID)
+}
+
 // handleTick manages the spinner frame index and keeps the animation alive
 // while the LLM is "thinking" or while node creation animations are active.
 func (m *Model) handleTick() (tea.Model, tea.Cmd) {
@@ -467,41 +479,12 @@ func (m *Model) executeToolsCmd() tea.Cmd {
 			// Tool results are INTERNAL but in the main lineage
 			toolNode, err := m.Manager.CreateToolNode(lastNodeID, call.ID, result, true)
 			if err != nil {
-				return llmResponseMsg{err: fmt.Errorf("failed to create tool node: %w", err), parentID: lastNodeID}
+				return toolsExecutedMsg{err: fmt.Errorf("failed to create tool node: %w", err), lastNodeID: lastNodeID}
 			}
 			lastNodeID = toolNode.ID
 		}
 
-		// Update CurrentID to the last tool result so the next assistant response
-		// continues from this lineage.
-		// However, we need to return this state change.
-		// Since we're in a Cmd, we'll return a message that updates the model.
-		
-		path, err := m.Manager.GetPath(lastNodeID)
-		if err != nil {
-			return llmResponseMsg{err: err, parentID: lastNodeID}
-		}
-
-		var messages []engine.Message
-		for _, node := range path {
-			messages = append(messages, engine.Message{
-				Role:       node.Role,
-				Content:    node.Content,
-				Thought:    node.Thought,
-				ToolCalls:  node.ToolCalls,
-				ToolCallID: node.ToolCallID,
-				Internal:   node.Internal,
-			})
-		}
-
-		contentChan, thoughtChan, toolCallChan, errChan := m.Provider.GenerateResponseStream(ctx, messages, m.Manager.Registry.GetTools())
-		return streamResponseMsg{
-			contentChan:  contentChan,
-			thoughtChan:  thoughtChan,
-			toolCallChan: toolCallChan,
-			errChan:      errChan,
-			parentID:     lastNodeID,
-		}
+		return toolsExecutedMsg{lastNodeID: lastNodeID}
 	}
 }
 
@@ -513,11 +496,18 @@ func (m *Model) cancelToolsCmd() tea.Cmd {
 			result := "Error: Tool call cancelled by user."
 			toolNode, err := m.Manager.CreateToolNode(lastNodeID, call.ID, result, true)
 			if err != nil {
-				return llmResponseMsg{err: fmt.Errorf("failed to create cancellation node: %w", err), parentID: lastNodeID}
+				return toolsExecutedMsg{err: fmt.Errorf("failed to create cancellation node: %w", err), lastNodeID: lastNodeID}
 			}
 			lastNodeID = toolNode.ID
 		}
 
+		return toolsExecutedMsg{lastNodeID: lastNodeID}
+	}
+}
+
+func (m *Model) resumeStreamCmd(lastNodeID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
 		path, err := m.Manager.GetPath(lastNodeID)
 		if err != nil {
 			return llmResponseMsg{err: err, parentID: lastNodeID}
@@ -535,7 +525,13 @@ func (m *Model) cancelToolsCmd() tea.Cmd {
 			})
 		}
 
-		contentChan, thoughtChan, toolCallChan, errChan := m.Provider.GenerateResponseStream(context.Background(), messages, m.Manager.Registry.GetTools())
+		// Inject the ReAct nudge as prescribed by REACT_OPTIMIZATION.md
+		messages = append(messages, engine.Message{
+			Role:    engine.RoleSystem,
+			Content: "Observation received. Complete your thought process.",
+		})
+
+		contentChan, thoughtChan, toolCallChan, errChan := m.Provider.GenerateResponseStream(ctx, messages, m.Manager.Registry.GetTools())
 		return streamResponseMsg{
 			contentChan:  contentChan,
 			thoughtChan:  thoughtChan,
