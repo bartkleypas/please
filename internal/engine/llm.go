@@ -118,28 +118,61 @@ func (o *OllamaProvider) GenerateResponse(ctx context.Context, messages []Messag
 	msg := &ollamaResp.Message
 	var thoughts []string
 	var content strings.Builder
+	var toolCalls []ToolCall
 
 	curr := msg.Content
 	for {
-		startIdx := strings.Index(curr, "<thought>")
-		if startIdx == -1 {
+		tIdx := strings.Index(curr, "<thought>")
+		cIdx := strings.Index(curr, "<tool_call>")
+
+		if tIdx == -1 && cIdx == -1 {
 			content.WriteString(curr)
 			break
 		}
-		content.WriteString(curr[:startIdx])
-		curr = curr[startIdx+9:]
 
-		endIdx := strings.Index(curr, "</thought>")
-		if endIdx == -1 {
-			thoughts = append(thoughts, curr)
-			break
+		if tIdx != -1 && (cIdx == -1 || tIdx < cIdx) {
+			content.WriteString(curr[:tIdx])
+			curr = curr[tIdx+9:]
+			endIdx := strings.Index(curr, "</thought>")
+			if endIdx == -1 {
+				thoughts = append(thoughts, curr)
+				curr = ""
+				break
+			}
+			thoughts = append(thoughts, curr[:endIdx])
+			curr = curr[endIdx+10:]
+		} else {
+			content.WriteString(curr[:cIdx])
+			curr = curr[cIdx+11:]
+			endIdx := strings.Index(curr, "</tool_call>")
+			if endIdx == -1 {
+				curr = ""
+				break
+			}
+			callStr := curr[:endIdx]
+			
+			var call ToolCall
+			if err := json.Unmarshal([]byte(callStr), &call); err != nil || call.Function.Name == "" {
+				var flat struct {
+					Name      string          `json:"name"`
+					Arguments json.RawMessage `json:"arguments"`
+				}
+				if errFlat := json.Unmarshal([]byte(callStr), &flat); errFlat == nil && flat.Name != "" {
+					call.Function.Name = flat.Name
+					call.Function.Arguments = flat.Arguments
+					call.Type = "function"
+				}
+			}
+			if call.Function.Name != "" {
+				toolCalls = append(toolCalls, call)
+			}
+			curr = curr[endIdx+12:]
 		}
-		thoughts = append(thoughts, curr[:endIdx])
-		curr = curr[endIdx+10:]
 	}
 
 	msg.Thought = strings.Join(thoughts, "\n\n")
 	msg.Content = strings.TrimSpace(content.String())
+	msg.ToolCalls = toolCalls
 
 	return msg, nil
 }
@@ -303,10 +336,31 @@ func (s *streamSplitter) process(chunk string) {
 				return // Wait for end of tag
 			}
 			callStr := s.buffer[:idx]
+			
+			// Attempt to parse tool call flexibly
 			var call ToolCall
-			if err := json.Unmarshal([]byte(callStr), &call); err == nil {
+			// 1. Try official nested format
+			err := json.Unmarshal([]byte(callStr), &call)
+			
+			// 2. Try flattened format if nested fails or is empty
+			if err != nil || call.Function.Name == "" {
+				var flat struct {
+					Name      string          `json:"name"`
+					Arguments json.RawMessage `json:"arguments"`
+				}
+				if errFlat := json.Unmarshal([]byte(callStr), &flat); errFlat == nil && flat.Name != "" {
+					call.Function.Name = flat.Name
+					call.Function.Arguments = flat.Arguments
+					if call.Type == "" {
+						call.Type = "function"
+					}
+				}
+			}
+
+			if call.Function.Name != "" {
 				s.toolChan <- []ToolCall{call}
 			}
+			
 			s.isCalling = false
 			s.buffer = s.buffer[idx+12:]
 		}
@@ -324,7 +378,19 @@ func (s *streamSplitter) flush() {
 		}
 	} else if s.isCalling {
 		var call ToolCall
-		if err := json.Unmarshal([]byte(s.buffer), &call); err == nil {
+		err := json.Unmarshal([]byte(s.buffer), &call)
+		if err != nil || call.Function.Name == "" {
+			var flat struct {
+				Name      string          `json:"name"`
+				Arguments json.RawMessage `json:"arguments"`
+			}
+			if errFlat := json.Unmarshal([]byte(s.buffer), &flat); errFlat == nil && flat.Name != "" {
+				call.Function.Name = flat.Name
+				call.Function.Arguments = flat.Arguments
+				call.Type = "function"
+			}
+		}
+		if call.Function.Name != "" {
 			s.toolChan <- []ToolCall{call}
 		}
 	} else {
