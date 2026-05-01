@@ -15,6 +15,9 @@ func (m *Model) renderNode(node *engine.Node) string {
 	if node.Internal {
 		prefix = "INTERNAL " + prefix
 	}
+	if m.AuditMode {
+		prefix = fmt.Sprintf("%s (%s)", prefix, node.ID)
+	}
 	wrapWidth := m.Width - 4
 	if wrapWidth <= 0 {
 		wrapWidth = 80
