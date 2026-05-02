@@ -46,6 +46,7 @@ type Model struct {
 	StreamThoughtChan       <-chan string
 	StreamToolCallChan      <-chan []engine.ToolCall
 	StreamErrChan           <-chan error
+	InterleavingNodeID      string // The Assistant node currently receiving observations
 
 	// Interactive Map state
 	MapNodeIDs        []string

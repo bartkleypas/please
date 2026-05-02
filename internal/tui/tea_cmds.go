@@ -21,7 +21,7 @@ func generateResponse(provider engine.LLMProvider, messages []engine.Message, to
 	}
 }
 
-func streamResponse(provider engine.LLMProvider, messages []engine.Message, tools []engine.Tool, parentID string) tea.Cmd {
+func streamResponse(provider engine.LLMProvider, messages []engine.Message, tools []engine.Tool, parentID string, activeNodeID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 		contentChan, thoughtChan, toolCallChan, errChan := provider.GenerateResponseStream(ctx, messages, tools)
@@ -31,81 +31,82 @@ func streamResponse(provider engine.LLMProvider, messages []engine.Message, tool
 			toolCallChan: toolCallChan,
 			errChan:      errChan,
 			parentID:     parentID,
+			activeNodeID: activeNodeID,
 		}
 	}
 }
 
-func waitForStream(contentChan <-chan string, thoughtChan <-chan string, toolCallChan <-chan []engine.ToolCall, errChan <-chan error, parentID string) tea.Cmd {
+func waitForStream(contentChan <-chan string, thoughtChan <-chan string, toolCallChan <-chan []engine.ToolCall, errChan <-chan error, parentID string, activeNodeID string) tea.Cmd {
 	return func() tea.Msg {
 		select {
 		case content, ok := <-contentChan:
 			if !ok {
 				// Content closed, now wait for potential tool calls or error
-				return checkRemainingChannels(toolCallChan, errChan, parentID)
+				return checkRemainingChannels(toolCallChan, errChan, parentID, activeNodeID)
 			}
-			return llmStreamMsg{content: content, parentID: parentID}
+			return llmStreamMsg{content: content, parentID: parentID, activeNodeID: activeNodeID}
 
 		case thought, ok := <-thoughtChan:
 			if !ok {
 				// Thought closed, keep waiting for content
-				return waitForStream(contentChan, nil, toolCallChan, errChan, parentID)()
+				return waitForStream(contentChan, nil, toolCallChan, errChan, parentID, activeNodeID)()
 			}
-			return llmThoughtStreamMsg{thought: thought, parentID: parentID}
+			return llmThoughtStreamMsg{thought: thought, parentID: parentID, activeNodeID: activeNodeID}
 
 		case tc := <-toolCallChan:
-			return llmStreamFinishedMsg{parentID: parentID, toolCalls: tc}
+			return llmStreamFinishedMsg{parentID: parentID, activeNodeID: activeNodeID, toolCalls: tc}
 
 		case err := <-errChan:
-			return llmStreamFinishedMsg{err: err, parentID: parentID}
+			return llmStreamFinishedMsg{err: err, parentID: parentID, activeNodeID: activeNodeID}
 
 		default:
 			// Priority to content, then thought, then others
 			select {
 			case content, ok := <-contentChan:
 				if !ok {
-					return checkRemainingChannels(toolCallChan, errChan, parentID)
+					return checkRemainingChannels(toolCallChan, errChan, parentID, activeNodeID)
 				}
-				return llmStreamMsg{content: content, parentID: parentID}
+				return llmStreamMsg{content: content, parentID: parentID, activeNodeID: activeNodeID}
 			case thought, ok := <-thoughtChan:
 				if !ok {
-					return waitForStream(contentChan, nil, toolCallChan, errChan, parentID)()
+					return waitForStream(contentChan, nil, toolCallChan, errChan, parentID, activeNodeID)()
 				}
-				return llmThoughtStreamMsg{thought: thought, parentID: parentID}
+				return llmThoughtStreamMsg{thought: thought, parentID: parentID, activeNodeID: activeNodeID}
 			case tc := <-toolCallChan:
-				return llmStreamFinishedMsg{parentID: parentID, toolCalls: tc}
+				return llmStreamFinishedMsg{parentID: parentID, activeNodeID: activeNodeID, toolCalls: tc}
 			case err := <-errChan:
-				return llmStreamFinishedMsg{err: err, parentID: parentID}
+				return llmStreamFinishedMsg{err: err, parentID: parentID, activeNodeID: activeNodeID}
 			default:
 				// Fallback to blocking select
 				select {
 				case content, ok := <-contentChan:
 					if !ok {
-						return checkRemainingChannels(toolCallChan, errChan, parentID)
+						return checkRemainingChannels(toolCallChan, errChan, parentID, activeNodeID)
 					}
-					return llmStreamMsg{content: content, parentID: parentID}
+					return llmStreamMsg{content: content, parentID: parentID, activeNodeID: activeNodeID}
 				case thought, ok := <-thoughtChan:
 					if !ok {
-						return waitForStream(contentChan, nil, toolCallChan, errChan, parentID)()
+						return waitForStream(contentChan, nil, toolCallChan, errChan, parentID, activeNodeID)()
 					}
-					return llmThoughtStreamMsg{thought: thought, parentID: parentID}
+					return llmThoughtStreamMsg{thought: thought, parentID: parentID, activeNodeID: activeNodeID}
 				case tc := <-toolCallChan:
-					return llmStreamFinishedMsg{parentID: parentID, toolCalls: tc}
+					return llmStreamFinishedMsg{parentID: parentID, activeNodeID: activeNodeID, toolCalls: tc}
 				case err := <-errChan:
-					return llmStreamFinishedMsg{err: err, parentID: parentID}
+					return llmStreamFinishedMsg{err: err, parentID: parentID, activeNodeID: activeNodeID}
 				}
 			}
 		}
 	}
 }
 
-func checkRemainingChannels(toolCallChan <-chan []engine.ToolCall, errChan <-chan error, parentID string) tea.Msg {
+func checkRemainingChannels(toolCallChan <-chan []engine.ToolCall, errChan <-chan error, parentID string, activeNodeID string) tea.Msg {
 	select {
 	case tc := <-toolCallChan:
-		return llmStreamFinishedMsg{parentID: parentID, toolCalls: tc}
+		return llmStreamFinishedMsg{parentID: parentID, activeNodeID: activeNodeID, toolCalls: tc}
 	case err := <-errChan:
-		return llmStreamFinishedMsg{parentID: parentID, err: err}
+		return llmStreamFinishedMsg{err: err, parentID: parentID, activeNodeID: activeNodeID}
 	default:
-		return llmStreamFinishedMsg{parentID: parentID}
+		return llmStreamFinishedMsg{parentID: parentID, activeNodeID: activeNodeID}
 	}
 }
 

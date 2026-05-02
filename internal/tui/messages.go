@@ -9,22 +9,25 @@ type tickMsg struct{}
 
 // llmStreamMsg is sent for each chunk of content in a streaming response
 type llmStreamMsg struct {
-	content  string
-	parentID string
+	content      string
+	parentID     string
+	activeNodeID string // If set, we are updating an existing node
 }
 
 // llmThoughtStreamMsg is sent for each chunk of reasoning in a streaming response
 type llmThoughtStreamMsg struct {
-	thought  string
-	parentID string
+	thought      string
+	parentID     string
+	activeNodeID string // If set, we are updating an existing node
 }
 
 // llmStreamFinishedMsg is sent when a streaming response completes
 type llmStreamFinishedMsg struct {
-	err       error
-	parentID  string
-	thought   string
-	toolCalls []engine.ToolCall
+	err          error
+	parentID     string
+	activeNodeID string // If set, this was a resumption
+	thought      string
+	toolCalls    []engine.ToolCall
 }
 
 // streamResponseMsg is sent to initialize the streaming channels in the model
@@ -34,6 +37,7 @@ type streamResponseMsg struct {
 	toolCallChan <-chan []engine.ToolCall
 	errChan      <-chan error
 	parentID     string
+	activeNodeID string // If set, this is an interleaving resumption
 }
 
 // llmResponseMsg is sent for non-streaming LLM responses
@@ -62,6 +66,7 @@ type compactionFinishedMsg struct {
 // toolsExecutedMsg is sent when tool calls have been executed and saved to the DAG,
 // but before the resumption stream has started.
 type toolsExecutedMsg struct {
-	lastNodeID string
-	err        error
+	lastNodeID   string
+	activeNodeID string // The node being interleaved
+	err          error
 }

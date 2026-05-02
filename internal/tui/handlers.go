@@ -15,8 +15,9 @@ func (m *Model) handleStreamResponse(streamMsg streamResponseMsg) (tea.Model, te
 	m.StreamThoughtChan = streamMsg.thoughtChan
 	m.StreamToolCallChan = streamMsg.toolCallChan
 	m.StreamErrChan = streamMsg.errChan
+	m.InterleavingNodeID = streamMsg.activeNodeID
 	return m, tea.Batch(
-		waitForStream(m.StreamContentChan, m.StreamThoughtChan, m.StreamToolCallChan, m.StreamErrChan, streamMsg.parentID),
+		waitForStream(m.StreamContentChan, m.StreamThoughtChan, m.StreamToolCallChan, m.StreamErrChan, streamMsg.parentID, streamMsg.activeNodeID),
 		tick(),
 	)
 }
@@ -28,9 +29,7 @@ func (m *Model) handleToolsExecuted(msg toolsExecutedMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	m.CurrentID = msg.lastNodeID
-	m.updateViewportContent() // Snap UI attention to the tool results
-	return m, m.resumeStreamCmd(msg.lastNodeID)
+	return m, m.resumeStreamCmd(msg.activeNodeID)
 }
 
 // handleTick manages the spinner frame index and keeps the animation alive
@@ -369,7 +368,7 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 	// Trigger asynchronous generation.
 	m.IsThinking = true
 	return m, tea.Batch(
-		streamResponse(m.Provider, messages, m.Manager.Registry.GetTools(), newNode.ID),
+		streamResponse(m.Provider, messages, m.Manager.Registry.GetTools(), newNode.ID, ""),
 		tick(),
 	)
 }
@@ -380,7 +379,7 @@ func (m *Model) handleLLMStream(msg llmStreamMsg) (tea.Model, tea.Cmd) {
 	m.IsThinking = true
 	m.CurrentStreamingContent += msg.content
 	m.updateViewportWithStreaming()
-	return m, waitForStream(m.StreamContentChan, m.StreamThoughtChan, m.StreamToolCallChan, m.StreamErrChan, msg.parentID)
+	return m, waitForStream(m.StreamContentChan, m.StreamThoughtChan, m.StreamToolCallChan, m.StreamErrChan, msg.parentID, msg.activeNodeID)
 }
 
 // handleLLMThoughtStream appends incoming reasoning chunks to the streaming thought buffer.
@@ -388,10 +387,10 @@ func (m *Model) handleLLMThoughtStream(msg llmThoughtStreamMsg) (tea.Model, tea.
 	m.IsThinking = true
 	m.CurrentStreamingThought += msg.thought
 	m.updateViewportWithStreaming()
-	return m, waitForStream(m.StreamContentChan, m.StreamThoughtChan, m.StreamToolCallChan, m.StreamErrChan, msg.parentID)
+	return m, waitForStream(m.StreamContentChan, m.StreamThoughtChan, m.StreamToolCallChan, m.StreamErrChan, msg.parentID, msg.activeNodeID)
 }
 
-// handleLLMStreamFinished commits the full streamed response to the graph as a new node.
+// handleLLMStreamFinished commits the full streamed response to the graph as a new node or updates existing.
 func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, tea.Cmd) {
 	m.IsThinking = false
 	if msg.err != nil {
@@ -401,24 +400,43 @@ func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, te
 		return m, nil
 	}
 
-	// Create assistant node as child of the designated parent (preserving continuity)
-	// We now store the reasoning (thought) directly in the assistant node.
-	botNode, err := m.Manager.CreateAssistantNode(msg.parentID, m.CurrentStreamingContent, m.CurrentStreamingThought, msg.toolCalls, false)
-	if err != nil {
-		m.Notification = fmt.Sprintf("Error: %v", err)
-		m.CurrentStreamingContent = ""
-		m.CurrentStreamingThought = ""
-		return m, nil
+	var activeID string
+	if msg.activeNodeID != "" {
+		// Update existing node
+		node, err := m.Manager.GetNode(msg.activeNodeID)
+		if err != nil {
+			m.Notification = fmt.Sprintf("Error finding node: %v", err)
+			return m, nil
+		}
+		node.Content += m.CurrentStreamingContent
+		node.Thought += m.CurrentStreamingThought
+		node.ToolCalls = append(node.ToolCalls, msg.toolCalls...)
+
+		// Re-persist existing node state
+		m.Manager.Storage.SaveNode(node)
+		activeID = msg.activeNodeID
+	} else {
+		// Create assistant node as child of the designated parent (preserving continuity)
+		botNode, err := m.Manager.CreateAssistantNode(msg.parentID, m.CurrentStreamingContent, m.CurrentStreamingThought, msg.toolCalls, false)
+		if err != nil {
+			m.Notification = fmt.Sprintf("Error: %v", err)
+			m.CurrentStreamingContent = ""
+			m.CurrentStreamingThought = ""
+			return m, nil
+		}
+		activeID = botNode.ID
 	}
 
-	m.CurrentID = botNode.ID
+	m.CurrentID = activeID
 	m.LastActivity = time.Now()
 	m.updateViewportContent() // Full refresh to show final formatted node
 	m.CurrentStreamingContent = ""
 	m.CurrentStreamingThought = ""
+	m.InterleavingNodeID = ""
 
 	if len(msg.toolCalls) > 0 {
 		m.PendingToolCalls = msg.toolCalls
+		m.InterleavingNodeID = activeID // Mark this node for interleaving
 
 		// Check if all tool calls are non-interactive
 		allNonInteractive := true
@@ -469,8 +487,8 @@ func (m *Model) handleSyncResult(msg syncResultMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) executeToolsCmd() tea.Cmd {
 	return func() tea.Msg {
-		var lastNodeID = m.CurrentID // Use main narrative tail
 		ctx := context.Background()
+		activeID := m.InterleavingNodeID
 
 		for _, call := range m.PendingToolCalls {
 			result, err := m.Manager.ExecuteToolCall(ctx, call)
@@ -478,60 +496,53 @@ func (m *Model) executeToolsCmd() tea.Cmd {
 				result = fmt.Sprintf("Error: %v", err)
 			}
 
-			// Tool results are INTERNAL but in the main lineage
-			toolNode, err := m.Manager.CreateToolNode(lastNodeID, call.ID, result, true)
+			// Side-Channel Interleaving: Update the Assistant node directly
+			err = m.Manager.UpdateAssistantObservations(activeID, call.ID, result)
 			if err != nil {
-				return toolsExecutedMsg{err: fmt.Errorf("failed to create tool node: %w", err), lastNodeID: lastNodeID}
+				return toolsExecutedMsg{err: fmt.Errorf("failed to update observations: %w", err), activeNodeID: activeID}
 			}
-			lastNodeID = toolNode.ID
 		}
 
-		return toolsExecutedMsg{lastNodeID: lastNodeID}
+		return toolsExecutedMsg{activeNodeID: activeID}
 	}
 }
 
 func (m *Model) cancelToolsCmd() tea.Cmd {
 	return func() tea.Msg {
-		var lastNodeID = m.CurrentID
+		activeID := m.InterleavingNodeID
 
 		for _, call := range m.PendingToolCalls {
 			result := "Error: Tool call cancelled by user."
-			toolNode, err := m.Manager.CreateToolNode(lastNodeID, call.ID, result, true)
+			err := m.Manager.UpdateAssistantObservations(activeID, call.ID, result)
 			if err != nil {
-				return toolsExecutedMsg{err: fmt.Errorf("failed to create cancellation node: %w", err), lastNodeID: lastNodeID}
+				return toolsExecutedMsg{err: fmt.Errorf("failed to update observations: %w", err), activeNodeID: activeID}
 			}
-			lastNodeID = toolNode.ID
 		}
 
-		return toolsExecutedMsg{lastNodeID: lastNodeID}
+		return toolsExecutedMsg{activeNodeID: activeID}
 	}
 }
 
-func (m *Model) resumeStreamCmd(lastNodeID string) tea.Cmd {
+func (m *Model) resumeStreamCmd(activeNodeID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
-		path, err := m.Manager.GetPath(lastNodeID)
+		path, err := m.Manager.GetPath(activeNodeID)
 		if err != nil {
-			return llmResponseMsg{err: err, parentID: lastNodeID}
+			return llmResponseMsg{err: err, parentID: activeNodeID}
 		}
 
 		var messages []engine.Message
 		for _, node := range path {
 			messages = append(messages, engine.Message{
-				Role:       node.Role,
-				Content:    node.Content,
-				Thought:    node.Thought,
-				ToolCalls:  node.ToolCalls,
-				ToolCallID: node.ToolCallID,
-				Internal:   node.Internal,
+				Role:         node.Role,
+				Content:      node.Content,
+				Thought:      node.Thought,
+				ToolCalls:    node.ToolCalls,
+				ToolCallID:   node.ToolCallID,
+				Observations: node.Observations,
+				Internal:     node.Internal,
 			})
 		}
-
-		// Inject the ReAct nudge as prescribed by REACT_OPTIMIZATION.md
-		messages = append(messages, engine.Message{
-			Role:    engine.RoleSystem,
-			Content: "Observation received. Complete your thought process.",
-		})
 
 		contentChan, thoughtChan, toolCallChan, errChan := m.Provider.GenerateResponseStream(ctx, messages, m.Manager.Registry.GetTools())
 		return streamResponseMsg{
@@ -539,7 +550,8 @@ func (m *Model) resumeStreamCmd(lastNodeID string) tea.Cmd {
 			thoughtChan:  thoughtChan,
 			toolCallChan: toolCallChan,
 			errChan:      errChan,
-			parentID:     lastNodeID,
+			parentID:     "", // Parent is irrelevant during interleaving resumption
+			activeNodeID: activeNodeID,
 		}
 	}
 }

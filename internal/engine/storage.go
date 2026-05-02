@@ -19,6 +19,7 @@ type Storage interface {
 	GarbageCollect() (int64, error)
 	UpdateNodeMetadata(node *Node) error
 	UpdateNodeParentID(nodeID, newParentID string) error
+	UpdateNodeObservations(nodeID string, obs []ToolObservation) error
 }
 
 // SQLiteStorage implements Storage using an SQLite database
@@ -47,6 +48,7 @@ func NewSQLiteStorage(path string) (*SQLiteStorage, error) {
 		timestamp DATETIME,
 		tool_calls TEXT,
 		tool_call_id TEXT,
+		observations TEXT,
 		metadata TEXT,
 		deleted BOOLEAN DEFAULT 0,
 		internal BOOLEAN DEFAULT 0
@@ -89,6 +91,7 @@ func (s *SQLiteStorage) migrate(db *sql.DB) error {
 		{"deleted", "ALTER TABLE nodes ADD COLUMN deleted BOOLEAN DEFAULT 0"},
 		{"thought", "ALTER TABLE nodes ADD COLUMN thought TEXT"},
 		{"internal", "ALTER TABLE nodes ADD COLUMN internal BOOLEAN DEFAULT 0"},
+		{"observations", "ALTER TABLE nodes ADD COLUMN observations TEXT"},
 	}
 
 	for _, m := range migrations {
@@ -135,14 +138,19 @@ func (s *SQLiteStorage) SaveNode(node *Node) error {
 		return fmt.Errorf("failed to marshal tool calls: %w", err)
 	}
 
+	obsJSON, err := json.Marshal(node.Observations)
+	if err != nil {
+		return fmt.Errorf("failed to marshal observations: %w", err)
+	}
+
 	metadataJSON, err := json.Marshal(node.Metadata)
 	if err != nil {
 		return fmt.Errorf("failed to marshal metadata: %w", err)
 	}
 
 	query := `
-	INSERT INTO nodes (id, parent_id, role, content, thought, timestamp, tool_calls, tool_call_id, metadata, deleted, internal)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	INSERT INTO nodes (id, parent_id, role, content, thought, timestamp, tool_calls, tool_call_id, observations, metadata, deleted, internal)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err = s.db.Exec(query,
@@ -154,6 +162,7 @@ func (s *SQLiteStorage) SaveNode(node *Node) error {
 		node.Timestamp,
 		string(toolCallsJSON),
 		node.ToolCallID,
+		string(obsJSON),
 		string(metadataJSON),
 		node.Deleted,
 		node.Internal,
@@ -207,9 +216,24 @@ func (s *SQLiteStorage) UpdateNodeParentID(nodeID, newParentID string) error {
 	return nil
 }
 
+// UpdateNodeObservations updates the side-channel results of a node in the database
+func (s *SQLiteStorage) UpdateNodeObservations(nodeID string, obs []ToolObservation) error {
+	obsJSON, err := json.Marshal(obs)
+	if err != nil {
+		return fmt.Errorf("failed to marshal observations: %w", err)
+	}
+
+	query := `UPDATE nodes SET observations = ? WHERE id = ?`
+	_, err = s.db.Exec(query, string(obsJSON), nodeID)
+	if err != nil {
+		return fmt.Errorf("failed to update observations in sqlite: %w", err)
+	}
+	return nil
+}
+
 // LoadGraph reads all nodes from the SQLite database and reconstructs the Graph.
 func (s *SQLiteStorage) LoadGraph() (*Graph, string, error) {
-	query := `SELECT id, parent_id, role, content, thought, timestamp, tool_calls, tool_call_id, metadata, deleted, internal FROM nodes ORDER BY timestamp ASC`
+	query := `SELECT id, parent_id, role, content, thought, timestamp, tool_calls, tool_call_id, observations, metadata, deleted, internal FROM nodes ORDER BY timestamp ASC`
 	rows, err := s.db.Query(query)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to query nodes from sqlite: %w", err)
@@ -221,7 +245,7 @@ func (s *SQLiteStorage) LoadGraph() (*Graph, string, error) {
 
 	for rows.Next() {
 		var node Node
-		var roleStr, toolCallsJSON, metadataJSON string
+		var roleStr, toolCallsJSON, obsJSON, metadataJSON string
 		var thought sql.NullString
 		var deleted bool
 
@@ -234,6 +258,7 @@ func (s *SQLiteStorage) LoadGraph() (*Graph, string, error) {
 			&node.Timestamp,
 			&toolCallsJSON,
 			&node.ToolCallID,
+			&obsJSON,
 			&metadataJSON,
 			&deleted,
 			&node.Internal,
@@ -250,6 +275,11 @@ func (s *SQLiteStorage) LoadGraph() (*Graph, string, error) {
 		node.Role = Role(roleStr)
 		if err := json.Unmarshal([]byte(toolCallsJSON), &node.ToolCalls); err != nil {
 			return nil, "", fmt.Errorf("failed to unmarshal tool calls from sqlite: %w", err)
+		}
+		if obsJSON != "" && obsJSON != "null" {
+			if err := json.Unmarshal([]byte(obsJSON), &node.Observations); err != nil {
+				return nil, "", fmt.Errorf("failed to unmarshal observations from sqlite: %w", err)
+			}
 		}
 		if err := json.Unmarshal([]byte(metadataJSON), &node.Metadata); err != nil {
 			return nil, "", fmt.Errorf("failed to unmarshal metadata from sqlite: %w", err)
@@ -286,6 +316,10 @@ func (s *JSONLStorage) UpdateNodeMetadata(node *Node) error {
 
 func (s *JSONLStorage) UpdateNodeParentID(nodeID, newParentID string) error {
 	return fmt.Errorf("parent updates not implemented for JSONL storage")
+}
+
+func (s *JSONLStorage) UpdateNodeObservations(nodeID string, obs []ToolObservation) error {
+	return fmt.Errorf("observation updates not implemented for JSONL storage")
 }
 
 // SaveNode appends a single node to the JSONL file

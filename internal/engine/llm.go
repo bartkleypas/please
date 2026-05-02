@@ -12,12 +12,13 @@ import (
 
 // Message represents a simplified message for LLM providers
 type Message struct {
-	Role       Role       `json:"role"`
-	Content    string     `json:"content"`
-	Thought    string     `json:"thought,omitempty"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
-	Internal   bool       `json:"internal,omitempty"`
+	Role         Role              `json:"role"`
+	Content      string            `json:"content"`
+	Thought      string            `json:"thought,omitempty"`
+	ToolCalls    []ToolCall        `json:"tool_calls,omitempty"`
+	ToolCallID   string            `json:"tool_call_id,omitempty"`
+	Observations []ToolObservation `json:"observations,omitempty"`
+	Internal     bool              `json:"internal,omitempty"`
 }
 
 // LLMProvider defines the interface for interacting with different AI backends
@@ -399,18 +400,40 @@ func (s *streamSplitter) flush() {
 	s.buffer = ""
 }
 
-// prepareOllamaMessages re-injects thoughts into the content field for the Ollama API,
-// ensuring the model maintains its internal monologue across tool-call boundaries.
+// prepareOllamaMessages re-injects thoughts and side-channel observations into the content field for the Ollama API,
+// ensuring the model maintains its internal monologue and reacts to tool results within the same turn context.
 func prepareOllamaMessages(messages []Message) []Message {
 	prepared := make([]Message, len(messages))
 	for i, m := range messages {
 		prepared[i] = m
+
+		content := m.Content
 		if m.Internal && m.Role == RoleAssistant {
-			prepared[i].Content = "<thought>\n" + m.Content + "\n</thought>"
+			content = "<thought>\n" + m.Content + "\n</thought>"
 		} else if m.Thought != "" {
 			// Support for structural thoughts
-			prepared[i].Content = "<thought>\n" + m.Thought + "\n</thought>\n\n" + m.Content
+			content = "<thought>\n" + m.Thought + "\n</thought>\n\n" + m.Content
 		}
+
+		// Inject observations (Side-Channel Interleaving)
+		if len(m.Observations) > 0 {
+			var obsBuilder strings.Builder
+			obsBuilder.WriteString("<thought>\n")
+			if m.Thought != "" {
+				obsBuilder.WriteString(m.Thought)
+				obsBuilder.WriteString("\n")
+			}
+			for _, obs := range m.Observations {
+				// Reconstruct the tool call and result as a single thinking block
+				// This tricks the model into thinking it just saw the result of its own call.
+				fmt.Fprintf(&obsBuilder, "Observation (Call %s): %s\n", obs.ToolCallID, obs.Result)
+			}
+			obsBuilder.WriteString("Observation received. Complete your thought process.\n")
+			obsBuilder.WriteString("</thought>\n\n")
+			content = obsBuilder.String() + m.Content
+		}
+
+		prepared[i].Content = content
 	}
 	return prepared
 }

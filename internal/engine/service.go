@@ -103,6 +103,25 @@ func (m *Manager) CreateToolNode(parentID string, toolCallID string, content str
 	return node, nil
 }
 
+// UpdateAssistantObservations appends side-channel tool results to an existing assistant node
+func (m *Manager) UpdateAssistantObservations(nodeID string, callID string, result string) error {
+	node, err := m.Graph.GetNode(nodeID)
+	if err != nil {
+		return err
+	}
+
+	if node.Role != RoleAssistant {
+		return fmt.Errorf("observations can only be added to assistant nodes")
+	}
+
+	node.Observations = append(node.Observations, ToolObservation{
+		ToolCallID: callID,
+		Result:     result,
+	})
+
+	return m.Storage.UpdateNodeObservations(nodeID, node.Observations)
+}
+
 func (m *Manager) validateNode(node *Node) error {
 	if node.ID == "" {
 		return fmt.Errorf("node ID cannot be empty")

@@ -13,6 +13,12 @@ const (
 	RoleSummary   Role = "summary"
 )
 
+// ToolObservation represents the result of a side-channel tool execution
+type ToolObservation struct {
+	ToolCallID string `json:"tool_call_id"`
+	Result     string `json:"result"`
+}
+
 // Node represents a single point in the conversation graph
 type Node struct {
 	ID        string            `json:"id"`
@@ -24,8 +30,9 @@ type Node struct {
 	Metadata  map[string]string `json:"metadata,omitempty"`
 
 	// Tool handling fields
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`  // Present if Role == Assistant
-	ToolCallID string     `json:"tool_call_id,omitempty"` // Present if Role == Tool
+	ToolCalls    []ToolCall        `json:"tool_calls,omitempty"`  // Present if Role == Assistant
+	ToolCallID   string            `json:"tool_call_id,omitempty"` // Present if Role == Tool
+	Observations []ToolObservation `json:"observations,omitempty"` // Side-channel results
 
 	// Deletion state
 	Deleted bool `json:"deleted,omitempty"`
