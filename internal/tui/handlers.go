@@ -3,6 +3,8 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"org.kleypas.please/internal/engine"
@@ -326,7 +328,9 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 
 	// 1. Handle Setup Modes: Initial system prompt or new persona creation.
 	if m.SetupMode || m.PersonaSetupMode {
-		newNode, err := m.Manager.CreateNode("", engine.RoleSystem, input, false)
+		// Append repository context for immediate discovery (closes point #3 of feedback)
+		supplement := m.generateSystemSupplement()
+		newNode, err := m.Manager.CreateNode("", engine.RoleSystem, input+supplement, false)
 		if err != nil {
 			m.Notification = fmt.Sprintf("Error: %v", err)
 			return m, nil
@@ -655,4 +659,36 @@ func (m *Model) runCompaction() tea.Cmd {
 		node, err := m.Manager.CompactRange(ctx, m.Provider, m.CompactTargetIDs)
 		return compactionFinishedMsg{node: node, err: err}
 	}
+}
+
+func (m *Model) generateSystemSupplement() string {
+	var sb strings.Builder
+	sb.WriteString("\n\n### PROJECT CONTEXT (AUTOMATED DISCOVERY)\n")
+
+	// 1. Shallow Directory Listing
+	entries, err := os.ReadDir(".")
+	if err == nil {
+		sb.WriteString("Current Directory Tree:\n")
+		for _, e := range entries {
+			if e.IsDir() {
+				sb.WriteString(" - " + e.Name() + "/\n")
+			} else {
+				sb.WriteString(" - " + e.Name() + "\n")
+			}
+		}
+	}
+
+	// 2. README Header
+	readme, err := os.ReadFile("README.md")
+	if err == nil {
+		lines := strings.Split(string(readme), "\n")
+		limit := 25
+		if len(lines) < limit {
+			limit = len(lines)
+		}
+		sb.WriteString("\nREADME Snippet:\n")
+		sb.WriteString(strings.Join(lines[:limit], "\n"))
+	}
+
+	return sb.String()
 }
