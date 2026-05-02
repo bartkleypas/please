@@ -9,9 +9,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func generateResponse(provider engine.LLMProvider, messages []engine.Message, tools []engine.Tool, parentID string) tea.Cmd {
+func generateResponse(ctx context.Context, provider engine.LLMProvider, messages []engine.Message, tools []engine.Tool, parentID string) tea.Cmd {
 	return func() tea.Msg {
-		ctx := context.Background()
 		msg, err := provider.GenerateResponse(ctx, messages, tools)
 		return llmResponseMsg{
 			message:  msg,
@@ -21,9 +20,8 @@ func generateResponse(provider engine.LLMProvider, messages []engine.Message, to
 	}
 }
 
-func streamResponse(provider engine.LLMProvider, messages []engine.Message, tools []engine.Tool, parentID string, activeNodeID string) tea.Cmd {
+func streamResponse(ctx context.Context, provider engine.LLMProvider, messages []engine.Message, tools []engine.Tool, parentID string, activeNodeID string) tea.Cmd {
 	return func() tea.Msg {
-		ctx := context.Background()
 		contentChan, thoughtChan, toolCallChan, errChan := provider.GenerateResponseStream(ctx, messages, tools)
 		return streamResponseMsg{
 			contentChan:  contentChan,

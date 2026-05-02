@@ -29,7 +29,10 @@ func (m *Model) handleToolsExecuted(msg toolsExecutedMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	return m, m.resumeStreamCmd(msg.activeNodeID)
+	ctx, cancel := context.WithCancel(context.Background())
+	m.StreamCancel = cancel
+
+	return m, m.resumeStreamCmd(ctx, msg.activeNodeID)
 }
 
 // handleTick manages the spinner frame index and keeps the animation alive
@@ -291,6 +294,9 @@ func (m *Model) handleKeyEvent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case "ctrl+c":
+		if m.StreamCancel != nil {
+			m.StreamCancel()
+		}
 		return m, tea.Quit
 	case "enter":
 		return m.handleEnterKey()
@@ -306,6 +312,11 @@ func (m *Model) handleKeyEvent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 	if m.IsThinking {
 		return m, nil
+	}
+
+	if m.StreamCancel != nil {
+		m.StreamCancel()
+		m.StreamCancel = nil
 	}
 
 	input := m.TextInput.Value()
@@ -375,8 +386,11 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 
 	// Trigger asynchronous generation.
 	m.IsThinking = true
+	ctx, cancel := context.WithCancel(context.Background())
+	m.StreamCancel = cancel
+
 	return m, tea.Batch(
-		streamResponse(m.Provider, messages, m.Manager.Registry.GetTools(), newNode.ID, ""),
+		streamResponse(ctx, m.Provider, messages, m.Manager.Registry.GetTools(), newNode.ID, ""),
 		tick(),
 	)
 }
@@ -401,6 +415,11 @@ func (m *Model) handleLLMThoughtStream(msg llmThoughtStreamMsg) (tea.Model, tea.
 // handleLLMStreamFinished commits the full streamed response to the graph as a new node or updates existing.
 func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, tea.Cmd) {
 	m.IsThinking = false
+	if m.StreamCancel != nil {
+		m.StreamCancel()
+		m.StreamCancel = nil
+	}
+
 	if msg.err != nil {
 		m.Notification = fmt.Sprintf("Error: %v", msg.err)
 		m.CurrentStreamingContent = ""
@@ -533,9 +552,8 @@ func (m *Model) cancelToolsCmd() tea.Cmd {
 	}
 }
 
-func (m *Model) resumeStreamCmd(activeNodeID string) tea.Cmd {
+func (m *Model) resumeStreamCmd(ctx context.Context, activeNodeID string) tea.Cmd {
 	return func() tea.Msg {
-		ctx := context.Background()
 		path, err := m.Manager.GetPath(activeNodeID)
 		if err != nil {
 			return llmResponseMsg{err: err, parentID: activeNodeID}

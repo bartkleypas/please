@@ -46,6 +46,7 @@ type Model struct {
 	StreamThoughtChan       <-chan string
 	StreamToolCallChan      <-chan []engine.ToolCall
 	StreamErrChan           <-chan error
+	StreamCancel            func() // Cancellation function for the active LLM stream
 	InterleavingNodeID      string // The Assistant node currently receiving observations
 
 	// Interactive Map state
