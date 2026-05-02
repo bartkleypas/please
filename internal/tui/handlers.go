@@ -355,14 +355,22 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 
 	var messages []engine.Message
 	for _, node := range path {
-		messages = append(messages, engine.Message{
+		msg := engine.Message{
 			Role:       node.Role,
 			Content:    node.Content,
-			Thought:    node.Thought,
-			ToolCalls:  node.ToolCalls,
 			ToolCallID: node.ToolCallID,
 			Internal:   node.Internal,
-		})
+		}
+
+		// Only include reasoning/observations for the active node (if we were resuming, but here we are starting a new turn)
+		// Since this is a new turn, all previous assistant nodes are historical.
+		if node.Role != engine.RoleAssistant {
+			msg.Thought = node.Thought
+			msg.ToolCalls = node.ToolCalls
+			msg.Observations = node.Observations
+		}
+
+		messages = append(messages, msg)
 	}
 
 	// Trigger asynchronous generation.
@@ -412,8 +420,10 @@ func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, te
 		node.Thought += m.CurrentStreamingThought
 		node.ToolCalls = append(node.ToolCalls, msg.toolCalls...)
 
-		// Re-persist existing node state
-		m.Manager.Storage.SaveNode(node)
+		// Re-persist existing node state (SaveNode is now INSERT OR REPLACE)
+		if err := m.Manager.Storage.SaveNode(node); err != nil {
+			m.Notification = fmt.Sprintf("Error saving node: %v", err)
+		}
 		activeID = msg.activeNodeID
 	} else {
 		// Create assistant node as child of the designated parent (preserving continuity)
@@ -533,15 +543,22 @@ func (m *Model) resumeStreamCmd(activeNodeID string) tea.Cmd {
 
 		var messages []engine.Message
 		for _, node := range path {
-			messages = append(messages, engine.Message{
-				Role:         node.Role,
-				Content:      node.Content,
-				Thought:      node.Thought,
-				ToolCalls:    node.ToolCalls,
-				ToolCallID:   node.ToolCallID,
-				Observations: node.Observations,
-				Internal:     node.Internal,
-			})
+			msg := engine.Message{
+				Role:       node.Role,
+				Content:    node.Content,
+				ToolCallID: node.ToolCallID,
+				Internal:   node.Internal,
+			}
+
+			// For Assistant nodes, only keep Thought/Tools/Observations if it's the active node we are resuming.
+			// This provides continuity for the current turn while saving tokens on previous ones.
+			if node.Role != engine.RoleAssistant || node.ID == activeNodeID {
+				msg.Thought = node.Thought
+				msg.ToolCalls = node.ToolCalls
+				msg.Observations = node.Observations
+			}
+
+			messages = append(messages, msg)
 		}
 
 		contentChan, thoughtChan, toolCallChan, errChan := m.Provider.GenerateResponseStream(ctx, messages, m.Manager.Registry.GetTools())

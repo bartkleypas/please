@@ -112,7 +112,7 @@ func TestThoughtStreaming(t *testing.T) {
 	// 6. Verify persistence in the Assistant Node
 	// The path should now be: User -> Assistant (containing Thought)
 	finalNode, _ := m.Manager.GetNode(m.CurrentID)
-	
+
 	if finalNode.Thought != "Thinking..." {
 		t.Errorf("Expected saved thought 'Thinking...', got '%s'", finalNode.Thought)
 	}

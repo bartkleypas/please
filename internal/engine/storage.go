@@ -149,7 +149,7 @@ func (s *SQLiteStorage) SaveNode(node *Node) error {
 	}
 
 	query := `
-	INSERT INTO nodes (id, parent_id, role, content, thought, timestamp, tool_calls, tool_call_id, observations, metadata, deleted, internal)
+	INSERT OR REPLACE INTO nodes (id, parent_id, role, content, thought, timestamp, tool_calls, tool_call_id, observations, metadata, deleted, internal)
 	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 

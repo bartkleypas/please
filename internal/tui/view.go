@@ -65,7 +65,11 @@ func (m Model) View() string {
 		s += "\n" + markStyle.Render("Execute these tools? (y/n)") + "\n"
 	} else if m.IsThinking {
 		spinner := spinnerFrames[m.SpinnerFrame%len(spinnerFrames)]
-		s += "\n" + botStyle.Render(fmt.Sprintf("%s Thinking...", spinner)) + "\n"
+		msg := "Thinking..."
+		if m.InterleavingNodeID != "" {
+			msg = "Executing tools..."
+		}
+		s += "\n" + botStyle.Render(fmt.Sprintf("%s %s", spinner, msg)) + "\n"
 	}
 
 	// Footer Rendering
