@@ -120,6 +120,100 @@ func GetDefaultTools() []Tool {
 			},
 		},
 		{
+			Name:        "grep_search",
+			Description: "Search for a pattern in files within a directory (recursive)",
+			Interactive: false,
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"pattern": map[string]interface{}{
+						"type":        "string",
+						"description": "The regex pattern to search for",
+					},
+					"path": map[string]interface{}{
+						"type":        "string",
+						"description": "The directory to search in (defaults to '.')",
+					},
+					"include": map[string]interface{}{
+						"type":        "string",
+						"description": "Optional glob pattern for files to include (e.g., '*.go')",
+					},
+				},
+				"required": []string{"pattern"},
+			},
+			Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
+				pattern, err := getStringArg(args, "pattern")
+				if err != nil {
+					return "", err
+				}
+				searchPath := "."
+				if p, ok := args["path"].(string); ok {
+					searchPath = p
+				}
+				includePattern := ""
+				if inc, ok := args["include"].(string); ok {
+					includePattern = inc
+				}
+
+				safePath, err := validatePath(searchPath)
+				if err != nil {
+					return "", err
+				}
+
+				re, err := regexp.Compile(pattern)
+				if err != nil {
+					return "", fmt.Errorf("invalid regex pattern: %w", err)
+				}
+
+				var results []string
+				err = filepath.Walk(safePath, func(path string, info os.FileInfo, err error) error {
+					if err != nil {
+						return err
+					}
+					if info.IsDir() {
+						if info.Name() == ".git" {
+							return filepath.SkipDir
+						}
+						return nil
+					}
+
+					if includePattern != "" {
+						matched, err := filepath.Match(includePattern, info.Name())
+						if err != nil || !matched {
+							return nil
+						}
+					}
+
+					content, err := os.ReadFile(path)
+					if err != nil {
+						return nil // Skip files we can't read
+					}
+
+					relPath, _ := filepath.Rel(safePath, path)
+					lines := strings.Split(string(content), "\n")
+					for i, line := range lines {
+						if re.MatchString(line) {
+							results = append(results, fmt.Sprintf("%s:%d: %s", relPath, i+1, strings.TrimSpace(line)))
+							if len(results) > 100 {
+								return fmt.Errorf("too many matches found (limit 100)")
+							}
+						}
+					}
+					return nil
+				})
+
+				if err != nil && !strings.Contains(err.Error(), "too many matches") {
+					return "", fmt.Errorf("grep failed: %w", err)
+				}
+
+				if len(results) == 0 {
+					return "no matches found", nil
+				}
+
+				return strings.Join(results, "\n"), nil
+			},
+		},
+		{
 			Name:        "execute_command",
 			Description: "Execute a shell command and return the combined output",
 			Interactive: true,
@@ -364,6 +458,115 @@ func GetDefaultTools() []Tool {
 				}
 
 				return "file edited successfully", nil
+			},
+		},
+		{
+			Name:        "list_files_recursive",
+			Description: "Recursively list all files in a directory",
+			Interactive: false,
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"path": map[string]interface{}{
+						"type":        "string",
+						"description": "The directory to list files from (defaults to '.')",
+					},
+				},
+			},
+			Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
+				searchPath := "."
+				if p, ok := args["path"].(string); ok {
+					searchPath = p
+				}
+				safePath, err := validatePath(searchPath)
+				if err != nil {
+					return "", err
+				}
+
+				var results []string
+				err = filepath.Walk(safePath, func(path string, info os.FileInfo, err error) error {
+					if err != nil {
+						return err
+					}
+					if info.IsDir() {
+						if info.Name() == ".git" || info.Name() == "node_modules" || info.Name() == "vendor" {
+							return filepath.SkipDir
+						}
+						return nil
+					}
+					relPath, _ := filepath.Rel(safePath, path)
+					results = append(results, relPath)
+					if len(results) > 500 {
+						return fmt.Errorf("too many files found (limit 500)")
+					}
+					return nil
+				})
+
+				if err != nil && !strings.Contains(err.Error(), "too many files") {
+					return "", fmt.Errorf("list_files failed: %w", err)
+				}
+
+				return strings.Join(results, "\n"), nil
+			},
+		},
+		{
+			Name:        "search_and_replace",
+			Description: "Context-aware search and replace. Searches for a specific block of text and replaces it with another.",
+			Interactive: true,
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"path": map[string]interface{}{
+						"type":        "string",
+						"description": "The path to the file to edit",
+					},
+					"search_block": map[string]interface{}{
+						"type":        "string",
+						"description": "The exact block of code/text to search for",
+					},
+					"replace_block": map[string]interface{}{
+						"type":        "string",
+						"description": "The new block of code/text to replace it with",
+					},
+				},
+				"required": []string{"path", "search_block", "replace_block"},
+			},
+			Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
+				path, err := getStringArg(args, "path")
+				if err != nil {
+					return "", err
+				}
+				search, err := getStringArg(args, "search_block")
+				if err != nil {
+					return "", err
+				}
+				replace, err := getStringArg(args, "replace_block")
+				if err != nil {
+					return "", err
+				}
+
+				safePath, err := validatePath(path)
+				if err != nil {
+					return "", err
+				}
+
+				contentBytes, err := os.ReadFile(safePath)
+				if err != nil {
+					return "", fmt.Errorf("failed to read file: %w", err)
+				}
+				content := string(contentBytes)
+
+				if !strings.Contains(content, search) {
+					return "search block not found. Ensure the block is an exact match (including whitespace/indentation).", nil
+				}
+
+				newContent := strings.Replace(content, search, replace, 1)
+				err = os.WriteFile(safePath, []byte(newContent), 0644)
+				if err != nil {
+					return "", fmt.Errorf("failed to write file: %w", err)
+				}
+
+				return "file edited successfully via context matching", nil
 			},
 		},
 	}
