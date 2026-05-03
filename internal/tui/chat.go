@@ -26,26 +26,30 @@ func (m *Model) renderNode(node *engine.Node) string {
 	var s strings.Builder
 	s.WriteString(roleStyle.Render(prefix) + ":\n")
 
+	// 1. Render Thought (Lane A)
 	if node.Thought != "" {
 		s.WriteString(thoughtStyle.Render(wrapText(node.Thought, wrapWidth)) + "\n")
 	}
 
-	content := node.Content
-	if node.Role == engine.RoleAssistant && len(node.ToolCalls) > 0 {
-		var toolStrings []string
-		for _, tc := range node.ToolCalls {
-			toolStrings = append(toolStrings, fmt.Sprintf("[Tool Call: %s(%s)]", tc.Function.Name, string(tc.Function.Arguments)))
+	// 2. Render Tool Interleaving (Lanes B & C)
+	for i, call := range node.ToolCalls {
+		// Announce Action (Lane B)
+		s.WriteString(markStyle.Render(fmt.Sprintf("⚒️  Executing %s(%s)...", call.Function.Name, string(call.Function.Arguments))) + "\n")
+		
+		// Render Observation if available (Lane C)
+		if i < len(node.Observations) {
+			obs := node.Observations[i]
+			summary := obs.Result
+			if len(summary) > 200 {
+				summary = summary[:200] + "... (truncated)"
+			}
+			s.WriteString(helpStyle.Render(fmt.Sprintf("  ✅ Result: %s", summary)) + "\n")
 		}
-		if content != "" {
-			content += "\n"
-		}
-		content += strings.Join(toolStrings, "\n")
-	} else if node.Role == engine.RoleTool {
-		content = fmt.Sprintf("[Tool Result (%s)]: %s", node.ToolCallID, content)
 	}
 
-	if content != "" {
-		s.WriteString(wrapText(content, wrapWidth) + "\n")
+	// 3. Render Final Response (Lane D)
+	if node.Content != "" {
+		s.WriteString(wrapText(node.Content, wrapWidth) + "\n")
 	}
 
 	return s.String()
@@ -70,6 +74,19 @@ func (m *Model) updateViewportWithStreaming() {
 
 	if m.CurrentStreamingThought != "" {
 		s.WriteString(thoughtStyle.Render(wrapText(m.CurrentStreamingThought, wrapWidth)) + "\n")
+	}
+
+	// During streaming, we might have interleaved observations from a previous pause
+	if m.InterleavingNodeID != "" {
+		node, err := m.Manager.GetNode(m.InterleavingNodeID)
+		if err == nil {
+			for i, call := range node.ToolCalls {
+				s.WriteString(markStyle.Render(fmt.Sprintf("⚒️  Executing %s...", call.Function.Name)) + "\n")
+				if i < len(node.Observations) {
+					s.WriteString(helpStyle.Render("  ✅ Observation received.") + "\n")
+				}
+			}
+		}
 	}
 
 	if m.CurrentStreamingContent != "" {

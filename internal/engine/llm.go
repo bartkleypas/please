@@ -402,38 +402,60 @@ func (s *streamSplitter) flush() {
 
 // prepareOllamaMessages re-injects thoughts and side-channel observations into the content field for the Ollama API,
 // ensuring the model maintains its internal monologue and reacts to tool results within the same turn context.
+// This implementation adheres to Gemma 4's requirement that thoughts must not be removed between function calls.
 func prepareOllamaMessages(messages []Message) []Message {
 	prepared := make([]Message, len(messages))
 	for i, m := range messages {
 		prepared[i] = m
 
-		content := m.Content
-		if m.Internal && m.Role == RoleAssistant {
-			content = "<thought>\n" + m.Content + "\n</thought>"
-		} else if m.Thought != "" {
-			// Support for structural thoughts
-			content = "<thought>\n" + m.Thought + "\n</thought>\n\n" + m.Content
+		if m.Role != RoleAssistant {
+			continue
 		}
 
-		// Inject observations (Side-Channel Interleaving)
-		if len(m.Observations) > 0 {
-			var obsBuilder strings.Builder
-			obsBuilder.WriteString("<thought>\n")
-			if m.Thought != "" {
-				obsBuilder.WriteString(m.Thought)
-				obsBuilder.WriteString("\n")
-			}
-			for _, obs := range m.Observations {
-				// Reconstruct the tool call and result as a single thinking block
-				// This tricks the model into thinking it just saw the result of its own call.
-				fmt.Fprintf(&obsBuilder, "Observation (Call %s): %s\n", obs.ToolCallID, obs.Result)
-			}
-			obsBuilder.WriteString("Observation received. Complete your thought process.\n")
-			obsBuilder.WriteString("</thought>\n\n")
-			content = obsBuilder.String() + m.Content
+		var sb strings.Builder
+
+		// 1. Initial Thought (Lane A)
+		if m.Thought != "" {
+			sb.WriteString("<thought>\n")
+			sb.WriteString(m.Thought)
+			sb.WriteString("\n</thought>\n")
 		}
 
-		prepared[i].Content = content
+		// 2. Interleave Tool Calls and Observations (Lanes B & C)
+		// We assume a strict chronological alternating sequence.
+		for j, call := range m.ToolCalls {
+			// Reconstruct Tool Call
+			callJSON, _ := json.Marshal(call)
+			sb.WriteString("<tool_call>\n")
+			sb.WriteString(string(callJSON))
+			sb.WriteString("\n</tool_call>\n")
+
+			// Check for corresponding observation
+			if j < len(m.Observations) {
+				obs := m.Observations[j]
+				sb.WriteString("<tool_response>\n")
+				sb.WriteString(obs.Result)
+				sb.WriteString("\n</tool_response>\n")
+				
+				// Optional: Inject a continuation nudge if this is the very last observation
+				// and the turn is still open for resumption.
+				if j == len(m.Observations)-1 && m.Content == "" {
+					sb.WriteString("<thought>\nObservation received. Complete your thought process.\n")
+					// Note: We don't close the tag here; Gemma will continue inside it.
+				}
+			}
+		}
+
+		// 3. Final Content (Lane D)
+		if m.Content != "" {
+			// If we had a thought block before content, ensure it's closed
+			if !strings.HasSuffix(sb.String(), "</thought>\n") && strings.Contains(sb.String(), "<thought>") {
+				sb.WriteString("</thought>\n")
+			}
+			sb.WriteString(m.Content)
+		}
+
+		prepared[i].Content = sb.String()
 	}
 	return prepared
 }
