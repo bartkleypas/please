@@ -14,10 +14,10 @@ func TestGraph_GetPath(t *testing.T) {
 	// Root -> NodeA -> NodeB
 	//         \-> NodeC
 	
-	root := &Node{ID: "root", ParentID: "", Role: RoleSystem, Content: "System Prompt", Timestamp: now}
-	nodeA := &Node{ID: "A", ParentID: "root", Role: RoleUser, Content: "Hello", Timestamp: now}
-	nodeB := &Node{ID: "B", ParentID: "A", Role: RoleAssistant, Content: "Hi there!", Timestamp: now}
-	nodeC := &Node{ID: "C", ParentID: "root", Role: RoleUser, Content: "Goodbye", Timestamp: now}
+	root := &Node{ID: "1_root", ParentID: "", Role: RoleSystem, Content: "System Prompt", Timestamp: now}
+	nodeA := &Node{ID: "2_A", ParentID: "1_root", Role: RoleUser, Content: "Hello", Timestamp: now}
+	nodeB := &Node{ID: "3_B", ParentID: "2_A", Role: RoleAssistant, Content: "Hi there!", Timestamp: now}
+	nodeC := &Node{ID: "4_C", ParentID: "1_root", Role: RoleUser, Content: "Goodbye", Timestamp: now}
 
 	g.AddNode(root)
 	g.AddNode(nodeA)
@@ -32,20 +32,20 @@ func TestGraph_GetPath(t *testing.T) {
 	}{
 		{
 			name:    "Path to root",
-			nodeID:  "root",
-			wantIDs: []string{"root"},
+			nodeID:  "1_root",
+			wantIDs: []string{"1_root"},
 			wantErr: false,
 		},
 		{
 			name:    "Path to leaf B",
-			nodeID:  "B",
-			wantIDs: []string{"root", "A", "B"},
+			nodeID:  "3_B",
+			wantIDs: []string{"1_root", "2_A", "3_B"},
 			wantErr: false,
 		},
 		{
 			name:    "Path to leaf C (branch)",
-			nodeID:  "C",
-			wantIDs: []string{"root", "C"},
+			nodeID:  "4_C",
+			wantIDs: []string{"1_root", "4_C"},
 			wantErr: false,
 		},
 		{
@@ -83,14 +83,14 @@ func TestGraph_GetPath_Cycle(t *testing.T) {
 	now := time.Now()
 
 	// Inject a cycle: A -> B -> A
-	nodeA := &Node{ID: "A", ParentID: "B", Role: RoleUser, Content: "I am A", Timestamp: now}
-	nodeB := &Node{ID: "B", ParentID: "A", Role: RoleAssistant, Content: "I am B", Timestamp: now}
+	nodeA := &Node{ID: "2_A", ParentID: "3_B", Role: RoleUser, Content: "I am A", Timestamp: now}
+	nodeB := &Node{ID: "3_B", ParentID: "2_A", Role: RoleAssistant, Content: "I am B", Timestamp: now}
 
 	g.AddNode(nodeA)
 	g.AddNode(nodeB)
 
 	// GetPath should now return an error immediately instead of hanging
-	path, err := g.GetPath("B")
+	path, err := g.GetPath("3_B")
 	if err == nil {
 		t.Errorf("GetPath() expected error for cyclic graph, got nil")
 	} else if !strings.Contains(err.Error(), "cycle detected") {
@@ -107,10 +107,10 @@ func TestGraph_GetPath_Orphan(t *testing.T) {
 	now := time.Now()
 
 	// Inject an orphan: B points to A, but A is missing from the graph
-	nodeB := &Node{ID: "B", ParentID: "A", Role: RoleAssistant, Content: "I am an orphan", Timestamp: now}
+	nodeB := &Node{ID: "3_B", ParentID: "2_A", Role: RoleAssistant, Content: "I am an orphan", Timestamp: now}
 	g.AddNode(nodeB)
 
-	path, err := g.GetPath("B")
+	path, err := g.GetPath("3_B")
 	if err == nil {
 		t.Errorf("GetPath() expected error for orphaned node, got nil")
 	} else if !strings.Contains(err.Error(), "node not found") {

@@ -33,8 +33,9 @@ func NewManager(g *Graph, s Storage) *Manager {
 // CreateNode handles the full lifecycle of creating a new node:
 // ID generation, graph insertion, and persistence.
 func (m *Manager) CreateNode(parentID string, role Role, content string, internal bool) (*Node, error) {
+	id, _ := uuid.NewV7()
 	node := &Node{
-		ID:        uuid.NewString(),
+		ID:        id.String(),
 		ParentID:  parentID,
 		Role:      role,
 		Content:   content,
@@ -56,8 +57,9 @@ func (m *Manager) CreateNode(parentID string, role Role, content string, interna
 
 // CreateAssistantNode creates a node for the assistant, potentially containing tool calls and reasoning
 func (m *Manager) CreateAssistantNode(parentID string, content string, thought string, toolCalls []ToolCall, internal bool) (*Node, error) {
+	id, _ := uuid.NewV7()
 	node := &Node{
-		ID:        uuid.NewString(),
+		ID:        id.String(),
 		ParentID:  parentID,
 		Role:      RoleAssistant,
 		Content:   content,
@@ -81,8 +83,9 @@ func (m *Manager) CreateAssistantNode(parentID string, content string, thought s
 
 // CreateToolNode creates a node containing the result of a tool execution
 func (m *Manager) CreateToolNode(parentID string, toolCallID string, content string, internal bool) (*Node, error) {
+	id, _ := uuid.NewV7()
 	node := &Node{
-		ID:         uuid.NewString(),
+		ID:         id.String(),
 		ParentID:   parentID,
 		Role:       RoleTool,
 		Content:    content,
@@ -195,8 +198,8 @@ func (m *Manager) GetNode(id string) (*Node, error) {
 	return m.Graph.GetNode(id)
 }
 
-func (m *Manager) FindNodeByPrefix(prefix string) (*Node, error) {
-	return m.Graph.FindNodeByPrefix(prefix)
+func (m *Manager) FindNodeByShortID(shortID string) (*Node, error) {
+	return m.Graph.FindNodeByShortID(shortID)
 }
 
 func (m *Manager) GetPath(nodeID string) ([]*Node, error) {
@@ -289,14 +292,22 @@ func (m *Manager) CompactRange(ctx context.Context, provider LLMProvider, nodeID
 	}
 	parentID := firstNode.ParentID
 
+	// Get the timestamp from the LAST node to anchor the supernode
+	lastNodeID := nodeIDs[len(nodeIDs)-1]
+	lastNode, err := m.Graph.GetNode(lastNodeID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find last node in range: %w", err)
+	}
+
 	// 3. Create Supernode
-	superNode, err := m.createSupernode(parentID, resp.Content)
+	// We add 1 millisecond to ensure strict monotonicity. If it shared the exact same ms, 
+	// a lower random tail would cause the Supernode to sort *before* the last node lexically.
+	superNode, err := m.createSupernode(parentID, resp.Content, lastNode.Timestamp.Add(1*time.Millisecond))
 	if err != nil {
 		return nil, err
 	}
 
 	// 4. Graft children of the LAST node in the range onto the Supernode
-	lastNodeID := nodeIDs[len(nodeIDs)-1]
 	children := m.Graph.GetChildren(lastNodeID)
 	for _, child := range children {
 		if err := m.Storage.UpdateNodeParentID(child.ID, superNode.ID); err != nil {
@@ -309,13 +320,17 @@ func (m *Manager) CompactRange(ctx context.Context, provider LLMProvider, nodeID
 	return superNode, err
 }
 
-func (m *Manager) createSupernode(parentID string, content string) (*Node, error) {
+func (m *Manager) createSupernode(parentID string, content string, baseTime time.Time) (*Node, error) {
+	id, err := newV7FromTime(baseTime)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate v7 uuid from time: %w", err)
+	}
 	node := &Node{
-		ID:        uuid.NewString(),
+		ID:        id.String(),
 		ParentID:  parentID,
 		Role:      RoleSummary,
 		Content:   content,
-		Timestamp: time.Now(),
+		Timestamp: baseTime,
 	}
 
 	m.Graph.AddNode(node)
@@ -324,6 +339,30 @@ func (m *Manager) createSupernode(parentID string, content string) (*Node, error
 	}
 
 	return node, nil
+}
+
+// newV7FromTime generates a valid UUIDv7 using a specific timestamp
+func newV7FromTime(t time.Time) (uuid.UUID, error) {
+	var id uuid.UUID
+	
+	// Start with a completely random v4 (or random byte slice)
+	// We can just call uuid.NewV7() to get a valid v7 with correct variant/version, 
+	// then just overwrite the 48-bit timestamp.
+	var err error
+	id, err = uuid.NewV7()
+	if err != nil {
+		return id, err
+	}
+	
+	ms := t.UnixMilli()
+	id[0] = byte(ms >> 40)
+	id[1] = byte(ms >> 32)
+	id[2] = byte(ms >> 24)
+	id[3] = byte(ms >> 16)
+	id[4] = byte(ms >> 8)
+	id[5] = byte(ms)
+	
+	return id, nil
 }
 
 func (m *Manager) GetSystemRoot() (*Node, error) {

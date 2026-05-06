@@ -133,7 +133,7 @@ func (m *Model) renderMap(s *strings.Builder, nodeID string, indent string, isLa
 
 		shortID := node.ID
 		if !m.AuditMode && len(shortID) > 8 {
-			shortID = shortID[:8]
+			shortID = shortID[len(shortID)-8:]
 		}
 
 		idStr := "[" + shortID + "]"

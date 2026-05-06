@@ -16,9 +16,9 @@ func TestJSONLStorage(t *testing.T) {
 
 	// 1. Create some nodes
 	nodes := []*Node{
-		{ID: "root", ParentID: "", Role: RoleSystem, Content: "System", Timestamp: now},
-		{ID: "1", ParentID: "root", Role: RoleUser, Content: "Hello", Timestamp: now},
-		{ID: "2", ParentID: "1", Role: RoleAssistant, Content: "Hi!", Timestamp: now},
+		{ID: "1_root", ParentID: "", Role: RoleSystem, Content: "System", Timestamp: now},
+		{ID: "2", ParentID: "1_root", Role: RoleUser, Content: "Hello", Timestamp: now},
+		{ID: "3", ParentID: "2", Role: RoleAssistant, Content: "Hi!", Timestamp: now},
 	}
 
 	// 2. Save nodes
@@ -39,12 +39,12 @@ func TestJSONLStorage(t *testing.T) {
 	}
 
 	// 4. Verify path integrity after loading
-	path, err := graph.GetPath("2")
+	path, err := graph.GetPath("3")
 	if err != nil {
 		t.Fatalf("GetPath failed: %v", err)
 	}
 
-	if len(path) != 3 || path[0].ID != "root" || path[2].ID != "2" {
+	if len(path) != 3 || path[0].ID != "1_root" || path[2].ID != "3" {
 		t.Errorf("Path integrity lost after reload. Path: %v", path)
 	}
 }
@@ -64,9 +64,9 @@ func TestSQLiteStorage(t *testing.T) {
 
 	// 1. Test Saving and Loading
 	nodes := []*Node{
-		{ID: "root", Role: RoleSystem, Content: "Root", Timestamp: now, Metadata: map[string]string{"key": "val"}},
-		{ID: "1", ParentID: "root", Role: RoleUser, Content: "Hello", Timestamp: now, Internal: true},
-		{ID: "2", ParentID: "1", Role: RoleAssistant, Content: "World", Thought: "Thinking...", Timestamp: now, ToolCallID: "call_1"},
+		{ID: "1_root", Role: RoleSystem, Content: "Root", Timestamp: now, Metadata: map[string]string{"key": "val"}},
+		{ID: "2", ParentID: "1_root", Role: RoleUser, Content: "Hello", Timestamp: now, Internal: true},
+		{ID: "3", ParentID: "2", Role: RoleAssistant, Content: "World", Thought: "Thinking...", Timestamp: now, ToolCallID: "call_1"},
 	}
 
 	for _, n := range nodes {
@@ -83,29 +83,29 @@ func TestSQLiteStorage(t *testing.T) {
 	if len(graph.Nodes) != 3 {
 		t.Errorf("Expected 3 nodes, got %d", len(graph.Nodes))
 	}
-	if lastID != "2" {
-		t.Errorf("Expected lastID '2', got %s", lastID)
+	if lastID != "3" {
+		t.Errorf("Expected lastID '3', got %s", lastID)
 	}
 
 	// Verify details
-	root := graph.Nodes["root"]
+	root := graph.Nodes["1_root"]
 	if root.Metadata["key"] != "val" {
 		t.Errorf("Metadata not persisted")
 	}
 
-	n2 := graph.Nodes["2"]
+	n2 := graph.Nodes["3"]
 	if n2.Thought != "Thinking..." {
 		t.Errorf("Thought not persisted")
 	}
 	if n2.ToolCallID != "call_1" {
 		t.Errorf("ToolCallID not persisted")
 	}
-	if !graph.Nodes["1"].Internal {
+	if !graph.Nodes["2"].Internal {
 		t.Errorf("Internal flag not persisted")
 	}
 
 	// 2. Test Updates
-	if err := storage.UpdateNodeParentID("2", "root"); err != nil {
+	if err := storage.UpdateNodeParentID("3", "1_root"); err != nil {
 		t.Fatalf("UpdateNodeParentID failed: %v", err)
 	}
 
@@ -115,8 +115,8 @@ func TestSQLiteStorage(t *testing.T) {
 	}
 
 	graph2, _, _ := storage.LoadGraph()
-	if node2, ok := graph2.Nodes["2"]; ok {
-		if node2.ParentID != "root" {
+	if node2, ok := graph2.Nodes["3"]; ok {
+		if node2.ParentID != "1_root" {
 			t.Errorf("ParentID update failed, got %s", node2.ParentID)
 		}
 		t.Errorf("Deleted node should not be loaded into graph")
@@ -133,7 +133,7 @@ func TestSQLiteStorage(t *testing.T) {
 
 	// Double check deletion via raw SQL
 	var count int
-	err = storage.db.QueryRow("SELECT COUNT(*) FROM nodes WHERE id = '2'").Scan(&count)
+	err = storage.db.QueryRow("SELECT COUNT(*) FROM nodes WHERE id = '3'").Scan(&count)
 	if err != nil {
 		t.Fatalf("Raw query failed: %v", err)
 	}

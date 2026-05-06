@@ -93,7 +93,7 @@ func (c *JumpCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	}
 
 	prefix := args[0]
-	if node, err := m.Manager.FindNodeByPrefix(prefix); err == nil {
+	if node, err := m.Manager.FindNodeByShortID(prefix); err == nil {
 		m.CurrentID = node.ID
 		m.Notification = fmt.Sprintf("Jumped to %s", node.ID)
 		m.updateViewportWithJump()

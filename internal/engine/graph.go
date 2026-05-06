@@ -78,22 +78,22 @@ func (g *Graph) GetNode(id string) (*Node, error) {
 	return node, nil
 }
 
-// FindNodeByPrefix searches for the first node whose ID starts with the given prefix.
-func (g *Graph) FindNodeByPrefix(prefix string) (*Node, error) {
+// FindNodeByShortID searches for the first node whose ID starts or ends with the given string.
+func (g *Graph) FindNodeByShortID(shortID string) (*Node, error) {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 
-	if prefix == "" {
-		return nil, fmt.Errorf("prefix cannot be empty")
+	if shortID == "" {
+		return nil, fmt.Errorf("shortID cannot be empty")
 	}
 
 	for _, node := range g.Nodes {
-		if strings.HasPrefix(node.ID, prefix) {
+		if strings.HasPrefix(node.ID, shortID) || strings.HasSuffix(node.ID, shortID) {
 			return node, nil
 		}
 	}
 
-	return nil, fmt.Errorf("%w: no node starts with %s", ErrNodeNotFound, prefix)
+	return nil, fmt.Errorf("%w: no node matches %s", ErrNodeNotFound, shortID)
 }
 
 // GetPath returns the linear sequence of nodes from the root to the specified node ID.
@@ -106,22 +106,23 @@ func (g *Graph) GetPath(nodeID string) ([]*Node, error) {
 
 	var path []*Node
 	currentID := nodeID
-	visited := make(map[string]bool)
 
 	// First, traverse to find the depth/length of the path and detect cycles
 	depth := 0
 	tempID := nodeID
+	var previousID string
+
 	for tempID != "" {
-		if visited[tempID] {
-			return nil, fmt.Errorf("cycle detected in graph lineage at node: %s", tempID)
+		if previousID != "" && tempID >= previousID {
+			return nil, fmt.Errorf("chronological cycle detected: parent %s is newer than or equal to child %s", tempID, previousID)
 		}
-		visited[tempID] = true
 
 		node, ok := g.Nodes[tempID]
 		if !ok {
 			return nil, fmt.Errorf("%w: %s", ErrNodeNotFound, tempID)
 		}
 		depth++
+		previousID = tempID
 		tempID = node.ParentID
 	}
 
