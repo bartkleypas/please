@@ -47,9 +47,10 @@ func (c *AuditCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		m.Notification = "Audit Mode disabled: Internal nodes hidden."
 	}
 
-	if m.ViewMode == ModeChat {
+	switch m.ViewMode {
+	case ModeChat:
 		m.updateViewportContent()
-	} else if m.ViewMode == ModeMap {
+	case ModeMap:
 		m.ViewportOverride = m.generateMapString()
 		m.Viewport.SetContent(m.ViewportOverride)
 	}
