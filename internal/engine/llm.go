@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 )
 
 // Message represents a simplified message for LLM providers
@@ -55,15 +54,30 @@ type ollamaTool struct {
 }
 
 type ollamaRequest struct {
-	Model    string       `json:"model"`
-	Messages []Message    `json:"messages"`
-	Stream   bool         `json:"stream"`
-	Tools    []ollamaTool `json:"tools,omitempty"`
+	Model    string          `json:"model"`
+	Messages []ollamaMessage `json:"messages"`
+	Stream   bool            `json:"stream"`
+	Tools    []ollamaTool    `json:"tools,omitempty"`
+}
+
+type ollamaMessage struct {
+	Role      string           `json:"role"`
+	Content   string           `json:"content"`
+	Thinking  string           `json:"thinking,omitempty"`
+	Reasoning string           `json:"reasoning,omitempty"`
+	ToolCalls []ollamaToolCall `json:"tool_calls,omitempty"`
+}
+
+type ollamaToolCall struct {
+	Function struct {
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+	} `json:"function"`
 }
 
 type ollamaResponse struct {
-	Message Message `json:"message"`
-	Done    bool    `json:"done"`
+	Message ollamaMessage `json:"message"`
+	Done    bool          `json:"done"`
 }
 
 func (o *OllamaProvider) GenerateResponse(ctx context.Context, messages []Message, tools []Tool) (*Message, error) {
@@ -80,7 +94,7 @@ func (o *OllamaProvider) GenerateResponse(ctx context.Context, messages []Messag
 
 	reqBody := ollamaRequest{
 		Model:    o.Model,
-		Messages: prepareOllamaMessages(messages),
+		Messages: mapToOllamaMessages(messages),
 		Stream:   false,
 		Tools:    oTools,
 	}
@@ -116,64 +130,31 @@ func (o *OllamaProvider) GenerateResponse(ctx context.Context, messages []Messag
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	msg := &ollamaResp.Message
-	var thoughts []string
-	var content strings.Builder
-	var toolCalls []ToolCall
-
-	curr := msg.Content
-	for {
-		tIdx := strings.Index(curr, "<thought>")
-		cIdx := strings.Index(curr, "<tool_call>")
-
-		if tIdx == -1 && cIdx == -1 {
-			content.WriteString(curr)
-			break
-		}
-
-		if tIdx != -1 && (cIdx == -1 || tIdx < cIdx) {
-			content.WriteString(curr[:tIdx])
-			curr = curr[tIdx+9:]
-			endIdx := strings.Index(curr, "</thought>")
-			if endIdx == -1 {
-				thoughts = append(thoughts, curr)
-				curr = ""
-				break
-			}
-			thoughts = append(thoughts, curr[:endIdx])
-			curr = curr[endIdx+10:]
-		} else {
-			content.WriteString(curr[:cIdx])
-			curr = curr[cIdx+11:]
-			endIdx := strings.Index(curr, "</tool_call>")
-			if endIdx == -1 {
-				curr = ""
-				break
-			}
-			callStr := curr[:endIdx]
-			
-			var call ToolCall
-			if err := json.Unmarshal([]byte(callStr), &call); err != nil || call.Function.Name == "" {
-				var flat struct {
-					Name      string          `json:"name"`
-					Arguments json.RawMessage `json:"arguments"`
-				}
-				if errFlat := json.Unmarshal([]byte(callStr), &flat); errFlat == nil && flat.Name != "" {
-					call.Function.Name = flat.Name
-					call.Function.Arguments = flat.Arguments
-					call.Type = "function"
-				}
-			}
-			if call.Function.Name != "" {
-				toolCalls = append(toolCalls, call)
-			}
-			curr = curr[endIdx+12:]
-		}
+	var tCalls []ToolCall
+	for _, tc := range ollamaResp.Message.ToolCalls {
+		tCalls = append(tCalls, ToolCall{
+			Type: "function",
+			Function: struct {
+				Name      string          `json:"name"`
+				Arguments json.RawMessage `json:"arguments"`
+			}{
+				Name:      tc.Function.Name,
+				Arguments: tc.Function.Arguments,
+			},
+		})
 	}
 
-	msg.Thought = strings.Join(thoughts, "\n\n")
-	msg.Content = strings.TrimSpace(content.String())
-	msg.ToolCalls = toolCalls
+	msg := &Message{
+		Role:      RoleAssistant,
+		Content:   ollamaResp.Message.Content,
+		ToolCalls: tCalls,
+	}
+
+	if ollamaResp.Message.Thinking != "" {
+		msg.Thought = ollamaResp.Message.Thinking
+	} else if ollamaResp.Message.Reasoning != "" {
+		msg.Thought = ollamaResp.Message.Reasoning
+	}
 
 	return msg, nil
 }
@@ -203,7 +184,7 @@ func (o *OllamaProvider) GenerateResponseStream(ctx context.Context, messages []
 
 		reqBody := ollamaRequest{
 			Model:    o.Model,
-			Messages: prepareOllamaMessages(messages),
+			Messages: mapToOllamaMessages(messages),
 			Stream:   true,
 			Tools:    oTools,
 		}
@@ -235,12 +216,6 @@ func (o *OllamaProvider) GenerateResponseStream(ctx context.Context, messages []
 
 		decoder := json.NewDecoder(resp.Body)
 		var collectedToolCalls []ToolCall
-		
-		splitter := &streamSplitter{
-			thoughtChan: thoughtChan,
-			contentChan: contentChan,
-			toolChan:    toolCallChan,
-		}
 
 		for {
 			var ollamaResp ollamaResponse
@@ -252,22 +227,36 @@ func (o *OllamaProvider) GenerateResponseStream(ctx context.Context, messages []
 				return
 			}
 
-			// Send content if present through splitter
-			if ollamaResp.Message.Content != "" {
-				splitter.process(ollamaResp.Message.Content)
+			// Process fields in logical order
+			if ollamaResp.Message.Thinking != "" {
+				thoughtChan <- ollamaResp.Message.Thinking
+			} else if ollamaResp.Message.Reasoning != "" {
+				thoughtChan <- ollamaResp.Message.Reasoning
 			}
 
-			// Collect tool calls if present
+			if ollamaResp.Message.Content != "" {
+				contentChan <- ollamaResp.Message.Content
+			}
+
 			if len(ollamaResp.Message.ToolCalls) > 0 {
-				collectedToolCalls = append(collectedToolCalls, ollamaResp.Message.ToolCalls...)
+				for _, tc := range ollamaResp.Message.ToolCalls {
+					collectedToolCalls = append(collectedToolCalls, ToolCall{
+						Type: "function",
+						Function: struct {
+							Name      string          `json:"name"`
+							Arguments json.RawMessage `json:"arguments"`
+						}{
+							Name:      tc.Function.Name,
+							Arguments: tc.Function.Arguments,
+						},
+					})
+				}
 			}
 
 			if ollamaResp.Done {
 				break
 			}
 		}
-		
-		splitter.flush()
 
 		if len(collectedToolCalls) > 0 {
 			toolCallChan <- collectedToolCalls
@@ -277,185 +266,38 @@ func (o *OllamaProvider) GenerateResponseStream(ctx context.Context, messages []
 	return contentChan, thoughtChan, toolCallChan, errChan
 }
 
-type streamSplitter struct {
-	thoughtChan chan<- string
-	contentChan chan<- string
-	toolChan    chan<- []ToolCall
-	isThinking  bool
-	hasThought  bool
-	isCalling   bool
-	buffer      string
-}
+func mapToOllamaMessages(messages []Message) []ollamaMessage {
+	var out []ollamaMessage
 
-func (s *streamSplitter) process(chunk string) {
-	s.buffer += chunk
-	for {
-		if !s.isThinking && !s.isCalling {
-			// Check for thought start
-			tIdx := strings.Index(s.buffer, "<thought>")
-			// Check for tool call start
-			cIdx := strings.Index(s.buffer, "<tool_call>")
-
-			if tIdx == -1 && cIdx == -1 {
-				// No tags, send safe content
-				if len(s.buffer) > 11 { // Length of longest tag
-					s.contentChan <- s.buffer[:len(s.buffer)-11]
-					s.buffer = s.buffer[len(s.buffer)-11:]
-				}
-				return
-			}
-
-			// Determine which tag comes first
-			if tIdx != -1 && (cIdx == -1 || tIdx < cIdx) {
-				s.contentChan <- s.buffer[:tIdx]
-				s.isThinking = true
-				s.buffer = s.buffer[tIdx+9:]
-			} else {
-				s.contentChan <- s.buffer[:cIdx]
-				s.isCalling = true
-				s.buffer = s.buffer[cIdx+11:]
-			}
-		} else if s.isThinking {
-			idx := strings.Index(s.buffer, "</thought>")
-			if idx == -1 {
-				if len(s.buffer) > 10 {
-					s.thoughtChan <- s.buffer[:len(s.buffer)-10]
-					s.buffer = s.buffer[len(s.buffer)-10:]
-				}
-				return
-			}
-			thought := s.buffer[:idx]
-			s.thoughtChan <- thought
-			if strings.TrimSpace(thought) != "" {
-				s.hasThought = true
-			}
-			s.isThinking = false
-			s.buffer = s.buffer[idx+10:]
-		} else if s.isCalling {
-			idx := strings.Index(s.buffer, "</tool_call>")
-			if idx == -1 {
-				return // Wait for end of tag
-			}
-			callStr := s.buffer[:idx]
-			
-			// Attempt to parse tool call flexibly
-			var call ToolCall
-			// 1. Try official nested format
-			err := json.Unmarshal([]byte(callStr), &call)
-			
-			// 2. Try flattened format if nested fails or is empty
-			if err != nil || call.Function.Name == "" {
-				var flat struct {
+	for _, m := range messages {
+		// Base message
+		var tCalls []ollamaToolCall
+		for _, tc := range m.ToolCalls {
+			tCalls = append(tCalls, ollamaToolCall{
+				Function: struct {
 					Name      string          `json:"name"`
 					Arguments json.RawMessage `json:"arguments"`
-				}
-				if errFlat := json.Unmarshal([]byte(callStr), &flat); errFlat == nil && flat.Name != "" {
-					call.Function.Name = flat.Name
-					call.Function.Arguments = flat.Arguments
-					if call.Type == "" {
-						call.Type = "function"
-					}
-				}
-			}
+				}{
+					Name:      tc.Function.Name,
+					Arguments: tc.Function.Arguments,
+				},
+			})
+		}
 
-			if call.Function.Name != "" {
-				s.toolChan <- []ToolCall{call}
-			}
-			
-			s.isCalling = false
-			s.buffer = s.buffer[idx+12:]
+		out = append(out, ollamaMessage{
+			Role:      string(m.Role),
+			Content:   m.Content,
+			ToolCalls: tCalls,
+		})
+
+		// Append side-channel observations as native "tool" responses
+		for _, obs := range m.Observations {
+			out = append(out, ollamaMessage{
+				Role:    "tool",
+				Content: obs.Result,
+			})
 		}
 	}
-}
 
-func (s *streamSplitter) flush() {
-	if s.buffer == "" {
-		return
-	}
-	if s.isThinking {
-		s.thoughtChan <- s.buffer
-		if strings.TrimSpace(s.buffer) != "" {
-			s.hasThought = true
-		}
-	} else if s.isCalling {
-		var call ToolCall
-		err := json.Unmarshal([]byte(s.buffer), &call)
-		if err != nil || call.Function.Name == "" {
-			var flat struct {
-				Name      string          `json:"name"`
-				Arguments json.RawMessage `json:"arguments"`
-			}
-			if errFlat := json.Unmarshal([]byte(s.buffer), &flat); errFlat == nil && flat.Name != "" {
-				call.Function.Name = flat.Name
-				call.Function.Arguments = flat.Arguments
-				call.Type = "function"
-			}
-		}
-		if call.Function.Name != "" {
-			s.toolChan <- []ToolCall{call}
-		}
-	} else {
-		s.contentChan <- s.buffer
-	}
-	s.buffer = ""
-}
-
-// prepareOllamaMessages re-injects thoughts and side-channel observations into the content field for the Ollama API,
-// ensuring the model maintains its internal monologue and reacts to tool results within the same turn context.
-// This implementation adheres to Gemma 4's requirement that thoughts must not be removed between function calls.
-func prepareOllamaMessages(messages []Message) []Message {
-	prepared := make([]Message, len(messages))
-	for i, m := range messages {
-		prepared[i] = m
-
-		if m.Role != RoleAssistant {
-			continue
-		}
-
-		var sb strings.Builder
-
-		// 1. Initial Thought (Lane A)
-		if m.Thought != "" {
-			sb.WriteString("<thought>\n")
-			sb.WriteString(m.Thought)
-			sb.WriteString("\n</thought>\n")
-		}
-
-		// 2. Interleave Tool Calls and Observations (Lanes B & C)
-		// We assume a strict chronological alternating sequence.
-		for j, call := range m.ToolCalls {
-			// Reconstruct Tool Call
-			callJSON, _ := json.Marshal(call)
-			sb.WriteString("<tool_call>\n")
-			sb.WriteString(string(callJSON))
-			sb.WriteString("\n</tool_call>\n")
-
-			// Check for corresponding observation
-			if j < len(m.Observations) {
-				obs := m.Observations[j]
-				sb.WriteString("<tool_response>\n")
-				sb.WriteString(obs.Result)
-				sb.WriteString("\n</tool_response>\n")
-				
-				// Optional: Inject a continuation nudge if this is the very last observation
-				// and the turn is still open for resumption.
-				if j == len(m.Observations)-1 && m.Content == "" {
-					sb.WriteString("<thought>\nObservation received. Complete your thought process.\n")
-					// Note: We don't close the tag here; Gemma will continue inside it.
-				}
-			}
-		}
-
-		// 3. Final Content (Lane D)
-		if m.Content != "" {
-			// If we had a thought block before content, ensure it's closed
-			if !strings.HasSuffix(sb.String(), "</thought>\n") && strings.Contains(sb.String(), "<thought>") {
-				sb.WriteString("</thought>\n")
-			}
-			sb.WriteString(m.Content)
-		}
-
-		prepared[i].Content = sb.String()
-	}
-	return prepared
+	return out
 }

@@ -76,6 +76,56 @@ func GetDefaultTools() []Tool {
 			},
 		},
 		{
+			Name:        "write_file",
+			Description: "Create a new file with content. Will fail if the file already exists.",
+			Interactive: true,
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"path": map[string]interface{}{
+						"type":        "string",
+						"description": "The path to the file to write to",
+					},
+					"content": map[string]interface{}{
+						"type":        "string",
+						"description": "The content to write to the file",
+					},
+				},
+				"required": []string{"path", "content"},
+			},
+			Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
+				path, err := getStringArg(args, "path")
+				if err != nil {
+					return "", err
+				}
+				content, err := getStringArg(args, "content")
+				if err != nil {
+					return "", err
+				}
+				safePath, err := validatePath(path)
+				if err != nil {
+					return "", err
+				}
+				
+				// Create parent directories if they don't exist
+				if err := os.MkdirAll(filepath.Dir(safePath), 0755); err != nil {
+					return "", fmt.Errorf("failed to create directories: %w", err)
+				}
+				
+				// Fail if file already exists
+				if _, err := os.Stat(safePath); err == nil {
+					return "", fmt.Errorf("file already exists (use edit_file or patch_file to modify): %s", path)
+				} else if !os.IsNotExist(err) {
+					return "", fmt.Errorf("error checking file: %w", err)
+				}
+				
+				if err := os.WriteFile(safePath, []byte(content), 0644); err != nil {
+					return "", fmt.Errorf("failed to write file: %w", err)
+				}
+				return "file written successfully", nil
+			},
+		},
+		{
 			Name:        "list_directory",
 			Description: "List the contents of a directory on the local filesystem",
 			Interactive: false,

@@ -377,12 +377,20 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 			Internal:   node.Internal,
 		}
 
-		// Only include reasoning/observations for the active node (if we were resuming, but here we are starting a new turn)
-		// Since this is a new turn, all previous assistant nodes are historical.
-		if node.Role != engine.RoleAssistant {
-			msg.Thought = node.Thought
+		if node.Role == engine.RoleAssistant {
 			msg.ToolCalls = node.ToolCalls
-			msg.Observations = node.Observations
+			msg.Observations = make([]engine.ToolObservation, len(node.Observations))
+			for i, obs := range node.Observations {
+				truncatedResult := obs.Result
+				if len(truncatedResult) > 4000 {
+					truncatedResult = truncatedResult[:4000] + "... [truncated]"
+				}
+				msg.Observations[i] = engine.ToolObservation{
+					ToolCallID: obs.ToolCallID,
+					Result:     truncatedResult,
+				}
+			}
+			// Historical turns have thoughts stripped.
 		}
 
 		messages = append(messages, msg)
@@ -560,7 +568,7 @@ func (m *Model) resumeStreamCmd(ctx context.Context, activeNodeID string) tea.Cm
 	return func() tea.Msg {
 		path, err := m.Manager.GetPath(activeNodeID)
 		if err != nil {
-			return llmResponseMsg{err: err, parentID: activeNodeID}
+			return llmStreamFinishedMsg{err: err, activeNodeID: activeNodeID}
 		}
 
 		var messages []engine.Message
@@ -572,12 +580,26 @@ func (m *Model) resumeStreamCmd(ctx context.Context, activeNodeID string) tea.Cm
 				Internal:   node.Internal,
 			}
 
-			// For Assistant nodes, only keep Thought/Tools/Observations if it's the active node we are resuming.
-			// This provides continuity for the current turn while saving tokens on previous ones.
-			if node.Role != engine.RoleAssistant || node.ID == activeNodeID {
-				msg.Thought = node.Thought
+			if node.Role == engine.RoleAssistant {
 				msg.ToolCalls = node.ToolCalls
-				msg.Observations = node.Observations
+				if node.ID == activeNodeID {
+					// Active node: keep full thought and observations
+					msg.Thought = node.Thought
+					msg.Observations = node.Observations
+				} else {
+					// Historical node: strip thought, truncate observations
+					msg.Observations = make([]engine.ToolObservation, len(node.Observations))
+					for i, obs := range node.Observations {
+						truncatedResult := obs.Result
+						if len(truncatedResult) > 4000 {
+							truncatedResult = truncatedResult[:4000] + "... [truncated]"
+						}
+						msg.Observations[i] = engine.ToolObservation{
+							ToolCallID: obs.ToolCallID,
+							Result:     truncatedResult,
+						}
+					}
+				}
 			}
 
 			messages = append(messages, msg)
@@ -595,32 +617,7 @@ func (m *Model) resumeStreamCmd(ctx context.Context, activeNodeID string) tea.Cm
 	}
 }
 
-// handleLLMResponse handles non-streaming LLM responses, potentially containing tool calls.
-func (m *Model) handleLLMResponse(msg llmResponseMsg) (tea.Model, tea.Cmd) {
-	m.IsThinking = false
-	if msg.err != nil {
-		m.Notification = fmt.Sprintf("Error: %v", msg.err)
-		return m, nil
-	}
 
-	assistantNode, err := m.Manager.CreateAssistantNode(msg.parentID, msg.message.Content, msg.message.Thought, msg.message.ToolCalls, false)
-	if err != nil {
-		m.Notification = fmt.Sprintf("Error: %v", err)
-		return m, nil
-	}
-
-	m.CurrentID = assistantNode.ID
-	m.LastActivity = time.Now()
-	m.updateViewportContent()
-
-	if len(msg.message.ToolCalls) > 0 {
-		m.PendingToolCalls = msg.message.ToolCalls
-		m.AwaitingToolConfirmation = true
-		return m, nil
-	}
-
-	return m, tea.Batch(tick())
-}
 
 func (m *Model) handleCompactionFinished(msg compactionFinishedMsg) (tea.Model, tea.Cmd) {
 	m.IsCompressing = false
