@@ -9,16 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func generateResponse(ctx context.Context, provider engine.LLMProvider, messages []engine.Message, tools []engine.Tool, parentID string) tea.Cmd {
-	return func() tea.Msg {
-		msg, err := provider.GenerateResponse(ctx, messages, tools)
-		return llmResponseMsg{
-			message:  msg,
-			err:      err,
-			parentID: parentID,
-		}
-	}
-}
+
 
 func streamResponse(ctx context.Context, provider engine.LLMProvider, messages []engine.Message, tools []engine.Tool, parentID string, activeNodeID string) tea.Cmd {
 	return func() tea.Msg {

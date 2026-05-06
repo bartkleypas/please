@@ -40,12 +40,7 @@ type streamResponseMsg struct {
 	activeNodeID string // If set, this is an interleaving resumption
 }
 
-// llmResponseMsg is sent for non-streaming LLM responses
-type llmResponseMsg struct {
-	message  *engine.Message
-	err      error
-	parentID string
-}
+
 
 // exportResultMsg is sent when the export file operation completes
 type exportResultMsg struct {

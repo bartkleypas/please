@@ -26,8 +26,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleLLMStreamFinished(msg)
 	case streamResponseMsg:
 		return m.handleStreamResponse(msg)
-	case llmResponseMsg:
-		return m.handleLLMResponse(msg)
+
 	case syncResultMsg:
 		return m.handleSyncResult(msg)
 	case toolsExecutedMsg:
