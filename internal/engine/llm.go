@@ -251,6 +251,8 @@ func (o *OllamaProvider) GenerateResponseStream(ctx context.Context, messages []
 						},
 					})
 				}
+				// Hard halt: immediately stop streaming if tool calls are emitted
+				break
 			}
 
 			if ollamaResp.Done {
