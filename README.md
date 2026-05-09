@@ -16,9 +16,9 @@ Unlike linear chat applications, `Please` treats conversations as a Directed Acy
 ### 🎭 Narrative Interaction
 *   **Modular TUI:** Built with [Charm Bubble Tea](https://github.com/charmbracelet/bubbletea), featuring a flattened state machine and specialized event handlers.
 *   **Visual Mapping:** Use `/map` to visualize the branching paths of your story with Vim-style navigation (`h/j/k/l`).
-*   **Supernodes (Compaction):** Press `c` in the map to summarize long-winded branches into high-density context nodes, preserving your context window.
+*   **Supernodes (Compaction):** Press `c` in the map to summarize long-winded branches into high-density context nodes, helping to prevent the onset of "context bloat" in longer conversations (especially useful after heavy tool use).
 *   **Branch Pruning:** Press `d` in the map to soft-delete unwanted branches, with `/gc` for permanent secure scrubbing.
-*   **Web Visualization:** Run with `-s` to start an embedded web server that provides a real-time, threaded, "Deep Forest Green" dark mode view of your graph.
+*   **Web Visualization:** Run with `-s` to start an embedded web server with a "Deep Forest Green" theme (but not *that* deep). Updates to the graph require refreshing the page to see changes.
 *   **Persona Management:** Easily switch between different system prompts and characters using the `/persona` command.
 
 ---
@@ -101,6 +101,8 @@ Inside the app, use these interactive commands to navigate your story:
 | `/unmark <id>` | Remove a bookmark from a node. |
 | `/persona` | Branch the story into a new timeline with a new system prompt. |
 | `/server` | Control the web visualization server (`/server on`, `/server off`). |
+| `/gc` | Garbage collect deleted nodes from the database. |
+| `/audit` | Toggle audit mode to view extended UUIDs (and more) for each node. |
 | `/q` or `/bye` | Gracefully exit the application. |
 
 **Navigation Tips:**

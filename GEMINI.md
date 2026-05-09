@@ -46,7 +46,7 @@ cat README.md | please "Summarize this" # Tool/Context role inference
 - **Fuzzy Search:** `/` in map view filters nodes in real-time.
 
 ### `internal/server` (Web Visualization)
-- **`Server` (`server.go`)**: Embedded HTTP server providing a real-time, threaded web view of the conversation graph.
+- **`Server` (`server.go`)**: Embedded HTTP server providing a threaded web view of the conversation graph. (Updates require page refresh).
 - **`Assets` (`assets/index.html`)**: HTML/JS frontend for the web visualization, using "bubble-up" activity sorting.
 
 ## Building, Running, and Testing
