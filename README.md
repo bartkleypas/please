@@ -18,7 +18,7 @@ Unlike linear chat applications, `Please` treats conversations as a Directed Acy
 *   **Visual Mapping:** Use `/map` to visualize the branching paths of your story with Vim-style navigation (`h/j/k/l`).
 *   **Supernodes (Compaction):** Press `c` in the map to summarize long-winded branches into high-density context nodes, helping to prevent the onset of "context bloat" in longer conversations (especially useful after heavy tool use).
 *   **Branch Pruning:** Press `d` in the map to soft-delete unwanted branches, with `/gc` for permanent secure scrubbing.
-*   **Web Visualization:** Run with `-s` to start an embedded web server with a "Deep Forest Green" theme (but not *that* deep). Updates to the graph require refreshing the page to see changes.
+*   **Web Visualization:** Run with `-s` to start an embedded web server featuring a premium radial gradient background and glassmorphic UI elements. The graph renders as collapsible narrative threads, clamps long root messages to keep the view clean, and includes a toggle to show or hide the LLM's internal thinking tokens.
 *   **Persona Management:** Easily switch between different system prompts and characters using the `/persona` command.
 
 ---
@@ -71,18 +71,22 @@ please --no-gen "This message is just for the graph history."
     ```
 
 ### Running the App
-Launch the TUI chat interface:
+The project includes a `Makefile` to simplify building and versioning (injecting git tags via `ldflags`).
+
+Build the application:
 ```bash
-go run cmd/please/main.go -c
+make build
+./please --version
 ```
-Or start with the web visualization server:
+
+Build and launch the TUI chat interface instantly:
 ```bash
-go run cmd/please/main.go -c -s 8080
+make run
 ```
-Or build and run:
+
+Or start with the web visualization server directly:
 ```bash
-go build -o please ./cmd/please
-./please -c
+./please -c -s 8080
 ```
 
 ---
@@ -100,7 +104,9 @@ Inside the app, use these interactive commands to navigate your story:
 | `/mark [id]` | Place a bookmark at the current or specified node. |
 | `/unmark <id>` | Remove a bookmark from a node. |
 | `/persona` | Branch the story into a new timeline with a new system prompt. |
+| `/config` | View or update application settings. |
 | `/server` | Control the web visualization server (`/server on`, `/server off`). |
+| `/version`| Display the application version and git commit hash. |
 | `/gc` | Garbage collect deleted nodes from the database. |
 | `/audit` | Toggle audit mode to view extended UUIDs for each node. |
 | `/q` or `/bye` | Gracefully exit the application. |
@@ -123,9 +129,14 @@ Inside the app, use these interactive commands to navigate your story:
 `Please` is built with testability in mind, utilizing mock LLM providers and state-machine testing.
 
 ### Running Tests
-Run the full test suite (including engine and TUI logic):
+Run the fast, offline unit test suite:
 ```bash
-go test ./...
+make test
+```
+
+Run the full end-to-end "Live Fire" integration tests (requires a running Ollama instance):
+```bash
+make test-livefire
 ```
 
 ### Technical Structure
