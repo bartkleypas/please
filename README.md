@@ -102,7 +102,7 @@ Inside the app, use these interactive commands to navigate your story:
 | `/persona` | Branch the story into a new timeline with a new system prompt. |
 | `/server` | Control the web visualization server (`/server on`, `/server off`). |
 | `/gc` | Garbage collect deleted nodes from the database. |
-| `/audit` | Toggle audit mode to view extended UUIDs (and more) for each node. |
+| `/audit` | Toggle audit mode to view extended UUIDs for each node. |
 | `/q` or `/bye` | Gracefully exit the application. |
 
 **Navigation Tips:**

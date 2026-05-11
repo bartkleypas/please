@@ -7,11 +7,13 @@
     <style>
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: #0d1b15;
+            background: radial-gradient(circle at 50% 0%, #11261d 0%, #08120e 100%);
+            background-attachment: fixed;
             color: #e0e7e3;
             margin: 0;
             padding: 20px;
             line-height: 1.6;
+            min-height: 100vh;
         }
         .container {
             max-width: 1100px;
@@ -28,18 +30,31 @@
         }
         .node {
             margin-left: 24px;
-            border-left: 1px solid #1e3a2f;
-            padding-left: 20px;
-            margin-top: 16px;
+            border-left: 2px solid #1e3a2f;
+            padding-left: 24px;
+            margin-top: 24px;
             transition: border-color 0.2s ease;
         }
         .node:hover {
-            border-left-color: #2d5a45;
+            border-left-color: #4ade80;
         }
         .node.root {
             margin-left: 0;
             border-left: none;
             padding-left: 0;
+            margin-top: 16px;
+        }
+        .toggle-btn {
+            cursor: pointer;
+            color: #8fa397;
+            font-family: monospace;
+            font-size: 1rem;
+            user-select: none;
+            margin-right: 8px;
+            transition: color 0.2s;
+        }
+        .toggle-btn:hover {
+            color: #e2e8f0;
         }
         .node-header {
             font-size: 0.75rem;
@@ -75,14 +90,26 @@
 
         .content {
             font-size: 0.95rem;
-            line-height: 1.5;
+            line-height: 1.6;
             white-space: pre-wrap;
-            background: #162c23;
-            padding: 14px 18px;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -1px rgba(0, 0, 0, 0.1);
-            border: 1px solid #1e3a2f;
+            background: rgba(22, 44, 35, 0.7);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            padding: 16px 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px -3px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(30, 58, 47, 0.5) inset;
+            border: 1px solid rgba(45, 90, 69, 0.3);
             color: #e2e8f0;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .content:hover {
+            box-shadow: 0 6px 20px -4px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(74, 222, 128, 0.2) inset;
+        }
+        .content.clamped {
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
         }
         .node-id {
             font-family: 'JetBrains Mono', 'Fira Code', monospace;
@@ -177,7 +204,7 @@
 
             const idSpan = document.createElement('span');
             idSpan.className = 'node-id';
-            idSpan.innerText = node.id.substring(0, 8);
+            idSpan.innerText = node.id.slice(-8);
             idSpan.style.marginLeft = '10px';
 
             const timeSpan = document.createElement('span');
@@ -199,9 +226,31 @@
             nodeDiv.appendChild(header);
 
             if (node.thought) {
+                const thoughtToggleBtn = document.createElement('span');
+                thoughtToggleBtn.className = 'toggle-btn';
+                thoughtToggleBtn.innerText = '🧠';
+                thoughtToggleBtn.title = 'Toggle thought process';
+                thoughtToggleBtn.style.marginLeft = '10px';
+                thoughtToggleBtn.style.opacity = '0.4';
+                thoughtToggleBtn.style.transition = 'opacity 0.2s';
+                
                 const thought = document.createElement('div');
                 thought.className = 'thought';
                 thought.innerText = node.thought;
+                thought.style.display = 'none';
+
+                thoughtToggleBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    if (thought.style.display === 'none') {
+                        thought.style.display = 'block';
+                        thoughtToggleBtn.style.opacity = '1';
+                    } else {
+                        thought.style.display = 'none';
+                        thoughtToggleBtn.style.opacity = '0.4';
+                    }
+                };
+
+                header.appendChild(thoughtToggleBtn);
                 nodeDiv.appendChild(thought);
             }
 
@@ -212,17 +261,43 @@
             nodeDiv.appendChild(content);
 
             const childrenIDs = graph.Children[node.id] || [];
-            // Sort children by latest activity in their subtree (descending)
-            const sortedChildrenIDs = [...childrenIDs].sort((a, b) => {
-                return getLatestActivity(b, graph, memo) - getLatestActivity(a, graph, memo);
-            });
+            
+            if (childrenIDs.length > 0) {
+                const childrenContainer = document.createElement('div');
+                childrenContainer.className = 'children-container';
 
-            sortedChildrenIDs.forEach(childID => {
-                const childNode = graph.Nodes[childID];
-                if (childNode) {
-                    nodeDiv.appendChild(createNodeElement(childNode, graph, memo));
-                }
-            });
+                const toggleBtn = document.createElement('span');
+                toggleBtn.className = 'toggle-btn';
+                toggleBtn.innerText = '[-]';
+                toggleBtn.title = 'Toggle children';
+                toggleBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    if (childrenContainer.style.display === 'none') {
+                        childrenContainer.style.display = 'block';
+                        toggleBtn.innerText = '[-]';
+                        content.classList.remove('clamped');
+                    } else {
+                        childrenContainer.style.display = 'none';
+                        toggleBtn.innerText = '[+]';
+                        content.classList.add('clamped');
+                    }
+                };
+                header.prepend(toggleBtn);
+
+                // Sort children by latest activity in their subtree (descending)
+                const sortedChildrenIDs = [...childrenIDs].sort((a, b) => {
+                    return getLatestActivity(b, graph, memo) - getLatestActivity(a, graph, memo);
+                });
+
+                sortedChildrenIDs.forEach(childID => {
+                    const childNode = graph.Nodes[childID];
+                    if (childNode) {
+                        childrenContainer.appendChild(createNodeElement(childNode, graph, memo));
+                    }
+                });
+                
+                nodeDiv.appendChild(childrenContainer);
+            }
 
             return nodeDiv;
         }
