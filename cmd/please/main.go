@@ -34,6 +34,7 @@ func main() {
 
 	noGen := flag.Bool("no-gen", false, "Disable automatic LLM generation when passing a message")
 	roleStr := flag.String("role", "", "Override role for the new node (user, assistant, system, tool)")
+	versionFlag := flag.Bool("version", false, "Print the application version and exit")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "🦉 Please: A DAG-based TUI for branching LLM conversations.\n\n")
@@ -53,6 +54,11 @@ func main() {
 	}
 
 	flag.Parse()
+
+	if *versionFlag {
+		fmt.Printf("please version %s\n", engine.Version)
+		os.Exit(0)
+	}
 
 	// Load Configuration
 	cfg, err := engine.LoadConfig()

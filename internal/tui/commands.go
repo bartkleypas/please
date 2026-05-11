@@ -33,6 +33,7 @@ func init() {
 	commandRegistry["/quit"] = &QuitCommand{}
 	commandRegistry["/bye"] = &QuitCommand{}
 	commandRegistry["/audit"] = &AuditCommand{}
+	commandRegistry["/version"] = &VersionCommand{}
 }
 
 // ... rest of HandleCommand ...
@@ -324,4 +325,11 @@ type QuitCommand struct{}
 
 func (c *QuitCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	return m, tea.Quit
+}
+
+type VersionCommand struct{}
+
+func (c *VersionCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
+	m.Notification = fmt.Sprintf("please version %s", engine.Version)
+	return m, nil
 }
