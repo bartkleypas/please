@@ -1,5 +1,3 @@
-//go:build livefire
-
 package engine
 
 import (
@@ -14,6 +12,10 @@ import (
 )
 
 func setupLiveFire(t *testing.T) (*Manager, *OllamaProvider) {
+	if os.Getenv("PLEASE_LIVE_FIRE") == "" {
+		t.Skip("Skipping live fire testing (set PLEASE_LIVE_FIRE=1 to run)")
+	}
+
 	// Change working directory to project root so tools using relative paths work
 	_, filename, _, _ := runtime.Caller(0)
 	projectRoot := filepath.Join(filepath.Dir(filename), "..", "..")
@@ -227,7 +229,7 @@ func executeToolTurn(t *testing.T, ctx context.Context, mgr *Manager, provider L
 	return assistantNode
 }
 
-func TestLiveFire_Narrator(t *testing.T) {
+func TestLLM_Narrator(t *testing.T) {
 	mgr, provider := setupLiveFire(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -242,7 +244,7 @@ func TestLiveFire_Narrator(t *testing.T) {
 	simulateTurn(t, ctx, mgr, provider, "Hello! Can you confirm you are online?", sysNode.ID)
 }
 
-func TestLiveFire_ToolExecution(t *testing.T) {
+func TestLLM_ToolExecution(t *testing.T) {
 	mgr, provider := setupLiveFire(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()

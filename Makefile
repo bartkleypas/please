@@ -1,4 +1,4 @@
-.PHONY: build run clean test
+.PHONY: build run clean test test-livefire
 .DEFAULT_GOAL := build
 
 # Determine the version string using git tags or fallback to 'dev'
@@ -14,6 +14,9 @@ run: build
 
 test:
 	go test ./...
+
+test-livefire:
+	PLEASE_LIVE_FIRE=1 go test -v ./internal/engine
 
 clean:
 	rm -f please
