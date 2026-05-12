@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/bartkleypas/please/internal/engine"
 	tea "github.com/charmbracelet/bubbletea"
-	"org.kleypas.please/internal/engine"
 )
 
 // Command defines the interface for TUI commands

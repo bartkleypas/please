@@ -3,8 +3,8 @@ package tui
 import (
 	"strings"
 
+	"github.com/bartkleypas/please/internal/engine"
 	"github.com/charmbracelet/lipgloss"
-	"org.kleypas.please/internal/engine"
 )
 
 func getRoleStyle(role engine.Role) lipgloss.Style {

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"org.kleypas.please/internal/engine"
+	"github.com/bartkleypas/please/internal/engine"
 )
 
 //go:embed assets/*
@@ -93,7 +93,7 @@ func (s *Server) Status() (bool, int) {
 
 func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	// Synchronize with disk to ensure external CLI modifications are reflected
 	if _, _, err := s.Manager.Sync(); err != nil {
 		http.Error(w, "Failed to synchronize graph: "+err.Error(), http.StatusInternalServerError)

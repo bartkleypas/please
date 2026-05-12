@@ -4,12 +4,10 @@ import (
 	"context"
 	"time"
 
-	"org.kleypas.please/internal/engine"
+	"github.com/bartkleypas/please/internal/engine"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
-
-
 
 func streamResponse(ctx context.Context, provider engine.LLMProvider, messages []engine.Message, tools []engine.Tool, parentID string, activeNodeID string) tea.Cmd {
 	return func() tea.Msg {

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"org.kleypas.please/internal/engine"
+	"github.com/bartkleypas/please/internal/engine"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -616,8 +616,6 @@ func (m *Model) resumeStreamCmd(ctx context.Context, activeNodeID string) tea.Cm
 		}
 	}
 }
-
-
 
 func (m *Model) handleCompactionFinished(msg compactionFinishedMsg) (tea.Model, tea.Cmd) {
 	m.IsCompressing = false

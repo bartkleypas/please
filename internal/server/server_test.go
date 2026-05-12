@@ -7,7 +7,7 @@ import (
 	"os"
 	"testing"
 
-	"org.kleypas.please/internal/engine"
+	"github.com/bartkleypas/please/internal/engine"
 )
 
 func TestServerAutoSync(t *testing.T) {

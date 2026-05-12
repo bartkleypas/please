@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"org.kleypas.please/internal/engine"
+	"github.com/bartkleypas/please/internal/engine"
 )
 
 func (m *Model) renderNode(node *engine.Node) string {
@@ -35,7 +35,7 @@ func (m *Model) renderNode(node *engine.Node) string {
 	for i, call := range node.ToolCalls {
 		// Announce Action (Lane B)
 		s.WriteString(markStyle.Render(fmt.Sprintf("⚒️  Executing %s(%s)...", call.Function.Name, string(call.Function.Arguments))) + "\n")
-		
+
 		// Render Observation if available (Lane C)
 		if i < len(node.Observations) {
 			obs := node.Observations[i]

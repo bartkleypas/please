@@ -8,9 +8,9 @@ import (
 	"os"
 	"strings"
 
-	"org.kleypas.please/internal/engine"
-	"org.kleypas.please/internal/server"
-	"org.kleypas.please/internal/tui"
+	"github.com/bartkleypas/please/internal/engine"
+	"github.com/bartkleypas/please/internal/server"
+	"github.com/bartkleypas/please/internal/tui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

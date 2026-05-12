@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bartkleypas/please/internal/engine"
 	"github.com/charmbracelet/lipgloss"
-	"org.kleypas.please/internal/engine"
 )
 
 // generateMapString builds the full visual tree of the graph

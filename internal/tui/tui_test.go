@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"org.kleypas.please/internal/engine"
+	"github.com/bartkleypas/please/internal/engine"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -28,7 +28,7 @@ func TestUpdateStateTransitions(t *testing.T) {
 	// 2. Initialize Model
 	cfg := &engine.Config{}
 	m := NewModel(cfg, graph, storage, mockProvider, "")
-	
+
 	// Ensure we start in SetupMode if graph is empty
 	if !m.SetupMode {
 		t.Error("Expected model to start in SetupMode for empty graph")
@@ -145,12 +145,12 @@ func TestHandleCommand(t *testing.T) {
 		if handled != tt.handled {
 			t.Errorf("input %s: expected handled %v, got %v", tt.input, tt.handled, handled)
 		}
-		
+
 		resModel := newM.(*Model)
 		if tt.handled && tt.expected != "" && resModel.Notification != tt.expected {
 			t.Errorf("input %s: expected notification %s, got %s", tt.input, tt.expected, resModel.Notification)
 		}
-		
+
 		if tt.input == "/persona" && !resModel.PersonaSetupMode {
 			t.Errorf("input %s: expected PersonaSetupMode to be true", tt.input)
 		}

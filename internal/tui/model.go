@@ -3,8 +3,8 @@ package tui
 import (
 	"time"
 
-	"org.kleypas.please/internal/engine"
-	"org.kleypas.please/internal/server"
+	"github.com/bartkleypas/please/internal/engine"
+	"github.com/bartkleypas/please/internal/server"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"

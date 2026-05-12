@@ -3,7 +3,7 @@
 
 # Determine the version string using git tags or fallback to 'dev'
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-LDFLAGS := -X org.kleypas.please/internal/engine.Version=$(VERSION)
+LDFLAGS := -X github.com/bartkleypas/please/internal/engine.Version=$(VERSION)
 
 build:
 	@echo "Building please version $(VERSION)..."

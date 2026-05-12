@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"org.kleypas.please/internal/engine"
+	"github.com/bartkleypas/please/internal/engine"
 )
 
 // tickMsg is sent to trigger the spinner animation
@@ -39,8 +39,6 @@ type streamResponseMsg struct {
 	parentID     string
 	activeNodeID string // If set, this is an interleaving resumption
 }
-
-
 
 // exportResultMsg is sent when the export file operation completes
 type exportResultMsg struct {
