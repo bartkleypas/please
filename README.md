@@ -60,9 +60,17 @@ please --no-gen "This message is just for the graph history."
 *   **Ollama:** A local Ollama instance running with your preferred model (default: `gemma4:e4b`).
 
 ### Installation
+
+**Option A: Install via Go (Recommended)**
+If you have Go installed, you can install the binary directly:
+```bash
+go install github.com/bartkleypas/please@latest
+```
+
+**Option B: Build from Source**
 1.  Clone the repository:
     ```bash
-    git clone https://github.com/your-username/please.git
+    git clone https://github.com/bartkleypas/please.git
     cd please
     ```
 2.  Install dependencies:
@@ -73,7 +81,7 @@ please --no-gen "This message is just for the graph history."
 ### Running the App
 The project includes a `Makefile` to simplify building and versioning (injecting git tags via `ldflags`).
 
-Build the application:
+Build and verify the application:
 ```bash
 make build
 ./please --version
