@@ -231,7 +231,7 @@ func executeToolTurn(t *testing.T, ctx context.Context, mgr *Manager, provider L
 
 func TestLLM_Narrator(t *testing.T) {
 	mgr, provider := setupLiveFire(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	// 1. Establish the System prompt
@@ -246,7 +246,7 @@ func TestLLM_Narrator(t *testing.T) {
 
 func TestLLM_ToolExecution(t *testing.T) {
 	mgr, provider := setupLiveFire(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	// 1. Establish the System prompt
@@ -269,4 +269,43 @@ func TestLLM_ToolExecution(t *testing.T) {
 	// This should force the model to first try to find it with the file search tool (loop 1), then use the read tool against what it finds and summarize it (loop 2).
 	input = "Please look in the `Lore/` directory. There should be a file about a garden in there. Would you please summarize that file for me?"
 	executeToolTurn(t, ctx, mgr, provider, tools, input, sysNode.ID)
+
+	// 5. Chain of tool executions to test all file system tools
+	t.Log("--- Starting File System Tools Chain ---")
+
+	// write_file
+	input = "Please use the write_file tool to create a new file at 'test_vault/demo.txt' with the exact content:\nLine 1\nLine 2\nLine 3\n"
+	turn1 := executeToolTurn(t, ctx, mgr, provider, tools, input, sysNode.ID)
+
+	// list_directory
+	input = "Please use the list_directory tool to list the contents of the 'test_vault' directory to verify the file was created."
+	turn2 := executeToolTurn(t, ctx, mgr, provider, tools, input, turn1.ID)
+
+	// list_files_recursive
+	input = "Please use the list_files_recursive tool to list all files in the 'test_vault' directory."
+	turn3 := executeToolTurn(t, ctx, mgr, provider, tools, input, turn2.ID)
+
+	// grep_search
+	input = "Please use the grep_search tool to search for the pattern 'Line 2' in the `.txt` files within the 'test_vault/' directory."
+	turn4 := executeToolTurn(t, ctx, mgr, provider, tools, input, turn3.ID)
+
+	// patch_file
+	input = "Please use the patch_file tool to replace the exact string 'Line 2' with 'Line Two' in 'test_vault/demo.txt'."
+	turn5 := executeToolTurn(t, ctx, mgr, provider, tools, input, turn4.ID)
+
+	// edit_file
+	input = "Please use the edit_file tool in 'replace_line' mode to replace line 3 of 'test_vault/demo.txt' with 'Line Three'."
+	turn6 := executeToolTurn(t, ctx, mgr, provider, tools, input, turn5.ID)
+
+	// search_and_replace
+	input = "Please use the search_and_replace tool to replace the exact block 'Line 1' with 'Line One' in 'test_vault/demo.txt'."
+	turn7 := executeToolTurn(t, ctx, mgr, provider, tools, input, turn6.ID)
+
+	// cleanup
+	input = "Please use the execute_command tool to run 'rm test_vault/demo.txt'."
+	turn8 := executeToolTurn(t, ctx, mgr, provider, tools, input, turn7.ID)
+
+	// Feedback
+	input = "We just tested write_file, list_directory, list_files_recursive, grep_search, patch_file, edit_file, search_and_replace, and execute_command. Summarize your experience with these tools and their ease of use."
+	simulateTurn(t, ctx, mgr, provider, input, turn8.ID)
 }
