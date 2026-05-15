@@ -45,6 +45,7 @@ type openAIMessage struct {
 }
 
 type openAIToolCall struct {
+	Index    *int   `json:"index,omitempty"`
 	ID       string `json:"id"`
 	Type     string `json:"type"`
 	Function struct {
@@ -220,26 +221,20 @@ func (o *OpenAIProvider) GenerateResponseStream(ctx context.Context, messages []
 
 			if len(delta.ToolCalls) > 0 {
 				hasToolCalls = true
-				for i, tc := range delta.ToolCalls {
-					// We just use index since that's how OpenAI maps tool calls in stream
-					// But we need to handle if the JSON provides an explicit index.
-					// Since we don't have the index in the struct, we assume it's ordered
-					// Or just map it based on the implicit index. For robust parsing we should extract index,
-					// but standard OpenAI sends them in order. We'll just use the array index for now.
-					// Actually OpenAI sends an 'index' field in the tool_calls delta array.
-					// Since we didn't add it to openAIToolCall, let's just append to a list and assume
-					// it sends one tool call stream at a time or in order.
+				for _, tc := range delta.ToolCalls {
+					if tc.Index == nil {
+						continue // Malformed tool call delta without an index
+					}
 					
-					// A simpler approach for this prototype: OpenAI sends tool call deltas with an index
-					// We can just rely on the ID to initialize a new builder.
+					idx := *tc.Index
 					if tc.ID != "" {
-						toolCallsMap[i] = &toolCallBuilder{
+						toolCallsMap[idx] = &toolCallBuilder{
 							id:   tc.ID,
 							name: tc.Function.Name,
 						}
 					}
-					if tc.Function.Arguments != "" && toolCallsMap[i] != nil {
-						toolCallsMap[i].arguments.WriteString(tc.Function.Arguments)
+					if tc.Function.Arguments != "" && toolCallsMap[idx] != nil {
+						toolCallsMap[idx].arguments.WriteString(tc.Function.Arguments)
 					}
 				}
 			}
