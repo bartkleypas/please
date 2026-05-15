@@ -9,6 +9,8 @@ import (
 
 // Config holds the application settings
 type Config struct {
+	Provider    string `json:"provider"`
+	APIKey      string `json:"api_key,omitempty"`
 	Model       string `json:"model"`
 	Endpoint    string `json:"endpoint"`
 	VaultPath   string `json:"vault_path"`
@@ -55,6 +57,9 @@ func LoadConfig() (*Config, error) {
 	if cfg.StorageType == "" {
 		cfg.StorageType = "jsonl"
 	}
+	if cfg.Provider == "" {
+		cfg.Provider = "ollama"
+	}
 
 	return &cfg, nil
 }
@@ -87,6 +92,7 @@ func defaultConfig() *Config {
 	_ = os.MkdirAll(vaultDir, 0755)
 
 	return &Config{
+		Provider:    "ollama",
 		Model:       "gemma4:e4b",
 		Endpoint:    "http://localhost:11434/api/chat",
 		VaultPath:   filepath.Join(vaultDir, "vault.db"),
