@@ -57,7 +57,9 @@ please --no-gen "This message is just for the graph history."
 
 ### Prerequisites
 *   **Go:** 1.26 or higher.
-*   **Ollama:** A local Ollama instance running with your preferred model (default: `gemma4:e4b`).
+*   **LLM Provider:**
+    *   A local **Ollama** instance running with your preferred model (default: `gemma4:e4b`).
+    *   *OR* an **OpenAI** API key and compatible endpoint.
 
 ### Installation
 
@@ -95,6 +97,28 @@ make run
 Or start with the web visualization server directly:
 ```bash
 ./please -c -s 8080
+```
+
+### Configuration
+`Please` reads from `~/.config/please/config.json`. You can configure the LLM provider here:
+
+**Local Ollama (Default)**
+```json
+{
+  "provider": "ollama",
+  "endpoint": "http://localhost:11434/api/chat",
+  "model": "gemma4:e4b"
+}
+```
+
+**OpenAI API**
+```json
+{
+  "provider": "openai",
+  "endpoint": "https://api.openai.com/v1/chat/completions",
+  "model": "gpt-4o",
+  "api_key": "sk-your-api-key"
+}
 ```
 
 ---

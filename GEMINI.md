@@ -7,7 +7,7 @@
 - **Language:** Go (1.26+)
 - **TUI Framework:** [Charm Bubble Tea](https://github.com/charmbracelet/bubbletea)
 - **Styling:** [Charm Lipgloss](https://github.com/charmbracelet/lipgloss)
-- **LLM Integration:** Local [Ollama](https://ollama.com/) (defaulting to `gemma4:e4b`)
+- **LLM Integration:** Local [Ollama](https://ollama.com/) (defaulting to `gemma4:e4b`) and [OpenAI API](https://openai.com/) natively supported.
 - **ID Generation:** [Google UUID](https://github.com/google/uuid)
 
 ## Architecture & Key Components
@@ -73,7 +73,7 @@ go test ./...
 
 ## Configuration and Storage
 The application automatically manages its configuration and data directories:
-- **Configuration:** `~/.config/please/config.json` (Customizable model and endpoint).
+- **Configuration:** `~/.config/please/config.json` (Customizable provider, api_key, model, and endpoint).
 - **Storage (Vault):** `~/.local/share/please/vault.db` (SQLite database containing all conversation nodes).
 
 ## Development Conventions

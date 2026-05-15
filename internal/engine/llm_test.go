@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-func setupLiveFire(t *testing.T) (*Manager, *OllamaProvider) {
+func setupLiveFire(t *testing.T) (*Manager, LLMProvider) {
 	if os.Getenv("PLEASE_LIVE_FIRE") == "" {
 		t.Skip("Skipping live fire testing (set PLEASE_LIVE_FIRE=1 to run)")
 	}
@@ -53,42 +53,70 @@ func setupLiveFire(t *testing.T) (*Manager, *OllamaProvider) {
 	endpoint := "http://localhost:11434/api/chat"
 	model := "gemma4:e4b"
 
+	providerType := "ollama"
+	apiKey := ""
+
 	// 2. Try loading a workspace-specific test config
 	workspaceConfigPath := "livefire.json"
 	if data, err := os.ReadFile(workspaceConfigPath); err == nil {
 		var wsConfig struct {
+			Provider string `json:"provider"`
 			Endpoint string `json:"endpoint"`
 			Model    string `json:"model"`
+			APIKey   string `json:"api_key"`
 		}
 		if json.Unmarshal(data, &wsConfig) == nil {
+			if wsConfig.Provider != "" {
+				providerType = wsConfig.Provider
+			}
 			if wsConfig.Endpoint != "" {
 				endpoint = wsConfig.Endpoint
 			}
 			if wsConfig.Model != "" {
 				model = wsConfig.Model
 			}
+			if wsConfig.APIKey != "" {
+				apiKey = wsConfig.APIKey
+			}
 		}
 	} else {
 		// 3. Fall back to the user's global please config
 		if globalCfg, err := LoadConfig(); err == nil {
+			if globalCfg.Provider != "" {
+				providerType = globalCfg.Provider
+			}
 			if globalCfg.Endpoint != "" {
 				endpoint = globalCfg.Endpoint
 			}
 			if globalCfg.Model != "" {
 				model = globalCfg.Model
 			}
+			if globalCfg.APIKey != "" {
+				apiKey = globalCfg.APIKey
+			}
 		}
 	}
 
 	// 4. Environment variables can override everything
+	if envProvider := os.Getenv("PLEASE_PROVIDER"); envProvider != "" {
+		providerType = envProvider
+	}
 	if envModel := os.Getenv("OLLAMA_MODEL"); envModel != "" {
 		model = envModel
 	}
 	if envEndpoint := os.Getenv("OLLAMA_ENDPOINT"); envEndpoint != "" {
 		endpoint = envEndpoint
 	}
+	if envAPIKey := os.Getenv("OPENAI_API_KEY"); envAPIKey != "" {
+		apiKey = envAPIKey
+	}
 
-	provider := NewOllamaProvider(endpoint, model)
+	var provider LLMProvider
+	if providerType == "openai" {
+		provider = NewOpenAIProvider(endpoint, model, apiKey)
+	} else {
+		provider = NewOllamaProvider(endpoint, model)
+	}
 
 	return mgr, provider
 }

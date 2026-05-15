@@ -97,7 +97,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	provider := engine.NewOllamaProvider(cfg.Endpoint, cfg.Model)
+	var provider engine.LLMProvider
+	if cfg.Provider == "openai" {
+		provider = engine.NewOpenAIProvider(cfg.Endpoint, cfg.Model, cfg.APIKey)
+	} else {
+		provider = engine.NewOllamaProvider(cfg.Endpoint, cfg.Model)
+	}
 	mgr := engine.NewManager(graph, storage)
 	webServer := server.NewServer(mgr)
 
