@@ -156,7 +156,8 @@ func executeToolTurn(t *testing.T, ctx context.Context, mgr *Manager, provider L
 		t.Fatalf("failed to generate response: %v", err)
 	}
 
-	t.Logf("### Assistant emitted tool calls: %v", resp.ToolCalls)
+	toolCallsJSON, _ := json.Marshal(resp.ToolCalls)
+	t.Logf("### Assistant emitted tool calls: %s", string(toolCallsJSON))
 	if len(resp.ToolCalls) == 0 {
 		t.Fatalf("expected tool calls, got none. Model responded with: %s", resp.Content)
 	}
@@ -209,7 +210,8 @@ func executeToolTurn(t *testing.T, ctx context.Context, mgr *Manager, provider L
 
 		t.Logf("### Assistant follow-up says: %s", currentResp.Content)
 		if len(currentResp.ToolCalls) > 0 {
-			t.Logf("### Assistant emitted follow-up tool calls: %v", currentResp.ToolCalls)
+			followUpJSON, _ := json.Marshal(currentResp.ToolCalls)
+			t.Logf("### Assistant emitted follow-up tool calls: %s", string(followUpJSON))
 		}
 
 		// Append to the EXISTING assistant node (matching TUI behavior)
@@ -231,7 +233,7 @@ func executeToolTurn(t *testing.T, ctx context.Context, mgr *Manager, provider L
 
 func TestLLM_Narrator(t *testing.T) {
 	mgr, provider := setupLiveFire(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	// 1. Establish the System prompt
@@ -246,7 +248,7 @@ func TestLLM_Narrator(t *testing.T) {
 
 func TestLLM_ToolExecution(t *testing.T) {
 	mgr, provider := setupLiveFire(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
 	// 1. Establish the System prompt
