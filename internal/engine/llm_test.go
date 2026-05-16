@@ -36,7 +36,7 @@ func setupLiveFire(t *testing.T) (*Manager, LLMProvider) {
 	os.Remove(dbPath + "-wal")
 	os.Remove(dbPath + "-shm")
 
-	storage, err := NewSQLiteStorage(dbPath)
+	storage, err := NewSQLiteStorage(dbPath, "")
 	if err != nil {
 		t.Fatalf("failed to initialize sqlite storage: %v", err)
 	}

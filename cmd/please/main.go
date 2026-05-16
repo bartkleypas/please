@@ -82,13 +82,13 @@ func main() {
 
 	var storage engine.Storage
 	if storageType == "sqlite" {
-		storage, err = engine.NewSQLiteStorage(finalVaultPath)
+		storage, err = engine.NewSQLiteStorage(finalVaultPath, cfg.EncryptionKey)
 		if err != nil {
 			fmt.Printf("Error initializing sqlite storage: %v\n", err)
 			os.Exit(1)
 		}
 	} else {
-		storage = engine.NewJSONLStorage(finalVaultPath)
+		storage = engine.NewJSONLStorage(finalVaultPath, cfg.EncryptionKey)
 	}
 
 	graph, lastID, err := storage.LoadGraph()
