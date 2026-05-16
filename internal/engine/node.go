@@ -37,6 +37,8 @@ type Node struct {
 	// Deletion state
 	Deleted bool `json:"deleted,omitempty"`
 
-	// Internal state (for reasoning/shadow branches)
 	Internal bool `json:"internal,omitempty"`
+
+	// Encryption state
+	Encrypted bool `json:"-"` // Not persisted directly to JSON/DB; computed on load/save
 }

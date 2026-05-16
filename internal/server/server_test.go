@@ -19,7 +19,7 @@ func TestServerAutoSync(t *testing.T) {
 	defer os.Remove(tmpFile.Name())
 	tmpFile.Close()
 
-	storage, err := engine.NewSQLiteStorage(tmpFile.Name())
+	storage, err := engine.NewSQLiteStorage(tmpFile.Name(), "")
 	if err != nil {
 		t.Fatalf("failed to create storage: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestServerAutoSync(t *testing.T) {
 	}
 
 	// 3. Simulate an external process adding a node directly to the DB
-	externalStorage, _ := engine.NewSQLiteStorage(tmpFile.Name())
+	externalStorage, _ := engine.NewSQLiteStorage(tmpFile.Name(), "")
 	externalNode := &engine.Node{
 		ID:       "external-node",
 		ParentID: node.ID,

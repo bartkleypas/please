@@ -112,6 +112,11 @@ func (m *Model) renderMap(s *strings.Builder, nodeID string, indent string, isLa
 			}
 		}
 
+		encIndicator := ""
+		if node.Encrypted {
+			encIndicator = markStyle.Render("🔒")
+		}
+
 		bookmark := ""
 		if node.Metadata != nil && node.Metadata["bookmarked"] == "true" {
 			bookmark = markStyle.Render("⭐")
@@ -172,7 +177,7 @@ func (m *Model) renderMap(s *strings.Builder, nodeID string, indent string, isLa
 		}
 		preview = strings.ReplaceAll(preview, "\n", " ")
 
-		fmt.Fprintf(s, " %s%s%s%s%s%s %s:%s%s\n", indent, treePrefix, idStr, bookmark, toolIndicator, locationMarker, roleStyle.Render(string(node.Role)), preview, foldedIndicator)
+		fmt.Fprintf(s, " %s%s%s%s%s%s%s %s:%s%s\n", indent, treePrefix, idStr, encIndicator, bookmark, toolIndicator, locationMarker, roleStyle.Render(string(node.Role)), preview, foldedIndicator)
 	}
 
 	// If collapsed, don't render children

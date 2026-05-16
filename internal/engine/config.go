@@ -9,12 +9,13 @@ import (
 
 // Config holds the application settings
 type Config struct {
-	Provider    string `json:"provider"`
-	APIKey      string `json:"api_key,omitempty"`
-	Model       string `json:"model"`
-	Endpoint    string `json:"endpoint"`
-	VaultPath   string `json:"vault_path"`
-	StorageType string `json:"storage_type"` // "jsonl" or "sqlite"
+	Provider      string `json:"provider"`
+	APIKey        string `json:"api_key,omitempty"`
+	Model         string `json:"model"`
+	Endpoint      string `json:"endpoint"`
+	VaultPath     string `json:"vault_path"`
+	StorageType   string `json:"storage_type"` // "jsonl" or "sqlite"
+	EncryptionKey string `json:"encryption_key,omitempty"`
 }
 
 // LoadConfig attempts to load the config from the user's config directory.

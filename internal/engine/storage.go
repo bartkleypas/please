@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"syscall"
 	"time"
 
@@ -24,13 +25,14 @@ type Storage interface {
 
 // SQLiteStorage implements Storage using an SQLite database
 type SQLiteStorage struct {
-	DBPath string
-	db     *sql.DB
+	DBPath        string
+	encryptionKey string
+	db            *sql.DB
 }
 
 // NewSQLiteStorage creates a new instance of SQLiteStorage and initializes the schema
-func NewSQLiteStorage(path string) (*SQLiteStorage, error) {
-	s := &SQLiteStorage{DBPath: path}
+func NewSQLiteStorage(path, key string) (*SQLiteStorage, error) {
+	s := &SQLiteStorage{DBPath: path, encryptionKey: key}
 	db, err := s.open()
 	if err != nil {
 		return nil, err
@@ -148,6 +150,27 @@ func (s *SQLiteStorage) SaveNode(node *Node) error {
 		return fmt.Errorf("failed to marshal metadata: %w", err)
 	}
 
+	encContent, err := EncryptField(node.Content, s.encryptionKey)
+	if err != nil {
+		return err
+	}
+	encThought, err := EncryptField(node.Thought, s.encryptionKey)
+	if err != nil {
+		return err
+	}
+	encToolCalls, err := EncryptField(string(toolCallsJSON), s.encryptionKey)
+	if err != nil {
+		return err
+	}
+	encObservations, err := EncryptField(string(obsJSON), s.encryptionKey)
+	if err != nil {
+		return err
+	}
+
+	if s.encryptionKey != "" {
+		node.Encrypted = true
+	}
+
 	query := `
 	INSERT OR REPLACE INTO nodes (id, parent_id, role, content, thought, timestamp, tool_calls, tool_call_id, observations, metadata, deleted, internal)
 	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -157,12 +180,12 @@ func (s *SQLiteStorage) SaveNode(node *Node) error {
 		node.ID,
 		node.ParentID,
 		string(node.Role),
-		node.Content,
-		node.Thought,
+		encContent,
+		encThought,
 		node.Timestamp,
-		string(toolCallsJSON),
+		encToolCalls,
 		node.ToolCallID,
-		string(obsJSON),
+		encObservations,
 		string(metadataJSON),
 		node.Deleted,
 		node.Internal,
@@ -271,13 +294,36 @@ func (s *SQLiteStorage) LoadGraph() (*Graph, string, error) {
 			continue // Skip soft-deleted nodes
 		}
 
-		node.Thought = thought.String
+		if strings.HasPrefix(node.Content, "enc:v1:") || strings.HasPrefix(thought.String, "enc:v1:") || strings.HasPrefix(toolCallsJSON, "enc:v1:") || strings.HasPrefix(obsJSON, "enc:v1:") {
+			node.Encrypted = true
+		}
+
+		node.Content, err = DecryptField(node.Content, s.encryptionKey)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to decrypt content: %w", err)
+		}
+
+		node.Thought, err = DecryptField(thought.String, s.encryptionKey)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to decrypt thought: %w", err)
+		}
+
 		node.Role = Role(roleStr)
-		if err := json.Unmarshal([]byte(toolCallsJSON), &node.ToolCalls); err != nil {
+
+		decToolCalls, err := DecryptField(toolCallsJSON, s.encryptionKey)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to decrypt tool calls: %w", err)
+		}
+		if err := json.Unmarshal([]byte(decToolCalls), &node.ToolCalls); err != nil {
 			return nil, "", fmt.Errorf("failed to unmarshal tool calls from sqlite: %w", err)
 		}
+
 		if obsJSON != "" && obsJSON != "null" {
-			if err := json.Unmarshal([]byte(obsJSON), &node.Observations); err != nil {
+			decObs, err := DecryptField(obsJSON, s.encryptionKey)
+			if err != nil {
+				return nil, "", fmt.Errorf("failed to decrypt observations: %w", err)
+			}
+			if err := json.Unmarshal([]byte(decObs), &node.Observations); err != nil {
 				return nil, "", fmt.Errorf("failed to unmarshal observations from sqlite: %w", err)
 			}
 		}
@@ -298,12 +344,13 @@ func (s *SQLiteStorage) LoadGraph() (*Graph, string, error) {
 
 // JSONLStorage implements Storage using a JSON Lines file
 type JSONLStorage struct {
-	FilePath string
+	FilePath      string
+	encryptionKey string
 }
 
 // NewJSONLStorage creates a new instance of JSONLStorage
-func NewJSONLStorage(path string) *JSONLStorage {
-	return &JSONLStorage{FilePath: path}
+func NewJSONLStorage(path, key string) *JSONLStorage {
+	return &JSONLStorage{FilePath: path, encryptionKey: key}
 }
 
 func (s *JSONLStorage) GarbageCollect() (int64, error) {

@@ -19,7 +19,7 @@ func TestUpdateStateTransitions(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 	dbPath := filepath.Join(tmpDir, "vault.jsonl")
 
-	storage := engine.NewJSONLStorage(dbPath)
+	storage := engine.NewJSONLStorage(dbPath, "")
 	graph := engine.NewGraph()
 	mockProvider := &engine.MockLLMProvider{
 		ResponseContent: "Hello world",
@@ -79,7 +79,7 @@ func TestThoughtStreaming(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 	dbPath := filepath.Join(tmpDir, "vault.db")
 
-	storage, _ := engine.NewSQLiteStorage(dbPath)
+	storage, _ := engine.NewSQLiteStorage(dbPath, "")
 	graph := engine.NewGraph()
 	mockProvider := &engine.MockLLMProvider{}
 	cfg := &engine.Config{}
@@ -123,7 +123,7 @@ func TestThoughtStreaming(t *testing.T) {
 }
 
 func TestHandleCommand(t *testing.T) {
-	storage := engine.NewJSONLStorage(":memory:")
+	storage := engine.NewJSONLStorage(":memory:", "")
 	graph := engine.NewGraph()
 	mockProvider := &engine.MockLLMProvider{}
 	cfg := &engine.Config{}

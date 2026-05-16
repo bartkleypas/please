@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -11,7 +12,7 @@ func TestJSONLStorage(t *testing.T) {
 	tmpFile := "test_graph.jsonl"
 	defer os.Remove(tmpFile) // Clean up after test
 
-	storage := NewJSONLStorage(tmpFile)
+	storage := NewJSONLStorage(tmpFile, "")
 	now := time.Now()
 
 	// 1. Create some nodes
@@ -55,7 +56,7 @@ func TestSQLiteStorage(t *testing.T) {
 	defer os.Remove(tmpDB + "-shm")
 	defer os.Remove(tmpDB + "-wal")
 
-	storage, err := NewSQLiteStorage(tmpDB)
+	storage, err := NewSQLiteStorage(tmpDB, "")
 	if err != nil {
 		t.Fatalf("Failed to create SQLite storage: %v", err)
 	}
@@ -142,13 +143,79 @@ func TestSQLiteStorage(t *testing.T) {
 	}
 }
 
+func TestSQLiteStorage_Encryption(t *testing.T) {
+	tmpDB := "test_vault_enc.db"
+	defer os.Remove(tmpDB)
+	defer os.Remove(tmpDB + "-shm")
+	defer os.Remove(tmpDB + "-wal")
+
+	key := "my-secret-test-key-12345"
+	storage, err := NewSQLiteStorage(tmpDB, key)
+	if err != nil {
+		t.Fatalf("Failed to create SQLite storage: %v", err)
+	}
+
+	now := time.Now().Truncate(time.Second)
+
+	node := &Node{
+		ID:        "enc_1",
+		Role:      RoleUser,
+		Content:   "This is a highly secret message.",
+		Thought:   "Top secret thought.",
+		Timestamp: now,
+	}
+
+	if err := storage.SaveNode(node); err != nil {
+		t.Fatalf("SaveNode failed: %v", err)
+	}
+
+	// Read directly from DB to verify it's encrypted
+	var rawContent, rawThought string
+	err = storage.db.QueryRow("SELECT content, thought FROM nodes WHERE id = 'enc_1'").Scan(&rawContent, &rawThought)
+	if err != nil {
+		t.Fatalf("Raw query failed: %v", err)
+	}
+
+	if rawContent == node.Content {
+		t.Errorf("Content was not encrypted in DB")
+	}
+	if !strings.HasPrefix(rawContent, "enc:v1:") {
+		t.Errorf("Content does not have encryption prefix, got: %s", rawContent)
+	}
+
+	if rawThought == node.Thought {
+		t.Errorf("Thought was not encrypted in DB")
+	}
+	if !strings.HasPrefix(rawThought, "enc:v1:") {
+		t.Errorf("Thought does not have encryption prefix, got: %s", rawThought)
+	}
+
+	// Verify LoadGraph decrypts properly
+	graph, _, err := storage.LoadGraph()
+	if err != nil {
+		t.Fatalf("LoadGraph failed: %v", err)
+	}
+
+	loadedNode, ok := graph.Nodes["enc_1"]
+	if !ok {
+		t.Fatalf("Node not loaded")
+	}
+
+	if loadedNode.Content != node.Content {
+		t.Errorf("Expected decrypted content %q, got %q", node.Content, loadedNode.Content)
+	}
+	if loadedNode.Thought != node.Thought {
+		t.Errorf("Expected decrypted thought %q, got %q", node.Thought, loadedNode.Thought)
+	}
+}
+
 func TestSQLiteStorage_Concurrency(t *testing.T) {
 	tmpDB := "stress_vault.db"
 	defer os.Remove(tmpDB)
 	defer os.Remove(tmpDB + "-shm")
 	defer os.Remove(tmpDB + "-wal")
 
-	storage, err := NewSQLiteStorage(tmpDB)
+	storage, err := NewSQLiteStorage(tmpDB, "")
 	if err != nil {
 		t.Fatalf("Failed to create SQLite storage: %v", err)
 	}
