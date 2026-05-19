@@ -28,6 +28,9 @@ The project is split into two primary internal modules:
 
 ## Key Features & Conventions
 
+### Context Resonance Scoring
+To prevent context window bloat during heavy tool usage, `Please` uses a dynamic Context Resonance Scoring algorithm (`V = (W * C) * e^(-k * Δt)`) to evaluate nodes on the active path. As nodes age (`Δt`), their score decays. Low-scoring nodes have their massive raw tool observations and internal reasoning stripped before being sent to the LLM, preserving tokens while maintaining the core narrative.
+
 ### DAG Compaction (Supernodes)
 Users can compress thematic clusters into a single `summary` node by pressing `c` in the map view. This "grafts" the active branch onto a new Supernode, preserving LLM context while decluttering the graph.
 

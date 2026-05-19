@@ -11,6 +11,7 @@ Unlike linear chat applications, `Please` treats conversations as a Directed Acy
 ### 🏗️ Engine Architecture
 *   **DAG-Based Navigation:** Breaks the linear chat mold by allowing users to branch, prune, and jump across multiple conversation timelines.
 *   **Persistent Storage:** Narrative history is stored in a robust SQLite database (default) or legacy JSONL format, ensuring your stories are saved safely and concurrently.
+*   **Context Resonance Scoring:** Automatically manages the LLM context window using an exponential decay algorithm (`V = (W * C) * e^(-k * Δt)`). It dynamically prunes raw tool outputs and internal reasoning from older messages while preserving the high-fidelity semantic core of the dialogue, preventing context bloat during heavy tool usage.
 *   **Streaming Responses:** Real-time, character-by-character output for a responsive and interactive experience.
 
 ### 🎭 Narrative Interaction
