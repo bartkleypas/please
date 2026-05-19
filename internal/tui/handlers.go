@@ -361,39 +361,11 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 	m.TextInput.Reset()
 	m.IsThinking = true
 
-	// Prepare context for LLM by fetching the linear path from the DAG root.
-	path, err := m.Manager.GetPath(m.CurrentID)
+	messages, err := m.Manager.BuildLLMContext(m.CurrentID)
 	if err != nil {
+		m.Notification = fmt.Sprintf("Error building context: %v", err)
 		m.IsThinking = false
 		return m, nil
-	}
-
-	var messages []engine.Message
-	for _, node := range path {
-		msg := engine.Message{
-			Role:       node.Role,
-			Content:    node.Content,
-			ToolCallID: node.ToolCallID,
-			Internal:   node.Internal,
-		}
-
-		if node.Role == engine.RoleAssistant {
-			msg.ToolCalls = node.ToolCalls
-			msg.Observations = make([]engine.ToolObservation, len(node.Observations))
-			for i, obs := range node.Observations {
-				truncatedResult := obs.Result
-				if len(truncatedResult) > 4000 {
-					truncatedResult = truncatedResult[:4000] + "... [truncated]"
-				}
-				msg.Observations[i] = engine.ToolObservation{
-					ToolCallID: obs.ToolCallID,
-					Result:     truncatedResult,
-				}
-			}
-			// Historical turns have thoughts stripped.
-		}
-
-		messages = append(messages, msg)
 	}
 
 	// Trigger asynchronous generation.
@@ -566,43 +538,9 @@ func (m *Model) cancelToolsCmd() tea.Cmd {
 
 func (m *Model) resumeStreamCmd(ctx context.Context, activeNodeID string) tea.Cmd {
 	return func() tea.Msg {
-		path, err := m.Manager.GetPath(activeNodeID)
+		messages, err := m.Manager.BuildLLMContext(activeNodeID)
 		if err != nil {
 			return llmStreamFinishedMsg{err: err, activeNodeID: activeNodeID}
-		}
-
-		var messages []engine.Message
-		for _, node := range path {
-			msg := engine.Message{
-				Role:       node.Role,
-				Content:    node.Content,
-				ToolCallID: node.ToolCallID,
-				Internal:   node.Internal,
-			}
-
-			if node.Role == engine.RoleAssistant {
-				msg.ToolCalls = node.ToolCalls
-				if node.ID == activeNodeID {
-					// Active node: keep full thought and observations
-					msg.Thought = node.Thought
-					msg.Observations = node.Observations
-				} else {
-					// Historical node: strip thought, truncate observations
-					msg.Observations = make([]engine.ToolObservation, len(node.Observations))
-					for i, obs := range node.Observations {
-						truncatedResult := obs.Result
-						if len(truncatedResult) > 4000 {
-							truncatedResult = truncatedResult[:4000] + "... [truncated]"
-						}
-						msg.Observations[i] = engine.ToolObservation{
-							ToolCallID: obs.ToolCallID,
-							Result:     truncatedResult,
-						}
-					}
-				}
-			}
-
-			messages = append(messages, msg)
 		}
 
 		contentChan, thoughtChan, toolCallChan, errChan := m.Provider.GenerateResponseStream(ctx, messages, m.Manager.Registry.GetTools())
