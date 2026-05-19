@@ -193,8 +193,8 @@ func (m *Manager) SetBookmark(nodeID string, bookmarked bool) error {
 	return nil
 }
 
-// calculateResonanceScore determines the context value of a node based on topological weight, compute cost, and temporal decay.
-func (m *Manager) calculateResonanceScore(node *Node) float64 {
+// calculateResonanceScore determines the context value of a node based on topological weight, compute cost, conversational distance, and temporal decay.
+func (m *Manager) calculateResonanceScore(node *Node, distance int) float64 {
 	if node.Role == RoleSystem || node.Role == RoleSummary {
 		return math.MaxFloat64
 	}
@@ -221,13 +221,28 @@ func (m *Manager) calculateResonanceScore(node *Node) float64 {
 		cost = 1
 	}
 
+	baseScore := weight * 10000.0 / float64(cost)
+
+	// Grace Window: last 3 turns are exempt from time/turn decay
+	const GraceTurns = 3
+	if distance < GraceTurns {
+		return baseScore
+	}
+
 	deltaMinutes := time.Since(node.Timestamp).Minutes()
 	if deltaMinutes < 0 {
 		deltaMinutes = 0
 	}
 
-	// Calculate V = (Weight * 10000 / Cost) * e^(-0.05 * t)
-	return (weight * 10000.0 / float64(cost)) * math.Exp(-0.05*deltaMinutes)
+	// Hybrid Decay Model:
+	// - Slower temporal decay (half-life of ~35 minutes, k_t = 0.02)
+	// - Conversational turn decay (k_d = 0.1 per turn beyond the grace window)
+	kt := 0.02
+	kd := 0.1
+	turnsPastGrace := float64(distance - GraceTurns + 1)
+
+	decayFactor := math.Exp(-kt*deltaMinutes) * math.Exp(-kd*turnsPastGrace)
+	return baseScore * decayFactor
 }
 
 // BuildLLMContext constructs the message history for the LLM, applying Priority Pruning based on the Context Resonance Score.
@@ -239,10 +254,11 @@ func (m *Manager) BuildLLMContext(leafID string) ([]Message, error) {
 
 	var messages []Message
 	for i, node := range path {
-		v := m.calculateResonanceScore(node)
+		distance := len(path) - 1 - i
+		v := m.calculateResonanceScore(node, distance)
 		
 		// The active/latest node should always be kept in high fidelity regardless of score
-		if i == len(path)-1 {
+		if distance == 0 {
 			v = math.MaxFloat64
 		}
 
@@ -291,9 +307,17 @@ func (m *Manager) BuildLLMContext(leafID string) ([]Message, error) {
 			msg.ToolCalls = node.ToolCalls
 			msg.Observations = make([]ToolObservation, len(node.Observations))
 			for j, obs := range node.Observations {
+				// Search node.ToolCalls to find tool metadata
+				toolName := "unknown_tool"
+				for _, tc := range node.ToolCalls {
+					if tc.ID == obs.ToolCallID {
+						toolName = tc.Function.Name
+						break
+					}
+				}
 				msg.Observations[j] = ToolObservation{
 					ToolCallID: obs.ToolCallID,
-					Result:     "[Tool execution completed. Detailed results omitted for context window management.]",
+					Result:     fmt.Sprintf("[Tool '%s' execution completed. Detailed results omitted. Total size: %d bytes.]", toolName, len(obs.Result)),
 				}
 			}
 		}
