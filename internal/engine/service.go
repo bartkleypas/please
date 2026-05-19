@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -190,6 +191,117 @@ func (m *Manager) SetBookmark(nodeID string, bookmarked bool) error {
 	}
 
 	return nil
+}
+
+// calculateResonanceScore determines the context value of a node based on topological weight, compute cost, and temporal decay.
+func (m *Manager) calculateResonanceScore(node *Node) float64 {
+	if node.Role == RoleSystem || node.Role == RoleSummary {
+		return math.MaxFloat64
+	}
+
+	weight := 0.7
+	if node.Role == RoleUser {
+		weight = 1.0
+	} else if node.Role == RoleTool {
+		weight = 0.5
+	}
+	
+	if node.Internal {
+		weight = 0.3
+	}
+	if node.Metadata != nil && node.Metadata["bookmarked"] == "true" {
+		weight = 1.0
+	}
+
+	cost := len(node.Content) + len(node.Thought)
+	for _, obs := range node.Observations {
+		cost += len(obs.Result)
+	}
+	if cost == 0 {
+		cost = 1
+	}
+
+	deltaMinutes := time.Since(node.Timestamp).Minutes()
+	if deltaMinutes < 0 {
+		deltaMinutes = 0
+	}
+
+	// Calculate V = (Weight * 10000 / Cost) * e^(-0.05 * t)
+	return (weight * 10000.0 / float64(cost)) * math.Exp(-0.05*deltaMinutes)
+}
+
+// BuildLLMContext constructs the message history for the LLM, applying Priority Pruning based on the Context Resonance Score.
+func (m *Manager) BuildLLMContext(leafID string) ([]Message, error) {
+	path, err := m.GetPath(leafID)
+	if err != nil {
+		return nil, err
+	}
+
+	var messages []Message
+	for i, node := range path {
+		v := m.calculateResonanceScore(node)
+		
+		// The active/latest node should always be kept in high fidelity regardless of score
+		if i == len(path)-1 {
+			v = math.MaxFloat64
+		}
+
+		msg := Message{
+			Role:       node.Role,
+			Content:    node.Content,
+			ToolCallID: node.ToolCallID,
+			Internal:   node.Internal,
+		}
+
+		if v > 5.0 {
+			// Keep full fidelity
+			msg.Thought = node.Thought
+			msg.ToolCalls = node.ToolCalls
+			msg.Observations = make([]ToolObservation, len(node.Observations))
+			for j, obs := range node.Observations {
+				truncatedResult := obs.Result
+				if len(truncatedResult) > 4000 {
+					truncatedResult = truncatedResult[:4000] + "... [truncated]"
+				}
+				msg.Observations[j] = ToolObservation{
+					ToolCallID: obs.ToolCallID,
+					Result:     truncatedResult,
+				}
+			}
+		} else if v > 0.5 {
+			// Medium fidelity: strip thought, truncate observations more aggressively
+			msg.ToolCalls = node.ToolCalls
+			msg.Observations = make([]ToolObservation, len(node.Observations))
+			for j, obs := range node.Observations {
+				truncatedResult := obs.Result
+				if len(truncatedResult) > 500 {
+					truncatedResult = truncatedResult[:500] + "... [truncated]"
+				}
+				msg.Observations[j] = ToolObservation{
+					ToolCallID: obs.ToolCallID,
+					Result:     truncatedResult,
+				}
+			}
+		} else {
+			// Low fidelity
+			if node.Internal {
+				continue // Drop low fidelity internal nodes entirely
+			}
+			// Keep core dialogue, but crush observations
+			msg.ToolCalls = node.ToolCalls
+			msg.Observations = make([]ToolObservation, len(node.Observations))
+			for j, obs := range node.Observations {
+				msg.Observations[j] = ToolObservation{
+					ToolCallID: obs.ToolCallID,
+					Result:     "[Tool execution completed. Detailed results omitted for context window management.]",
+				}
+			}
+		}
+
+		messages = append(messages, msg)
+	}
+
+	return messages, nil
 }
 
 // Delegation methods to encapsulated Graph operations
