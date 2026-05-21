@@ -246,8 +246,13 @@ func (s *SQLiteStorage) UpdateNodeObservations(nodeID string, obs []ToolObservat
 		return fmt.Errorf("failed to marshal observations: %w", err)
 	}
 
+	encObs, err := EncryptField(string(obsJSON), s.encryptionKey)
+	if err != nil {
+		return err
+	}
+
 	query := `UPDATE nodes SET observations = ? WHERE id = ?`
-	_, err = s.db.Exec(query, string(obsJSON), nodeID)
+	_, err = s.db.Exec(query, encObs, nodeID)
 	if err != nil {
 		return fmt.Errorf("failed to update observations in sqlite: %w", err)
 	}

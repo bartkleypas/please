@@ -61,14 +61,16 @@ type ollamaRequest struct {
 }
 
 type ollamaMessage struct {
-	Role      string           `json:"role"`
-	Content   string           `json:"content"`
-	Thinking  string           `json:"thinking,omitempty"`
-	Reasoning string           `json:"reasoning,omitempty"`
-	ToolCalls []ollamaToolCall `json:"tool_calls,omitempty"`
+	Role       string           `json:"role"`
+	Content    string           `json:"content"`
+	Thinking   string           `json:"thinking,omitempty"`
+	Reasoning  string           `json:"reasoning,omitempty"`
+	ToolCalls  []ollamaToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string           `json:"tool_call_id,omitempty"`
 }
 
 type ollamaToolCall struct {
+	ID       string `json:"id,omitempty"`
 	Function struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
@@ -133,6 +135,7 @@ func (o *OllamaProvider) GenerateResponse(ctx context.Context, messages []Messag
 	var tCalls []ToolCall
 	for _, tc := range ollamaResp.Message.ToolCalls {
 		tCalls = append(tCalls, ToolCall{
+			ID:   tc.ID,
 			Type: "function",
 			Function: struct {
 				Name      string          `json:"name"`
@@ -241,6 +244,7 @@ func (o *OllamaProvider) GenerateResponseStream(ctx context.Context, messages []
 			if len(ollamaResp.Message.ToolCalls) > 0 {
 				for _, tc := range ollamaResp.Message.ToolCalls {
 					collectedToolCalls = append(collectedToolCalls, ToolCall{
+						ID:   tc.ID,
 						Type: "function",
 						Function: struct {
 							Name      string          `json:"name"`
@@ -276,6 +280,7 @@ func mapToOllamaMessages(messages []Message) []ollamaMessage {
 		var tCalls []ollamaToolCall
 		for _, tc := range m.ToolCalls {
 			tCalls = append(tCalls, ollamaToolCall{
+				ID: tc.ID,
 				Function: struct {
 					Name      string          `json:"name"`
 					Arguments json.RawMessage `json:"arguments"`
@@ -287,16 +292,18 @@ func mapToOllamaMessages(messages []Message) []ollamaMessage {
 		}
 
 		out = append(out, ollamaMessage{
-			Role:      string(m.Role),
-			Content:   m.Content,
-			ToolCalls: tCalls,
+			Role:       string(m.Role),
+			Content:    m.Content,
+			ToolCalls:  tCalls,
+			ToolCallID: m.ToolCallID,
 		})
 
 		// Append side-channel observations as native "tool" responses
 		for _, obs := range m.Observations {
 			out = append(out, ollamaMessage{
-				Role:    "tool",
-				Content: obs.Result,
+				Role:       "tool",
+				Content:    obs.Result,
+				ToolCallID: obs.ToolCallID,
 			})
 		}
 	}

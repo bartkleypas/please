@@ -87,13 +87,21 @@ func waitForStream(contentChan <-chan string, thoughtChan <-chan string, toolCal
 }
 
 func checkRemainingChannels(toolCallChan <-chan []engine.ToolCall, errChan <-chan error, parentID string, activeNodeID string) tea.Msg {
-	select {
-	case tc := <-toolCallChan:
-		return llmStreamFinishedMsg{parentID: parentID, activeNodeID: activeNodeID, toolCalls: tc}
-	case err := <-errChan:
-		return llmStreamFinishedMsg{err: err, parentID: parentID, activeNodeID: activeNodeID}
-	default:
-		return llmStreamFinishedMsg{parentID: parentID, activeNodeID: activeNodeID}
+	var toolCalls []engine.ToolCall
+	var streamErr error
+
+	if tc, ok := <-toolCallChan; ok {
+		toolCalls = tc
+	}
+	if err, ok := <-errChan; ok {
+		streamErr = err
+	}
+
+	return llmStreamFinishedMsg{
+		parentID:     parentID,
+		activeNodeID: activeNodeID,
+		toolCalls:    toolCalls,
+		err:          streamErr,
 	}
 }
 
