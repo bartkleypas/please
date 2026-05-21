@@ -48,6 +48,10 @@ cat README.md | please "Summarize this" # Tool/Context role inference
 - **Pruning:** `d` in map view soft-deletes a branch; `/gc` permanently scrubs the database.
 - **Fuzzy Search:** `/` in map view filters nodes in real-time.
 
+### Natural Reading Pace Streaming
+To enhance dialogue immersion, `Please` supports buffering the LLM stream to play it back at a "natural" human reading pace, with punctuation-sensitive pauses (e.g. 300ms for periods, 100ms for commas). Users can press `ESC`, `Enter`, or `Space` mid-response to bypass this pacing and instantly flush the full response to the viewport. It is toggled via the `/pacing` command or `natural_pacing` config field.
+
+
 ### `internal/server` (Web Visualization)
 - **`Server` (`server.go`)**: Embedded HTTP server providing a threaded web view of the conversation graph. (Updates require page refresh).
 - **`Assets` (`assets/index.html`)**: HTML/JS frontend for the web visualization, using "bubble-up" activity sorting.
@@ -76,11 +80,11 @@ go test ./...
 
 ## Configuration and Storage
 The application automatically manages its configuration and data directories:
-- **Configuration:** `~/.config/please/config.json` (Customizable provider, api_key, model, and endpoint).
+- **Configuration:** `~/.config/please/config.json` (Customizable provider, api_key, model, endpoint, and natural_pacing preference).
 - **Storage (Vault):** `~/.local/share/please/vault.db` (SQLite database containing all conversation nodes).
 
 ## Development Conventions
 - **DAG Navigation:** Always consider that a "current" state in the app is a specific leaf node in the DAG. History is reconstructed by traversing up to the root.
-- **Streaming:** LLM responses are streamed character-by-character via Go channels into the Bubble Tea event loop.
+- **Streaming:** LLM responses are streamed via Go channels into the Bubble Tea event loop. If pacing is enabled, chunks are buffered and played back using delayed pacing tick commands, with final node persistence and tool execution deferred until playback completes or is bypassed.
 - **Mocking:** Use `internal/engine/mock.go` for testing TUI and engine logic without a live Ollama instance.
 - **Surgical Edits:** When modifying the TUI, ensure that new messages or commands are integrated into the `Update` loop in `internal/tui/tui.go`.
