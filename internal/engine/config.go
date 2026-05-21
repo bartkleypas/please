@@ -16,6 +16,12 @@ type Config struct {
 	VaultPath     string `json:"vault_path"`
 	StorageType   string `json:"storage_type"` // "jsonl" or "sqlite"
 	EncryptionKey string `json:"encryption_key,omitempty"`
+	NaturalPacing *bool  `json:"natural_pacing,omitempty"`
+}
+
+// IsPacingEnabled returns whether natural reading pacing is enabled
+func (c *Config) IsPacingEnabled() bool {
+	return c.NaturalPacing == nil || *c.NaturalPacing
 }
 
 // LoadConfig attempts to load the config from the user's config directory.
@@ -61,6 +67,10 @@ func LoadConfig() (*Config, error) {
 	if cfg.Provider == "" {
 		cfg.Provider = "ollama"
 	}
+	if cfg.NaturalPacing == nil {
+		pacing := true
+		cfg.NaturalPacing = &pacing
+	}
 
 	return &cfg, nil
 }
@@ -92,11 +102,13 @@ func defaultConfig() *Config {
 	// Ensure data directory exists
 	_ = os.MkdirAll(vaultDir, 0755)
 
+	pacing := true
 	return &Config{
-		Provider:    "ollama",
-		Model:       "gemma4:e4b",
-		Endpoint:    "http://localhost:11434/api/chat",
-		VaultPath:   filepath.Join(vaultDir, "vault.db"),
-		StorageType: "sqlite",
+		Provider:      "ollama",
+		Model:         "gemma4:e4b",
+		Endpoint:      "http://localhost:11434/api/chat",
+		VaultPath:     filepath.Join(vaultDir, "vault.db"),
+		StorageType:   "sqlite",
+		NaturalPacing: &pacing,
 	}
 }

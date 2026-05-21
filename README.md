@@ -21,6 +21,7 @@ Unlike linear chat applications, `Please` treats conversations as a Directed Acy
 *   **Branch Pruning:** Press `d` in the map to soft-delete unwanted branches, with `/gc` for permanent secure scrubbing.
 *   **Web Visualization:** Run with `-s` to start an embedded web server featuring a premium radial gradient background and glassmorphic UI elements. The graph renders as collapsible narrative threads, clamps long root messages to keep the view clean, and includes a toggle to show or hide the LLM's internal thinking tokens.
 *   **Persona Management:** Easily switch between different system prompts and characters using the `/persona` command.
+*   **Natural Reading Pacing:** Buffer and stream assistant replies at a realistic human reading pace with punctuation-sensitive pauses (300ms for ends of sentences, 100ms for commas). Supports instant skipping to flush the output.
 
 ---
 
@@ -108,7 +109,8 @@ Or start with the web visualization server directly:
 {
   "provider": "ollama",
   "endpoint": "http://localhost:11434/api/chat",
-  "model": "gemma4:e4b"
+  "model": "gemma4:e4b",
+  "natural_pacing": true
 }
 ```
 
@@ -142,10 +144,12 @@ Inside the app, use these interactive commands to navigate your story:
 | `/version`| Display the application version and git commit hash. |
 | `/gc` | Garbage collect deleted nodes from the database. |
 | `/audit` | Toggle audit mode to view extended UUIDs for each node. |
+| `/pacing` | Toggle natural reading pacing for LLM stream (`/pacing on`, `/pacing off`). |
 | `/q` or `/bye` | Gracefully exit the application. |
 
 **Navigation Tips:**
 *   **Chat:** Use `↑`/`↓` or `PgUp`/`PgDn` to scroll history.
+*   **Streaming Pacing:** Press `ESC`, `Enter`, or `Space` while content is streaming to instantly skip pacing and flush the whole response.
 *   **Map Navigation:**
     *   `j`/`k`: Move selection.
     *   `h`/`l`: Collapse/Expand or Ascend/Descend branches.

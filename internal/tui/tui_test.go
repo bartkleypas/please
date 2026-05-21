@@ -26,7 +26,8 @@ func TestUpdateStateTransitions(t *testing.T) {
 	}
 
 	// 2. Initialize Model
-	cfg := &engine.Config{}
+	pacing := false
+	cfg := &engine.Config{NaturalPacing: &pacing}
 	m := NewModel(cfg, graph, storage, mockProvider, "")
 
 	// Ensure we start in SetupMode if graph is empty
@@ -82,7 +83,8 @@ func TestThoughtStreaming(t *testing.T) {
 	storage, _ := engine.NewSQLiteStorage(dbPath, "")
 	graph := engine.NewGraph()
 	mockProvider := &engine.MockLLMProvider{}
-	cfg := &engine.Config{}
+	pacing := false
+	cfg := &engine.Config{NaturalPacing: &pacing}
 	m := NewModel(cfg, graph, storage, mockProvider, "")
 
 	// 1. Setup - Create root node
@@ -126,7 +128,8 @@ func TestHandleCommand(t *testing.T) {
 	storage := engine.NewJSONLStorage(":memory:", "")
 	graph := engine.NewGraph()
 	mockProvider := &engine.MockLLMProvider{}
-	cfg := &engine.Config{}
+	pacing := false
+	cfg := &engine.Config{NaturalPacing: &pacing}
 	m := NewModel(cfg, graph, storage, mockProvider, "")
 
 	tests := []struct {
@@ -166,4 +169,60 @@ func updateModel(m Model, msg tea.Msg) (Model, tea.Cmd) {
 	// Our Update returns (tea.Model, tea.Cmd), but we want the concrete Model
 	newModel, cmd := m.Update(msg)
 	return *newModel.(*Model), cmd
+}
+
+func TestNaturalPacing(t *testing.T) {
+	tmpDir, _ := os.MkdirTemp("", "please-test-pacing")
+	defer os.RemoveAll(tmpDir)
+	dbPath := filepath.Join(tmpDir, "vault.db")
+
+	storage, _ := engine.NewSQLiteStorage(dbPath, "")
+	graph := engine.NewGraph()
+	mockProvider := &engine.MockLLMProvider{}
+	pacing := true
+	cfg := &engine.Config{NaturalPacing: &pacing}
+	m := NewModel(cfg, graph, storage, mockProvider, "")
+
+	// 1. Exit setup mode
+	m.TextInput.SetValue("System prompt")
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	// 2. User input
+	m.TextInput.SetValue("Paced request")
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+	userID := m.CurrentID
+
+	// 3. Stream paced chunk: "A. B"
+	m, _ = updateModel(m, llmStreamMsg{content: "A. B", parentID: userID})
+
+	if m.CurrentStreamingContent != "" {
+		t.Errorf("Expected CurrentStreamingContent to be empty initially due to pacing, got '%s'", m.CurrentStreamingContent)
+	}
+	if !m.PacingActive {
+		t.Error("Expected PacingActive to be true")
+	}
+	if string(m.PacingBuffer) != "A. B" {
+		t.Errorf("Expected PacingBuffer to contain 'A. B', got '%s'", string(m.PacingBuffer))
+	}
+
+	// 4. Pop first character ('A')
+	m, _ = updateModel(m, pacingTickMsg{})
+	if m.CurrentStreamingContent != "A" {
+		t.Errorf("Expected CurrentStreamingContent to be 'A', got '%s'", m.CurrentStreamingContent)
+	}
+
+	// 5. Pop second character ('.')
+	m, _ = updateModel(m, pacingTickMsg{})
+	if m.CurrentStreamingContent != "A." {
+		t.Errorf("Expected CurrentStreamingContent to be 'A.', got '%s'", m.CurrentStreamingContent)
+	}
+
+	// 6. Test Skip pacing mid-stream
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.CurrentStreamingContent != "A. B" {
+		t.Errorf("Expected CurrentStreamingContent to be fully flushed to 'A. B', got '%s'", m.CurrentStreamingContent)
+	}
+	if m.PacingActive {
+		t.Error("Expected PacingActive to be false after skip")
+	}
 }

@@ -14,6 +14,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tickMsg:
 		return m.handleTick()
+	case pacingTickMsg:
+		return m.handlePacingTick()
 	case tea.WindowSizeMsg:
 		return m.handleWindowSize(msg)
 	case tea.KeyMsg:

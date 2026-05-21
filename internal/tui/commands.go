@@ -34,6 +34,7 @@ func init() {
 	commandRegistry["/bye"] = &QuitCommand{}
 	commandRegistry["/audit"] = &AuditCommand{}
 	commandRegistry["/version"] = &VersionCommand{}
+	commandRegistry["/pacing"] = &PacingCommand{}
 
 	// Tool confirmation commands
 	commandRegistry["/yes"] = &ConfirmToolCommand{}
@@ -64,6 +65,36 @@ func (c *AuditCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		m.Viewport.SetContent(m.ViewportOverride)
 	}
 
+	return m, nil
+}
+
+type PacingCommand struct{}
+
+func (c *PacingCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
+	if len(args) == 0 {
+		pacing := !m.Config.IsPacingEnabled()
+		m.Config.NaturalPacing = &pacing
+	} else {
+		switch strings.ToLower(args[0]) {
+		case "on", "true", "yes":
+			pacing := true
+			m.Config.NaturalPacing = &pacing
+		case "off", "false", "no":
+			pacing := false
+			m.Config.NaturalPacing = &pacing
+		default:
+			m.Notification = "Usage: /pacing [on|off]"
+			return m, nil
+		}
+	}
+
+	if m.Config.IsPacingEnabled() {
+		m.Notification = "Natural reading pacing enabled."
+	} else {
+		m.Notification = "Natural reading pacing disabled."
+	}
+
+	_ = m.Config.Save()
 	return m, nil
 }
 
@@ -195,9 +226,15 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		s.WriteString(fmt.Sprintf("  Model:    %s\n", m.Config.Model))
 		s.WriteString(fmt.Sprintf("  Endpoint: %s\n", m.Config.Endpoint))
 		s.WriteString(fmt.Sprintf("  Vault:    %s\n", m.Config.VaultPath))
+		pacingStr := "disabled"
+		if m.Config.IsPacingEnabled() {
+			pacingStr = "enabled"
+		}
+		s.WriteString(fmt.Sprintf("  Pacing:   %s\n", pacingStr))
 		s.WriteString("\nUsage:\n")
 		s.WriteString("  /config model <name>      Change the LLM model\n")
 		s.WriteString("  /config endpoint <url>   Change the API endpoint\n")
+		s.WriteString("  /config pacing <on|off>   Toggle natural reading pace\n")
 
 		m.ViewportOverride = s.String()
 		m.Viewport.SetContent(m.ViewportOverride)
@@ -206,7 +243,7 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	}
 
 	if len(args) < 2 {
-		m.Notification = "Usage: /config <model|endpoint> <value>"
+		m.Notification = "Usage: /config <model|endpoint|pacing> <value>"
 		return m, nil
 	}
 
@@ -226,6 +263,20 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 			op.Endpoint = value
 		}
 		m.Notification = "Endpoint updated to " + value
+	case "pacing":
+		switch strings.ToLower(value) {
+		case "on", "true", "yes":
+			pacing := true
+			m.Config.NaturalPacing = &pacing
+			m.Notification = "Natural reading pacing enabled."
+		case "off", "false", "no":
+			pacing := false
+			m.Config.NaturalPacing = &pacing
+			m.Notification = "Natural reading pacing disabled."
+		default:
+			m.Notification = "Usage: /config pacing <on|off>"
+			return m, nil
+		}
 	default:
 		m.Notification = "Unknown config key: " + key
 		return m, nil
@@ -318,6 +369,7 @@ func (c *HelpCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	s.WriteString("  /gc             Permanently scrub soft-deleted nodes from disk\n")
 	s.WriteString("  /server         Control the web visualization server (/server on|off|status)\n")
 	s.WriteString("  /audit          Toggle full UUID visibility in the graph and chat views\n")
+	s.WriteString("  /pacing         Toggle natural reading pacing for LLM stream (/pacing [on|off])\n")
 	s.WriteString("  /q, /quit, /bye Exit the application\n\n")
 	s.WriteString("Navigation:\n")
 	s.WriteString("  Use ↑/↓ or PgUp/PgDn to scroll through the conversation.\n")

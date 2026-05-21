@@ -7,6 +7,9 @@ import (
 // tickMsg is sent to trigger the spinner animation
 type tickMsg struct{}
 
+// pacingTickMsg is sent to type out characters at a natural reading pace
+type pacingTickMsg struct{}
+
 // llmStreamMsg is sent for each chunk of content in a streaming response
 type llmStreamMsg struct {
 	content      string
