@@ -104,7 +104,7 @@ func (m *Model) handleKeyEvent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if m.AwaitingToolConfirmation {
+	if m.AwaitingToolConfirmation && m.TextInput.Value() == "" {
 		switch msg.String() {
 		case "y", "Y":
 			m.AwaitingToolConfirmation = false
@@ -114,14 +114,11 @@ func (m *Model) handleKeyEvent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.AwaitingToolConfirmation = false
 			m.IsThinking = true
 			return m, m.cancelToolsCmd()
-		}
-		// If awaiting confirmation, ignore other keys for now or allow escape?
-		if msg.String() == "esc" {
+		case "esc":
 			m.AwaitingToolConfirmation = false
 			m.PendingToolCalls = nil
 			return m, nil
 		}
-		return m, nil
 	}
 
 	if m.ViewMode == ModeChat {
@@ -346,6 +343,19 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 	// 2. Handle Commands: Intercept and execute slash commands.
 	if newM, cmd, handled := m.HandleCommand(input); handled {
 		return newM, cmd
+	}
+
+	// Handle Dialogue Intervention:
+	// If the user submits a message while tool execution is pending,
+	// cancel the pending tools and proceed with the new message.
+	if m.AwaitingToolConfirmation {
+		for _, call := range m.PendingToolCalls {
+			result := "Error: Tool call cancelled by user."
+			_ = m.Manager.UpdateAssistantObservations(m.InterleavingNodeID, call.ID, result)
+		}
+		m.AwaitingToolConfirmation = false
+		m.PendingToolCalls = nil
+		m.Notification = "Pending tools cancelled."
 	}
 
 	// 3. Handle Regular Chat: Create a user node and trigger LLM generation.

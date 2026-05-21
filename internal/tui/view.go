@@ -81,7 +81,11 @@ func (m Model) View() string {
 		}
 	} else {
 		s += "\n\n" + inputBoxStyle.Render(m.TextInput.View())
-		s += "\n\n" + helpStyle.Render("(/q to exit • /map for graph • /help for more)")
+		if m.AwaitingToolConfirmation {
+			s += "\n\n" + helpStyle.Render("(Press y/n to confirm/deny, or type a message/command to cancel & bypass them)")
+		} else {
+			s += "\n\n" + helpStyle.Render("(/q to exit • /map for graph • /help for more)")
+		}
 	}
 
 	return s

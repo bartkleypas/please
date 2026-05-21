@@ -138,11 +138,11 @@ func mapPathToMessages(path []*Node) []Message {
 }
 
 func simulateTurn(t *testing.T, ctx context.Context, mgr *Manager, provider LLMProvider, input string, parentID string) *Node {
-	t.Logf("### User says: %s", input)
 	userNode, err := mgr.CreateNode(parentID, RoleUser, input, false)
 	if err != nil {
 		t.Fatalf("failed to create user node: %v", err)
 	}
+	t.Logf("### [Node ID: %s] User says: %s", userNode.ID, input)
 
 	path, err := mgr.GetPath(userNode.ID)
 	if err != nil {
@@ -156,21 +156,21 @@ func simulateTurn(t *testing.T, ctx context.Context, mgr *Manager, provider LLMP
 		t.Fatalf("failed to generate response: %v", err)
 	}
 
-	t.Logf("### Assistant says: %s", resp.Content)
 	assistantNode, err := mgr.CreateAssistantNode(userNode.ID, resp.Content, resp.Thought, resp.ToolCalls, false)
 	if err != nil {
 		t.Fatalf("failed to create assistant node: %v", err)
 	}
+	t.Logf("### [Node ID: %s] Assistant says: %s", assistantNode.ID, resp.Content)
 
 	return assistantNode
 }
 
 func executeToolTurn(t *testing.T, ctx context.Context, mgr *Manager, provider LLMProvider, tools []Tool, input string, parentID string) *Node {
-	t.Logf("### User says: %s", input)
 	userNode, err := mgr.CreateNode(parentID, RoleUser, input, false)
 	if err != nil {
 		t.Fatalf("failed to create user node: %v", err)
 	}
+	t.Logf("### [Node ID: %s] User says: %s", userNode.ID, input)
 
 	path, err := mgr.GetPath(userNode.ID)
 	if err != nil {
@@ -185,7 +185,6 @@ func executeToolTurn(t *testing.T, ctx context.Context, mgr *Manager, provider L
 	}
 
 	toolCallsJSON, _ := json.Marshal(resp.ToolCalls)
-	t.Logf("### Assistant emitted tool calls: %s", string(toolCallsJSON))
 	if len(resp.ToolCalls) == 0 {
 		t.Fatalf("expected tool calls, got none. Model responded with: %s", resp.Content)
 	}
@@ -194,6 +193,7 @@ func executeToolTurn(t *testing.T, ctx context.Context, mgr *Manager, provider L
 	if err != nil {
 		t.Fatalf("failed to create assistant node: %v", err)
 	}
+	t.Logf("### [Node ID: %s] Assistant emitted tool calls: %s", assistantNode.ID, string(toolCallsJSON))
 
 	maxLoops := 5
 	loopCount := 0

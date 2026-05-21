@@ -34,6 +34,14 @@ func init() {
 	commandRegistry["/bye"] = &QuitCommand{}
 	commandRegistry["/audit"] = &AuditCommand{}
 	commandRegistry["/version"] = &VersionCommand{}
+
+	// Tool confirmation commands
+	commandRegistry["/yes"] = &ConfirmToolCommand{}
+	commandRegistry["/confirm"] = &ConfirmToolCommand{}
+	commandRegistry["/ok"] = &ConfirmToolCommand{}
+	commandRegistry["/no"] = &CancelToolCommand{}
+	commandRegistry["/cancel"] = &CancelToolCommand{}
+	commandRegistry["/deny"] = &CancelToolCommand{}
 }
 
 // ... rest of HandleCommand ...
@@ -332,4 +340,28 @@ type VersionCommand struct{}
 func (c *VersionCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	m.Notification = fmt.Sprintf("please version %s", engine.Version)
 	return m, nil
+}
+
+type ConfirmToolCommand struct{}
+
+func (c *ConfirmToolCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
+	if !m.AwaitingToolConfirmation {
+		m.Notification = "No tool execution is pending confirmation."
+		return m, nil
+	}
+	m.AwaitingToolConfirmation = false
+	m.IsThinking = true
+	return m, m.executeToolsCmd()
+}
+
+type CancelToolCommand struct{}
+
+func (c *CancelToolCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
+	if !m.AwaitingToolConfirmation {
+		m.Notification = "No tool execution is pending confirmation."
+		return m, nil
+	}
+	m.AwaitingToolConfirmation = false
+	m.IsThinking = true
+	return m, m.cancelToolsCmd()
 }

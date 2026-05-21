@@ -190,7 +190,29 @@ func TestSQLiteStorage_Encryption(t *testing.T) {
 		t.Errorf("Thought does not have encryption prefix, got: %s", rawThought)
 	}
 
-	// Verify LoadGraph decrypts properly
+	// 2. Verify UpdateNodeObservations encrypts observations
+	obs := []ToolObservation{
+		{ToolCallID: "call_abc", Result: "Confidential tool result."},
+	}
+	if err := storage.UpdateNodeObservations("enc_1", obs); err != nil {
+		t.Fatalf("UpdateNodeObservations failed: %v", err)
+	}
+
+	// Read directly from DB to verify observations are encrypted
+	var rawObs string
+	err = storage.db.QueryRow("SELECT observations FROM nodes WHERE id = 'enc_1'").Scan(&rawObs)
+	if err != nil {
+		t.Fatalf("Raw query for observations failed: %v", err)
+	}
+
+	if rawObs == "[]" || rawObs == "" {
+		t.Errorf("Observations were not updated in DB")
+	}
+	if !strings.HasPrefix(rawObs, "enc:v1:") {
+		t.Errorf("Observations do not have encryption prefix, got: %s", rawObs)
+	}
+
+	// 3. Verify LoadGraph decrypts properly
 	graph, _, err := storage.LoadGraph()
 	if err != nil {
 		t.Fatalf("LoadGraph failed: %v", err)
@@ -206,6 +228,9 @@ func TestSQLiteStorage_Encryption(t *testing.T) {
 	}
 	if loadedNode.Thought != node.Thought {
 		t.Errorf("Expected decrypted thought %q, got %q", node.Thought, loadedNode.Thought)
+	}
+	if len(loadedNode.Observations) != 1 || loadedNode.Observations[0].Result != "Confidential tool result." {
+		t.Errorf("Expected decrypted observations, got: %v", loadedNode.Observations)
 	}
 }
 
