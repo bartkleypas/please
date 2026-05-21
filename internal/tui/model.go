@@ -75,6 +75,13 @@ type Model struct {
 
 	// Audit mode state
 	AuditMode bool
+
+	// Pacing state
+	PacingBuffer       []rune
+	PacingActive       bool
+	PacingSkipped      bool
+	LLMFinished        bool
+	FinishedMsgPending *llmStreamFinishedMsg
 }
 
 func NewModel(cfg *engine.Config, g *engine.Graph, s engine.Storage, p engine.LLMProvider, currentID string) Model {

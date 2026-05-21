@@ -118,3 +118,10 @@ func tick() tea.Cmd {
 		return tickMsg{}
 	})
 }
+
+// pacingTick is a command that sends a pacingTickMsg after a specific duration delay
+func pacingTick(delay time.Duration) tea.Cmd {
+	return tea.Tick(delay, func(t time.Time) tea.Msg {
+		return pacingTickMsg{}
+	})
+}
