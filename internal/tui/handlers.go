@@ -726,9 +726,13 @@ func (m *Model) generateSystemSupplement() string {
 		sb.WriteString("Current Directory Tree:\n")
 		for _, e := range entries {
 			if e.IsDir() {
-				sb.WriteString(" - " + e.Name() + "/\n")
+				sb.WriteString(" - ")
+				sb.WriteString(e.Name())
+				sb.WriteString("/\n")
 			} else {
-				sb.WriteString(" - " + e.Name() + "\n")
+				sb.WriteString(" - ")
+				sb.WriteString(e.Name())
+				sb.WriteString("\n")
 			}
 		}
 	}

@@ -223,14 +223,14 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	if len(args) == 0 {
 		var s strings.Builder
 		s.WriteString("--- ⚙️ Current Configuration ---\n\n")
-		s.WriteString(fmt.Sprintf("  Model:    %s\n", m.Config.Model))
-		s.WriteString(fmt.Sprintf("  Endpoint: %s\n", m.Config.Endpoint))
-		s.WriteString(fmt.Sprintf("  Vault:    %s\n", m.Config.VaultPath))
+		fmt.Fprintf(&s, "  Model:    %s\n", m.Config.Model)
+		fmt.Fprintf(&s, "  Endpoint: %s\n", m.Config.Endpoint)
+		fmt.Fprintf(&s, "  Vault:    %s\n", m.Config.VaultPath)
 		pacingStr := "disabled"
 		if m.Config.IsPacingEnabled() {
 			pacingStr = "enabled"
 		}
-		s.WriteString(fmt.Sprintf("  Pacing:   %s\n", pacingStr))
+		fmt.Fprintf(&s, "  Pacing:   %s\n", pacingStr)
 		s.WriteString("\nUsage:\n")
 		s.WriteString("  /config model <name>      Change the LLM model\n")
 		s.WriteString("  /config endpoint <url>   Change the API endpoint\n")

@@ -24,17 +24,20 @@ func (m *Model) renderNode(node *engine.Node) string {
 	}
 
 	var s strings.Builder
-	s.WriteString(roleStyle.Render(prefix) + ":\n")
+	s.WriteString(roleStyle.Render(prefix))
+	s.WriteString(":\n")
 
 	// 1. Render Thought (Lane A)
 	if node.Thought != "" {
-		s.WriteString(thoughtStyle.Render(wrapText(node.Thought, wrapWidth)) + "\n")
+		s.WriteString(thoughtStyle.Render(wrapText(node.Thought, wrapWidth)))
+		s.WriteString("\n")
 	}
 
 	// 2. Render Tool Interleaving (Lanes B & C)
 	for i, call := range node.ToolCalls {
 		// Announce Action (Lane B)
-		s.WriteString(markStyle.Render(fmt.Sprintf("⚒️  Executing %s(%s)...", call.Function.Name, string(call.Function.Arguments))) + "\n")
+		s.WriteString(markStyle.Render(fmt.Sprintf("⚒️  Executing %s(%s)...", call.Function.Name, string(call.Function.Arguments))))
+		s.WriteString("\n")
 
 		// Render Observation if available (Lane C)
 		if i < len(node.Observations) {
@@ -43,13 +46,15 @@ func (m *Model) renderNode(node *engine.Node) string {
 			if len(summary) > 200 {
 				summary = summary[:200] + "... (truncated)"
 			}
-			s.WriteString(helpStyle.Render(fmt.Sprintf("  ✅ Result: %s", summary)) + "\n")
+			s.WriteString(helpStyle.Render(fmt.Sprintf("  ✅ Result: %s", summary)))
+			s.WriteString("\n")
 		}
 	}
 
 	// 3. Render Final Response (Lane D)
 	if node.Content != "" {
-		s.WriteString(wrapText(node.Content, wrapWidth) + "\n")
+		s.WriteString(wrapText(node.Content, wrapWidth))
+		s.WriteString("\n")
 	}
 
 	return s.String()
@@ -70,10 +75,12 @@ func (m *Model) updateViewportWithStreaming() {
 	}
 
 	var s strings.Builder
-	s.WriteString(botStyle.Render(string(engine.RoleAssistant)) + ":\n")
+	s.WriteString(botStyle.Render(string(engine.RoleAssistant)))
+	s.WriteString(":\n")
 
 	if m.CurrentStreamingThought != "" {
-		s.WriteString(thoughtStyle.Render(wrapText(m.CurrentStreamingThought, wrapWidth)) + "\n")
+		s.WriteString(thoughtStyle.Render(wrapText(m.CurrentStreamingThought, wrapWidth)))
+		s.WriteString("\n")
 	}
 
 	// During streaming, we might have interleaved observations from a previous pause
@@ -81,16 +88,19 @@ func (m *Model) updateViewportWithStreaming() {
 		node, err := m.Manager.GetNode(m.InterleavingNodeID)
 		if err == nil {
 			for i, call := range node.ToolCalls {
-				s.WriteString(markStyle.Render(fmt.Sprintf("⚒️  Executing %s...", call.Function.Name)) + "\n")
+				s.WriteString(markStyle.Render(fmt.Sprintf("⚒️  Executing %s...", call.Function.Name)))
+				s.WriteString("\n")
 				if i < len(node.Observations) {
-					s.WriteString(helpStyle.Render("  ✅ Observation received.") + "\n")
+					s.WriteString(helpStyle.Render("  ✅ Observation received."))
+					s.WriteString("\n")
 				}
 			}
 		}
 	}
 
 	if m.CurrentStreamingContent != "" {
-		s.WriteString(wrapText(m.CurrentStreamingContent, wrapWidth) + "\n")
+		s.WriteString(wrapText(m.CurrentStreamingContent, wrapWidth))
+		s.WriteString("\n")
 	}
 
 	m.Viewport.SetContent(m.ChatHistoryBuffer + s.String())
