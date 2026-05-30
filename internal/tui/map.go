@@ -17,7 +17,8 @@ func (m *Model) generateMapString() string {
 	if m.SearchQuery != "" {
 		title = fmt.Sprintf("--- Search Results: \"%s\" ---", m.SearchQuery)
 	}
-	s.WriteString(title + "\n\n")
+	s.WriteString(title)
+	s.WriteString("\n\n")
 
 	m.MapNodeIDs = nil // Clear IDs for fresh traversal
 

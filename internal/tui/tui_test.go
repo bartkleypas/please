@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -224,5 +227,93 @@ func TestNaturalPacing(t *testing.T) {
 	}
 	if m.PacingActive {
 		t.Error("Expected PacingActive to be false after skip")
+	}
+}
+
+func TestToolExecutionErrorRetention(t *testing.T) {
+	// 1. Setup dependencies
+	tmpDir, err := os.MkdirTemp("", "please-test-tool-err")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+	dbPath := filepath.Join(tmpDir, "vault.db")
+
+	storage, err := engine.NewSQLiteStorage(dbPath, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	graph := engine.NewGraph()
+	mockProvider := &engine.MockLLMProvider{}
+
+	pacing := false
+	cfg := &engine.Config{NaturalPacing: &pacing}
+	m := NewModel(cfg, graph, storage, mockProvider, "")
+
+	// Register a mock tool that returns both output and error
+	m.Manager.Registry.Register(engine.Tool{
+		Name: "fail_tool",
+		Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
+			return "some partial output here", fmt.Errorf("something went wrong")
+		},
+	})
+
+	// Create a root system node and an assistant node
+	sysNode, err := m.Manager.CreateNode("", engine.RoleSystem, "System prompt", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	
+	assistantNode, err := m.Manager.CreateAssistantNode(sysNode.ID, "Running tool...", "", []engine.ToolCall{
+		{
+			ID:   "call_123",
+			Type: "function",
+			Function: struct {
+				Name      string          `json:"name"`
+				Arguments json.RawMessage `json:"arguments"`
+			}{
+				Name:      "fail_tool",
+				Arguments: json.RawMessage(`{}`),
+			},
+		},
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m.CurrentID = assistantNode.ID
+	m.InterleavingNodeID = assistantNode.ID
+	m.PendingToolCalls = assistantNode.ToolCalls
+
+	// Trigger execution command
+	cmd := m.executeToolsCmd()
+	msg := cmd() // Run synchronously
+
+	resMsg, ok := msg.(toolsExecutedMsg)
+	if !ok {
+		t.Fatalf("expected toolsExecutedMsg, got %T", msg)
+	}
+	if resMsg.err != nil {
+		t.Fatalf("unexpected error inside toolsExecutedMsg: %v", resMsg.err)
+	}
+
+	// Verify observations in storage / memory
+	node, err := m.Manager.GetNode(assistantNode.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(node.Observations) != 1 {
+		t.Fatalf("expected 1 observation, got %d", len(node.Observations))
+	}
+
+	obs := node.Observations[0]
+	if obs.ToolCallID != "call_123" {
+		t.Errorf("expected ToolCallID 'call_123', got '%s'", obs.ToolCallID)
+	}
+
+	expectedResult := "Error: something went wrong\nOutput:\nsome partial output here"
+	if obs.Result != expectedResult {
+		t.Errorf("expected observation result:\n%s\ngot:\n%s", expectedResult, obs.Result)
 	}
 }

@@ -58,7 +58,8 @@ func wrapText(text string, width int) string {
 		}
 
 		// 3. Prepend the original indentation to the first line of the wrapped result
-		wrapped.WriteString(indent + lineBuilder.String())
+		wrapped.WriteString(indent)
+		wrapped.WriteString(lineBuilder.String())
 
 		if i < len(lines)-1 {
 			wrapped.WriteString("\n")
