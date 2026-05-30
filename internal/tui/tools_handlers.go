@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -28,7 +29,11 @@ func (m *Model) executeToolsCmd() tea.Cmd {
 		for _, call := range m.PendingToolCalls {
 			result, err := m.Manager.ExecuteToolCall(ctx, call)
 			if err != nil {
-				result = fmt.Sprintf("Error: %v", err)
+				if trimmed := strings.TrimSpace(result); trimmed != "" {
+					result = fmt.Sprintf("Error: %v\nOutput:\n%s", err, trimmed)
+				} else {
+					result = fmt.Sprintf("Error: %v", err)
+				}
 			}
 
 			// Side-Channel Interleaving: Update the Assistant node directly
