@@ -294,6 +294,8 @@ func mapToOllamaMessages(messages []Message) []ollamaMessage {
 		out = append(out, ollamaMessage{
 			Role:       string(m.Role),
 			Content:    m.Content,
+			Thinking:   m.Thought,
+			Reasoning:  m.Thought,
 			ToolCalls:  tCalls,
 			ToolCallID: m.ToolCallID,
 		})

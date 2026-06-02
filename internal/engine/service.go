@@ -16,6 +16,16 @@ import (
 // Manager is the central coordinator for the application engine. It provides
 // a high-level API that combines graph operations (traversal, branching)
 // with storage persistence, ensuring that all narrative changes are saved.
+// AssistantSegment represents a single turn segment of the assistant's generation,
+// allowing sequential reconstruction of tool executions and narration.
+type AssistantSegment struct {
+	Content string `json:"content"`
+	Thought string `json:"thought"`
+}
+
+// Manager is the central coordinator for the application engine. It provides
+// a high-level API that combines graph operations (traversal, branching)
+// with storage persistence, ensuring that all narrative changes are saved.
 type Manager struct {
 	Graph    *Graph
 	Storage  Storage
@@ -68,6 +78,17 @@ func (m *Manager) CreateAssistantNode(parentID string, content string, thought s
 		Timestamp: time.Now(),
 		ToolCalls: toolCalls,
 		Internal:  internal,
+		Metadata:  make(map[string]string),
+	}
+
+	segments := []AssistantSegment{
+		{
+			Content: content,
+			Thought: thought,
+		},
+	}
+	if segJSON, err := json.Marshal(segments); err == nil {
+		node.Metadata["segments"] = string(segJSON)
 	}
 
 	if err := m.validateNode(node); err != nil {
@@ -200,9 +221,10 @@ func (m *Manager) calculateResonanceScore(node *Node, distance int) float64 {
 	}
 
 	weight := 0.7
-	if node.Role == RoleUser {
+	switch node.Role {
+	case RoleUser:
 		weight = 1.0
-	} else if node.Role == RoleTool {
+	case RoleTool:
 		weight = 0.5
 	}
 	
@@ -262,6 +284,68 @@ func (m *Manager) BuildLLMContext(leafID string) ([]Message, error) {
 			v = math.MaxFloat64
 		}
 
+		if node.Internal && v <= 0.5 {
+			continue // Drop low fidelity internal nodes entirely
+		}
+
+		if node.Role == RoleAssistant {
+			var segments []AssistantSegment
+			if node.Metadata != nil && node.Metadata["segments"] != "" {
+				_ = json.Unmarshal([]byte(node.Metadata["segments"]), &segments)
+			}
+
+			if len(segments) > 0 {
+				for j, seg := range segments {
+					var tCalls []ToolCall
+					if j < len(node.ToolCalls) {
+						tCalls = []ToolCall{node.ToolCalls[j]}
+					}
+
+					msg := Message{
+						Role:     RoleAssistant,
+						Content:  seg.Content,
+						Internal: node.Internal,
+					}
+
+					if v > 5.0 {
+						msg.Thought = seg.Thought
+						msg.ToolCalls = tCalls
+					} else if v > 0.5 {
+						msg.ToolCalls = tCalls
+					} else {
+						msg.ToolCalls = tCalls
+					}
+
+					messages = append(messages, msg)
+
+					if j < len(node.ToolCalls) && j < len(node.Observations) {
+						obs := node.Observations[j]
+						truncatedResult := obs.Result
+						if v > 5.0 {
+							if len(truncatedResult) > 4000 {
+								truncatedResult = truncatedResult[:4000] + "... [truncated]"
+							}
+						} else if v > 0.5 {
+							if len(truncatedResult) > 500 {
+								truncatedResult = truncatedResult[:500] + "... [truncated]"
+							}
+						} else {
+							toolName := node.ToolCalls[j].Function.Name
+							truncatedResult = fmt.Sprintf("[Tool '%s' execution completed. Detailed results omitted. Total size: %d bytes.]", toolName, len(obs.Result))
+						}
+
+						messages = append(messages, Message{
+							Role:       RoleTool,
+							Content:    truncatedResult,
+							ToolCallID: obs.ToolCallID,
+							Internal:   node.Internal,
+						})
+					}
+				}
+				continue
+			}
+		}
+
 		msg := Message{
 			Role:       node.Role,
 			Content:    node.Content,
@@ -299,11 +383,7 @@ func (m *Manager) BuildLLMContext(leafID string) ([]Message, error) {
 				}
 			}
 		} else {
-			// Low fidelity
-			if node.Internal {
-				continue // Drop low fidelity internal nodes entirely
-			}
-			// Keep core dialogue, but crush observations
+			// Low fidelity: keep core dialogue, but crush observations
 			msg.ToolCalls = node.ToolCalls
 			msg.Observations = make([]ToolObservation, len(node.Observations))
 			for j, obs := range node.Observations {

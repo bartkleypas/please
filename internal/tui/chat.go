@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -27,34 +28,72 @@ func (m *Model) renderNode(node *engine.Node) string {
 	s.WriteString(roleStyle.Render(prefix))
 	s.WriteString(":\n")
 
-	// 1. Render Thought (Lane A)
-	if node.Thought != "" {
-		s.WriteString(thoughtStyle.Render(wrapText(node.Thought, wrapWidth)))
-		s.WriteString("\n")
+	// 1. Check for segments in metadata for chronological rendering
+	var segments []struct {
+		Content string `json:"content"`
+		Thought string `json:"thought"`
+	}
+	if node.Role == engine.RoleAssistant && node.Metadata != nil && node.Metadata["segments"] != "" {
+		_ = json.Unmarshal([]byte(node.Metadata["segments"]), &segments)
 	}
 
-	// 2. Render Tool Interleaving (Lanes B & C)
-	for i, call := range node.ToolCalls {
-		// Announce Action (Lane B)
-		s.WriteString(markStyle.Render(fmt.Sprintf("⚒️  Executing %s(%s)...", call.Function.Name, string(call.Function.Arguments))))
-		s.WriteString("\n")
-
-		// Render Observation if available (Lane C)
-		if i < len(node.Observations) {
-			obs := node.Observations[i]
-			summary := obs.Result
-			if len(summary) > 200 {
-				summary = summary[:200] + "... (truncated)"
+	if len(segments) > 0 {
+		for j, seg := range segments {
+			if seg.Thought != "" {
+				s.WriteString(thoughtStyle.Render(wrapText(seg.Thought, wrapWidth)))
+				s.WriteString("\n")
 			}
-			s.WriteString(helpStyle.Render(fmt.Sprintf("  ✅ Result: %s", summary)))
+			if j < len(node.ToolCalls) {
+				call := node.ToolCalls[j]
+				s.WriteString(markStyle.Render(fmt.Sprintf("⚒️  Executing %s(%s)...", call.Function.Name, string(call.Function.Arguments))))
+				s.WriteString("\n")
+
+				if j < len(node.Observations) {
+					obs := node.Observations[j]
+					summary := obs.Result
+					if len(summary) > 200 {
+						summary = summary[:200] + "... (truncated)"
+					}
+					s.WriteString(helpStyle.Render(fmt.Sprintf("  ✅ Result: %s", summary)))
+					s.WriteString("\n")
+				}
+			}
+			if seg.Content != "" {
+				s.WriteString(wrapText(seg.Content, wrapWidth))
+				s.WriteString("\n")
+			}
+		}
+	} else {
+		// Fallback to non-segmented rendering
+		// 1. Render Thought (Lane A)
+		if node.Thought != "" {
+			s.WriteString(thoughtStyle.Render(wrapText(node.Thought, wrapWidth)))
 			s.WriteString("\n")
 		}
-	}
 
-	// 3. Render Final Response (Lane D)
-	if node.Content != "" {
-		s.WriteString(wrapText(node.Content, wrapWidth))
-		s.WriteString("\n")
+		// 2. Render Tool Interleaving (Lanes B & C)
+		for i, call := range node.ToolCalls {
+			// Announce Action (Lane B)
+			s.WriteString(markStyle.Render(fmt.Sprintf("⚒️  Executing %s(%s)...", call.Function.Name, string(call.Function.Arguments))))
+			s.WriteString("\n")
+
+			// Render Observation if available (Lane C)
+			if i < len(node.Observations) {
+				obs := node.Observations[i]
+				summary := obs.Result
+				if len(summary) > 200 {
+					summary = summary[:200] + "... (truncated)"
+				}
+				s.WriteString(helpStyle.Render(fmt.Sprintf("  ✅ Result: %s", summary)))
+				s.WriteString("\n")
+			}
+		}
+
+		// 3. Render Final Response (Lane D)
+		if node.Content != "" {
+			s.WriteString(wrapText(node.Content, wrapWidth))
+			s.WriteString("\n")
+		}
 	}
 
 	return s.String()
@@ -78,24 +117,59 @@ func (m *Model) updateViewportWithStreaming() {
 	s.WriteString(botStyle.Render(string(engine.RoleAssistant)))
 	s.WriteString(":\n")
 
-	if m.CurrentStreamingThought != "" {
-		s.WriteString(thoughtStyle.Render(wrapText(m.CurrentStreamingThought, wrapWidth)))
-		s.WriteString("\n")
-	}
-
-	// During streaming, we might have interleaved observations from a previous pause
+	// Render already committed segments during a resumed streaming session
 	if m.InterleavingNodeID != "" {
 		node, err := m.Manager.GetNode(m.InterleavingNodeID)
 		if err == nil {
-			for i, call := range node.ToolCalls {
-				s.WriteString(markStyle.Render(fmt.Sprintf("⚒️  Executing %s...", call.Function.Name)))
-				s.WriteString("\n")
-				if i < len(node.Observations) {
-					s.WriteString(helpStyle.Render("  ✅ Observation received."))
+			var segments []struct {
+				Content string `json:"content"`
+				Thought string `json:"thought"`
+			}
+			if node.Metadata != nil && node.Metadata["segments"] != "" {
+				_ = json.Unmarshal([]byte(node.Metadata["segments"]), &segments)
+			}
+
+			if len(segments) > 0 {
+				for j, seg := range segments {
+					if seg.Thought != "" {
+						s.WriteString(thoughtStyle.Render(wrapText(seg.Thought, wrapWidth)))
+						s.WriteString("\n")
+					}
+					if j < len(node.ToolCalls) {
+						call := node.ToolCalls[j]
+						s.WriteString(markStyle.Render(fmt.Sprintf("⚒️  Executing %s...", call.Function.Name)))
+						s.WriteString("\n")
+						if j < len(node.Observations) {
+							s.WriteString(helpStyle.Render("  ✅ Observation received."))
+							s.WriteString("\n")
+						}
+					}
+					if seg.Content != "" {
+						s.WriteString(wrapText(seg.Content, wrapWidth))
+						s.WriteString("\n")
+					}
+				}
+			} else {
+				// Fallback if no segments metadata
+				for i, call := range node.ToolCalls {
+					s.WriteString(markStyle.Render(fmt.Sprintf("⚒️  Executing %s...", call.Function.Name)))
+					s.WriteString("\n")
+					if i < len(node.Observations) {
+						s.WriteString(helpStyle.Render("  ✅ Observation received."))
+						s.WriteString("\n")
+					}
+				}
+				if node.Content != "" {
+					s.WriteString(wrapText(node.Content, wrapWidth))
 					s.WriteString("\n")
 				}
 			}
 		}
+	}
+
+	if m.CurrentStreamingThought != "" {
+		s.WriteString(thoughtStyle.Render(wrapText(m.CurrentStreamingThought, wrapWidth)))
+		s.WriteString("\n")
 	}
 
 	if m.CurrentStreamingContent != "" {

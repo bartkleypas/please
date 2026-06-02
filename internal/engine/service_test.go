@@ -183,13 +183,13 @@ func TestManager_BuildLLMContext_FidelityAndToolSummaries(t *testing.T) {
 	// Verify path reconstruction size
 	// We expect:
 	// - System node (retained)
-	// - Node 2 (retained, but low fidelity: observation replaced by informative summary naming "read_file")
+	// - Node 2 (retained: split into 1 assistant message and 1 tool message because it has segments)
 	// - Node 3 (retained)
 	// - Node 4 (internal, low fidelity, so DROPPED entirely!)
 	// - Node 5 (active leaf, retained in high fidelity)
-	// Total expected messages = 4
-	if len(messages) != 4 {
-		t.Fatalf("expected 4 messages in context, got %d", len(messages))
+	// Total expected messages = 5
+	if len(messages) != 5 {
+		t.Fatalf("expected 5 messages in context, got %d", len(messages))
 	}
 
 	// Check if internal node (Node 4) was indeed dropped
@@ -202,11 +202,8 @@ func TestManager_BuildLLMContext_FidelityAndToolSummaries(t *testing.T) {
 	// Check Node 2's pruned observation summary
 	foundSummary := false
 	for _, msg := range messages {
-		if msg.Role == RoleAssistant && msg.Content == "Executing read_file..." {
-			if len(msg.Observations) != 1 {
-				t.Fatalf("expected 1 observation, got %d", len(msg.Observations))
-			}
-			obsResult := msg.Observations[0].Result
+		if msg.Role == RoleTool && msg.ToolCallID == "call_abc" {
+			obsResult := msg.Content
 			if !strings.Contains(obsResult, "[Tool 'read_file' execution completed. Detailed results omitted. Total size:") {
 				t.Errorf("expected informative summary, got: %s", obsResult)
 			}
@@ -214,6 +211,118 @@ func TestManager_BuildLLMContext_FidelityAndToolSummaries(t *testing.T) {
 		}
 	}
 	if !foundSummary {
-		t.Error("could not find pruned assistant node with tool observation summary")
+		t.Error("could not find pruned tool observation message")
+	}
+}
+
+func TestManager_BuildLLMContext_SequentialSegments(t *testing.T) {
+	mgr := NewManager(NewGraph(), &MockStorage{})
+
+	// 1. Create root node
+	n1, _ := mgr.CreateNode("", RoleUser, "Run test", false)
+
+	// 2. Create assistant node with first tool call
+	tcs1 := []ToolCall{
+		{
+			ID:   "call_1",
+			Type: "function",
+			Function: struct {
+				Name      string          `json:"name"`
+				Arguments json.RawMessage `json:"arguments"`
+			}{
+				Name:      "test_tool",
+				Arguments: json.RawMessage(`{"arg": 1}`),
+			},
+		},
+	}
+	n2, err := mgr.CreateAssistantNode(n1.ID, "", "thought 1", tcs1, false)
+	if err != nil {
+		t.Fatalf("failed to create assistant node: %v", err)
+	}
+
+	// 3. Update with observation 1
+	err = mgr.UpdateAssistantObservations(n2.ID, "call_1", "success 1")
+	if err != nil {
+		t.Fatalf("failed to update observation 1: %v", err)
+	}
+
+	// 4. Simulate stream finish for second segment
+	// Retrieve node to update segments metadata
+	node, err := mgr.GetNode(n2.ID)
+	if err != nil {
+		t.Fatalf("failed to get node: %v", err)
+	}
+	node.Content += "Step 1 done. Running test 2."
+	node.Thought += "thought 2"
+	tcs2 := []ToolCall{
+		{
+			ID:   "call_2",
+			Type: "function",
+			Function: struct {
+				Name      string          `json:"name"`
+				Arguments json.RawMessage `json:"arguments"`
+			}{
+				Name:      "test_tool",
+				Arguments: json.RawMessage(`{"arg": 2}`),
+			},
+		},
+	}
+	node.ToolCalls = append(node.ToolCalls, tcs2...)
+
+	// Update segments in metadata manually to match the streaming behavior
+	var segments []AssistantSegment
+	if segStr, ok := node.Metadata["segments"]; ok && segStr != "" {
+		_ = json.Unmarshal([]byte(segStr), &segments)
+	}
+	segments = append(segments, AssistantSegment{
+		Content: "Step 1 done. Running test 2.",
+		Thought: "thought 2",
+	})
+	segJSON, _ := json.Marshal(segments)
+	node.Metadata["segments"] = string(segJSON)
+
+	// Update observation 2
+	node.Observations = append(node.Observations, ToolObservation{
+		ToolCallID: "call_2",
+		Result:     "success 2",
+	})
+
+	// Save back
+	err = mgr.Storage.SaveNode(node)
+	if err != nil {
+		t.Fatalf("failed to save node: %v", err)
+	}
+
+	// 5. Build context
+	messages, err := mgr.BuildLLMContext(n2.ID)
+	if err != nil {
+		t.Fatalf("failed to build LLM context: %v", err)
+	}
+
+	// Expected messages:
+	// - User: "Run test" (1 message)
+	// - Assistant: (Segment 0) Content "", Thought "thought 1", ToolCalls ["call_1"] (2 message)
+	// - Tool: "success 1", ToolCallID "call_1" (3 message)
+	// - Assistant: (Segment 1) Content "Step 1 done...", Thought "thought 2", ToolCalls ["call_2"] (4 message)
+	// - Tool: "success 2", ToolCallID "call_2" (5 message)
+	// Total expected = 5 messages
+	if len(messages) != 5 {
+		t.Fatalf("expected 5 messages, got %d", len(messages))
+	}
+
+	if messages[0].Role != RoleUser || messages[0].Content != "Run test" {
+		t.Errorf("unexpected message 0: %+v", messages[0])
+	}
+	if messages[1].Role != RoleAssistant || messages[1].Content != "" || messages[1].Thought != "thought 1" || len(messages[1].ToolCalls) != 1 || messages[1].ToolCalls[0].ID != "call_1" {
+		t.Errorf("unexpected message 1: %+v", messages[1])
+	}
+	if messages[2].Role != RoleTool || messages[2].Content != "success 1" || messages[2].ToolCallID != "call_1" {
+		t.Errorf("unexpected message 2: %+v", messages[2])
+	}
+	if messages[3].Role != RoleAssistant || messages[3].Content != "Step 1 done. Running test 2." || messages[3].Thought != "thought 2" || len(messages[3].ToolCalls) != 1 || messages[3].ToolCalls[0].ID != "call_2" {
+		t.Errorf("unexpected message 3: %+v", messages[3])
+	}
+	if messages[4].Role != RoleTool || messages[4].Content != "success 2" || messages[4].ToolCallID != "call_2" {
+		t.Errorf("unexpected message 4: %+v", messages[4])
 	}
 }
