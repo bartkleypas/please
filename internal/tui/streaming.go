@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -87,6 +88,26 @@ func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, te
 		node.Content += m.CurrentStreamingContent
 		node.Thought += m.CurrentStreamingThought
 		node.ToolCalls = append(node.ToolCalls, msg.toolCalls...)
+
+		// Update segments in metadata for causal history reconstruction
+		type AssistantSegment struct {
+			Content string `json:"content"`
+			Thought string `json:"thought"`
+		}
+		var segments []AssistantSegment
+		if node.Metadata == nil {
+			node.Metadata = make(map[string]string)
+		}
+		if segStr, ok := node.Metadata["segments"]; ok && segStr != "" {
+			_ = json.Unmarshal([]byte(segStr), &segments)
+		}
+		segments = append(segments, AssistantSegment{
+			Content: m.CurrentStreamingContent,
+			Thought: m.CurrentStreamingThought,
+		})
+		if segJSON, err := json.Marshal(segments); err == nil {
+			node.Metadata["segments"] = string(segJSON)
+		}
 
 		// Re-persist existing node state (SaveNode is now INSERT OR REPLACE)
 		if err := m.Manager.Storage.SaveNode(node); err != nil {
