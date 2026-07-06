@@ -66,15 +66,15 @@ func (m *Model) generateSystemSupplement() string {
 		}
 	}
 
-	// 2. README Header
-	readme, err := os.ReadFile("README.md")
+	// 2. Index Header
+	indexContent, err := os.ReadFile("index.md")
 	if err == nil {
-		lines := strings.Split(string(readme), "\n")
+		lines := strings.Split(string(indexContent), "\n")
 		limit := 25
 		if len(lines) < limit {
 			limit = len(lines)
 		}
-		sb.WriteString("\nREADME Snippet:\n")
+		sb.WriteString("\nIndex Snippet:\n")
 		sb.WriteString(strings.Join(lines[:limit], "\n"))
 	}
 

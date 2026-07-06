@@ -10,5 +10,6 @@ All updates and modifications to this knowledge bundle are tracked chronological
 *   **Documented Engine Package Structure**: Created the sub-index at [internal/engine/index.md](file:///Users/Bart/Code/please/internal/engine/index.md) describing the core Go packages for the DAG graph model, database persistence, LLM client drivers, and JIT tools.
 *   **Documented TUI Package Structure**: Created the sub-index at [internal/tui/index.md](file:///Users/Bart/Code/please/internal/tui/index.md) mapping Bubble Tea model states, TUI event handlers, visual view modules, keymaps, and streaming components.
 
+## 2026-07-06
 
-
+*   **Refactored Automated Context Supplement**: Adjusted `generateSystemSupplement()` in [internal/tui/handlers.go](file:///Users/Bart/Code/please/internal/tui/handlers.go) to read from `index.md` instead of `README.md` for folder-level index knowledge.
