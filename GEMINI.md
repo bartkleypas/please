@@ -1,3 +1,14 @@
+---
+type: Concept
+title: "GEMINI.md"
+description: "Please is a lightweight Terminal User Interface (TUI) application designed for dynamic interaction with Large Language Models (LLMs). Its core inno..."
+tags:
+  - please
+  - go
+  - bootstrap
+timestamp: "2026-05-21T12:10:44-07:00"
+---
+
 # GEMINI.md
 
 ## Project Overview

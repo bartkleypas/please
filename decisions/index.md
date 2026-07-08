@@ -1,3 +1,15 @@
+---
+type: Decision
+title: "Architecture Decision Records (ADRs) Index"
+description: "This index tracks key architectural decisions and engineering conventions throughout the lifecycle of the Please TUI application."
+tags:
+  - please
+  - go
+  - decision
+  - index
+timestamp: "2026-07-05T14:31:50-07:00"
+---
+
 # Architecture Decision Records (ADRs) Index
 
 This index tracks key architectural decisions and engineering conventions throughout the lifecycle of the `Please` TUI application.

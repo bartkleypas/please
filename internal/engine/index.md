@@ -1,3 +1,14 @@
+---
+type: Concept
+title: "Package internal/engine Index"
+description: "The internal/engine package contains the core logic of the Please application. It coordinates conversational memory graphs, database storage, LLM A..."
+tags:
+  - please
+  - go
+  - index
+timestamp: "2026-07-05T14:44:42-07:00"
+---
+
 # Package internal/engine Index
 
 The `internal/engine` package contains the core logic of the `Please` application. It coordinates conversational memory graphs, database storage, LLM APIs, and command execution.

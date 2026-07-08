@@ -1,3 +1,13 @@
+---
+type: Reference
+title: "🦉 The Please Application"
+description: "Please is a lightweight terminal user interface (TUI) application designed for fast, dynamic interaction with Large Language Models (LLMs)."
+tags:
+  - please
+  - go
+timestamp: "2026-05-21T12:10:44-07:00"
+---
+
 # 🦉 The Please Application
 
 `Please` is a lightweight terminal user interface (TUI) application designed for fast, dynamic interaction with Large Language Models (LLMs).

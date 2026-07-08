@@ -1,3 +1,14 @@
+---
+type: Concept
+title: "Please Project Knowledge Index"
+description: "Please is a lightweight, Go-based Terminal User Interface (TUI) application designed for dynamic interaction with Large Language Models (LLMs). It ..."
+tags:
+  - please
+  - go
+  - index
+timestamp: "2026-07-05T14:26:05-07:00"
+---
+
 # Please Project Knowledge Index
 
 `Please` is a lightweight, Go-based Terminal User Interface (TUI) application designed for dynamic interaction with Large Language Models (LLMs). It models conversation histories as a Directed Acyclic Graph (DAG) of message nodes, supporting context resonance calculations, and native streaming playback.

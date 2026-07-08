@@ -1,3 +1,14 @@
+---
+type: Concept
+title: "Package internal/tui Index"
+description: "The internal/tui package implements the Terminal User Interface for Please, powered by Charm's **Bubble Tea** and **Lipgloss** ecosystems. It provi..."
+tags:
+  - please
+  - go
+  - index
+timestamp: "2026-07-05T14:47:45-07:00"
+---
+
 # Package internal/tui Index
 
 The `internal/tui` package implements the Terminal User Interface for `Please`, powered by Charm's **Bubble Tea** and **Lipgloss** ecosystems. It provides a visual chat room, an interactive DAG tree visualizer, and Vim-style navigation.
