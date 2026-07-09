@@ -24,3 +24,16 @@ All updates and modifications to this knowledge bundle are tracked chronological
 ## 2026-07-06
 
 *   **Refactored Automated Context Supplement**: Adjusted `generateSystemSupplement()` in [internal/tui/handlers.go](internal/tui/handlers.go) to read from `index.md` instead of `README.md` for folder-level index knowledge.
+
+## 2026-07-08
+
+*   **Fixed CLI and TUI Harness Bugs**:
+    *   Resolved validation crash on CLI piped stdin by auto-generating tool IDs for `RoleTool` node creation in [service.go](internal/engine/service.go).
+    *   Enabled combining piped stdin context and positional arguments sequentially in [main.go](cmd/please/main.go).
+    *   Fixed TUI `ctrl+c` exit failure in `/map` mode by hoisting the exit check to the top of `handleKeyEvent` in [keys.go](internal/tui/keys.go).
+    *   Stopped hidden text input keystroke capture when viewport overrides are active in [keys.go](internal/tui/keys.go).
+
+## 2026-07-09
+
+*   **Approved ssh Tool**: Added `ssh` to the `allowedCommands` list in [tool_defaults.go](file:///Users/Bart/Code/please/internal/engine/tool_defaults.go) to allow the harness engine to use SSH commands.
+

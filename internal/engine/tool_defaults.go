@@ -12,8 +12,9 @@ import (
 )
 
 var allowedCommands = []string{
-	"git", "go", "groovy", "ls", "grep", "cat", "echo", "find", "pwd", "date", "rm", "mkdir",
+	"git", "go", "groovy", "ls", "grep", "cat", "echo", "find", "pwd", "date", "rm", "mkdir", "ssh",
 }
+
 
 func validatePath(path string) (string, error) {
 	absRoot, err := filepath.Abs(".")

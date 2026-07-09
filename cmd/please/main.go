@@ -107,34 +107,33 @@ func main() {
 	webServer := server.NewServer(mgr)
 
 	// Determine if we have a message from args or stdin
-	var content string
-	var inferredRole engine.Role = engine.RoleUser
+	var pipedContent string
+	var pipedRole engine.Role = engine.RoleTool
 
-	if flag.NArg() > 0 {
-		content = strings.Join(flag.Args(), " ")
-		inferredRole = engine.RoleUser
-	} else {
-		stat, _ := os.Stdin.Stat()
-		if (stat.Mode() & os.ModeCharDevice) == 0 {
-			// Data is being piped in
-			bytes, err := io.ReadAll(os.Stdin)
-			if err == nil {
-				content = strings.TrimSpace(string(bytes))
-				inferredRole = engine.RoleTool // Piped input defaults to tool role
-			}
+	stat, statErr := os.Stdin.Stat()
+	if statErr == nil && (stat.Mode()&os.ModeCharDevice) == 0 {
+		// Data is being piped in
+		bytes, err := io.ReadAll(os.Stdin)
+		if err == nil {
+			pipedContent = strings.TrimSpace(string(bytes))
 		}
 	}
 
-	// If explicit role is provided, use it
-	if *roleStr != "" {
-		inferredRole = engine.Role(*roleStr)
+	var argContent string
+	if flag.NArg() > 0 {
+		argContent = strings.Join(flag.Args(), " ")
 	}
 
-	// Handle Message Mode
-	if content != "" {
+	// If explicit role is provided, override the piped input role
+	if *roleStr != "" {
+		pipedRole = engine.Role(*roleStr)
+	}
+
+	// Handle Message Mode (either piped input, args, or both)
+	if pipedContent != "" || argContent != "" {
 		parentID := *parent
 		if parentID == "" {
-			if inferredRole == engine.RoleSystem {
+			if pipedContent != "" && pipedRole == engine.RoleSystem {
 				// The Silicon Seed: Create a new narrative root for system prompts
 				parentID = ""
 			} else {
@@ -142,13 +141,28 @@ func main() {
 			}
 		}
 
-		newNode, err := mgr.CreateNode(parentID, inferredRole, content, false)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating node: %v\n", err)
-			os.Exit(1)
+		var finalID string
+
+		// 1. If we have piped content, create a node for it first
+		if pipedContent != "" {
+			newNode, err := mgr.CreateNode(parentID, pipedRole, pipedContent, false)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error creating piped node: %v\n", err)
+				os.Exit(1)
+			}
+			finalID = newNode.ID
+			parentID = finalID // For the subsequent argument node, the parent is the piped node
 		}
 
-		finalID := newNode.ID
+		// 2. If we also have arguments, create a user node parented by the piped node
+		if argContent != "" {
+			newNode, err := mgr.CreateNode(parentID, engine.RoleUser, argContent, false)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error creating message node: %v\n", err)
+				os.Exit(1)
+			}
+			finalID = newNode.ID
+		}
 
 		if !*noGen {
 			path, err := mgr.GetPath(finalID)

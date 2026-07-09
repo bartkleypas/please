@@ -25,6 +25,14 @@ func (m *Model) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 // It ensures navigation keys are sent to the viewport while standard text
 // is sent to the text input.
 func (m *Model) handleKeyEvent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Global exit handler
+	if msg.String() == "ctrl+c" {
+		if m.StreamCancel != nil {
+			m.StreamCancel()
+		}
+		return m, tea.Quit
+	}
+
 	// 1. Let modal interceptors consume standard keys first
 	if newM, cmd, handled := m.handleModalKeys(msg); handled {
 		return newM, cmd
@@ -53,17 +61,14 @@ func (m *Model) handleKeyEvent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg.String() {
-	case "ctrl+c":
-		if m.StreamCancel != nil {
-			m.StreamCancel()
-		}
-		return m, tea.Quit
 	case "enter":
 		return m.handleEnterKey()
 	}
 
 	var tiCmd tea.Cmd
-	m.TextInput, tiCmd = m.TextInput.Update(msg)
+	if m.ViewportOverride == "" {
+		m.TextInput, tiCmd = m.TextInput.Update(msg)
+	}
 	return m, tea.Batch(cmd, tiCmd)
 }
 

@@ -54,6 +54,10 @@ func (m *Manager) CreateNode(parentID string, role Role, content string, interna
 		Internal:  internal,
 	}
 
+	if role == RoleTool && node.ToolCallID == "" {
+		node.ToolCallID = "cli_" + id.String()[:8]
+	}
+
 	if err := m.validateNode(node); err != nil {
 		return nil, fmt.Errorf("node validation failed: %w", err)
 	}
