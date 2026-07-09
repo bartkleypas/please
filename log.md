@@ -35,5 +35,5 @@ All updates and modifications to this knowledge bundle are tracked chronological
 
 ## 2026-07-09
 
-*   **Approved ssh Tool**: Added `ssh` to the `allowedCommands` list in [tool_defaults.go](file:///Users/Bart/Code/please/internal/engine/tool_defaults.go) to allow the harness engine to use SSH commands.
+*   **Approved ssh Tool**: Added `ssh` to the `allowedCommands` list in [tool_defaults.go](internal/engine/tool_defaults.go) to allow the harness engine to use SSH commands.
 
