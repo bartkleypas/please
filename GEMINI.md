@@ -1,101 +1,56 @@
 ---
 type: Concept
-title: "GEMINI.md"
-description: "Please is a lightweight Terminal User Interface (TUI) application designed for dynamic interaction with Large Language Models (LLMs). Its core inno..."
+title: "Please: Agent Bootstrap Memory"
+description: "Immediate orientation anchor for developers and AI agents waking up in the please project."
 tags:
   - please
   - go
   - bootstrap
-timestamp: "2026-05-21T12:10:44-07:00"
+timestamp: "2026-07-09T14:35:00-07:00"
 ---
 
-# GEMINI.md
+# Please: Agent Bootstrap Memory
 
-## Project Overview
-`Please` is a lightweight Terminal User Interface (TUI) application designed for dynamic interaction with Large Language Models (LLMs). Its core innovation is managing conversations as a **Directed Acyclic Graph (DAG)** rather than a linear history, allowing users to branch narratives, switch contexts (personas), and maintain persistent history across sessions.
+> [!IMPORTANT]
+> **Attention Agents / Context Windows:** This file serves as the system "bootstrap" memory. Read this first to understand the *immediate* state of the project, open debates, and active tasks.
 
-## Core Technologies
-- **Language:** Go (1.26+)
-- **TUI Framework:** [Charm Bubble Tea](https://github.com/charmbracelet/bubbletea)
-- **Styling:** [Charm Lipgloss](https://github.com/charmbracelet/lipgloss)
-- **LLM Integration:** Local [Ollama](https://ollama.com/) (defaulting to `gemma4:e4b`) and [OpenAI API](https://openai.com/) natively supported.
-- **ID Generation:** [Google UUID](https://github.com/google/uuid)
+---
 
-## Architecture & Key Components
-The project is split into two primary internal modules:
+## 🗺️ Project Navigation Hub
 
-### `internal/engine` (Core Logic)
-- **`Graph` (`graph.go`)**: Manages the DAG of `Node` objects. Each node represents a message. Supports real-time re-parenting for branch compaction and cycle detection.
-- **`Manager` (`service.go`)**: The central coordinator. Implements `CompactRange` for generating high-density Supernodes, `PruneBranch` for soft-deleting sub-trees, and **Adversarial Validation** to ensure structural integrity.
-- **`LLMProvider` (`llm.go`)**: Interface for LLM backends. Handles standard, streaming, and specialized summarization calls. Features hybrid tool parsing (Native Ollama + Manual `<tool_call>` tags).
-- **`Storage` (`storage.go`)**: SQLite (WAL mode) persistence. Supports `deleted` flags and secure disk scrubbing via `VACUUM`.
-- **`Tool` (`tool.go`)**: Framework for LLM tool calling.
+For detailed and authoritative documentation, consult these dedicated files instead of relying on this bootstrap anchor:
+*   [Project Index](index.md) - The central directory of packages, concepts, and specifications.
+*   [Technical README](README.md) - Features list, CLI examples, setup, TUI controls table, and testing instructions.
+*   [Context Resonance Spec](context_resonance.md) - Math formula and scoring mechanics for token decay.
+*   [Natural Pacing Spec](natural_pacing.md) - Stream buffering and punctuation-sensitive pacing rules.
+*   [Architecture Decisions (ADRs)](decisions/index.md) - Historical record of TUI framework, SQLite storage, and visualization server.
+*   [Change Log](log.md) - Chronological ledger of all modifications.
 
-### `internal/tui` (User Interface)
-- **`Model` (`model.go`)**: Main Bubble Tea state machine.
-- **`View` (`view.go`)**: Renders chat, `/map` visualization, and context-aware footers.
-- **`Handlers` (`handlers.go`)**: Manages event logic, including Vim-style navigation (`h/j/k/l`), fuzzy search (`/`), and branch compaction (`c`).
-- **`Commands` (`commands.go`)**: Implementation of slash commands (e.g., `/jump`, `/persona`, `/gc`).
+---
 
-## Key Features & Conventions
+## 🏗️ Active Design Context & Focus
 
-### Context Resonance Scoring
-To prevent context window bloat during heavy tool usage, `Please` uses a dynamic Context Resonance Scoring algorithm (`V = (W * C) * e^(-k * Δt)`) to evaluate nodes on the active path. As nodes age (`Δt`), their score decays. Low-scoring nodes have their massive raw tool observations and internal reasoning stripped before being sent to the LLM, preserving tokens while maintaining the core narrative.
+*   **Current Focus**: Refactoring TUI input event routing to prevent double-capture bugs (e.g. key captures when viewport overrides are active) and stabilizing CLI pipe vs positional argument parsing (completed [2026-07-08](log.md#2026-07-08)).
+*   **Next Steps**: Refining tool-calling capabilities and permissions within the harness.
 
-### DAG Compaction (Supernodes)
-Users can compress thematic clusters into a single `summary` node by pressing `c` in the map view. This "grafts" the active branch onto a new Supernode, preserving LLM context while decluttering the graph.
+---
 
-### Friction-Free CLI
-The application supports direct interaction via positional arguments and pipes:
-```bash
-please "What is the capital of France?"  # User role inference
-cat README.md | please "Summarize this" # Tool/Context role inference
-```
-- **The Silicon Seed:** Piping a document with `--role system` (and no parent) automatically births a new DAG Root, enabling isolated agent bootstrapping.
+## ⚖️ Active Debates
 
-### Navigation & Management
-- **Vim-style navigation:** `h` (collapse/ascend), `l` (unfold/descend), `j/k` (move).
-- **Audit Mode:** Toggle with `v` or `/audit` to reveal internal reasoning nodes and full UUIDs.
-- **Pruning:** `d` in map view soft-deletes a branch; `/gc` permanently scrubs the database.
-- **Fuzzy Search:** `/` in map view filters nodes in real-time.
+*   *There are currently no active debates.* All historical debates have been resolved and moved to [decisions/index.md](decisions/index.md).
 
-### Natural Reading Pace Streaming
-To enhance dialogue immersion, `Please` supports buffering the LLM stream to play it back at a "natural" human reading pace, with punctuation-sensitive pauses (e.g. 300ms for periods, 100ms for commas). Users can press `ESC`, `Enter`, or `Space` mid-response to bypass this pacing and instantly flush the full response to the viewport. It is toggled via the `/pacing` command or `natural_pacing` config field.
+---
 
+## 💻 Key Developer Reminders
 
-### `internal/server` (Web Visualization)
-- **`Server` (`server.go`)**: Embedded HTTP server providing a threaded web view of the conversation graph. (Updates require page refresh).
-- **`Assets` (`assets/index.html`)**: HTML/JS frontend for the web visualization, using "bubble-up" activity sorting.
+To maintain the architectural conventions of the `please` codebase during edits:
+*   **DAG Navigation**: Remember that the "current" view in the app is always a leaf node in a DAG. Reconstruct linear history by traversing parent pointers up to the root.
+*   **Bubble Tea Event Loop**: LLM responses are streamed via Go channels into the Bubble Tea loop. Deferred persistence and tool execution trigger *only* after pacing ticks complete or are skipped by the user.
 
-## Building, Running, and Testing
+---
 
-### Build
-```bash
-go build -o please ./cmd/please
-```
+## 🗺️ Next Up (Roadmap)
 
-### Run
-```bash
-# Run the application in chat mode
-go run cmd/please/main.go -c
-
-# Run with the web visualization server enabled
-go run cmd/please/main.go -c -s
-```
-
-### Test
-```bash
-# Run all tests
-go test ./...
-```
-
-## Configuration and Storage
-The application automatically manages its configuration and data directories:
-- **Configuration:** `~/.config/please/config.json` (Customizable provider, api_key, model, endpoint, and natural_pacing preference).
-- **Storage (Vault):** `~/.local/share/please/vault.db` (SQLite database containing all conversation nodes).
-
-## Development Conventions
-- **DAG Navigation:** Always consider that a "current" state in the app is a specific leaf node in the DAG. History is reconstructed by traversing up to the root.
-- **Streaming:** LLM responses are streamed via Go channels into the Bubble Tea event loop. If pacing is enabled, chunks are buffered and played back using delayed pacing tick commands, with final node persistence and tool execution deferred until playback completes or is bypassed.
-- **Mocking:** Use `internal/engine/mock.go` for testing TUI and engine logic without a live Ollama instance.
-- **Surgical Edits:** When modifying the TUI, ensure that new messages or commands are integrated into the `Update` loop in `internal/tui/tui.go`.
+- [ ] **Phase 5: Secure Execution Sandbox**
+  - [ ] Implement command execution validation and safety rules.
+  - [ ] Add interactive permissions prompt before allowing tools like `ssh` to run.

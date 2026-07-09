@@ -6,7 +6,7 @@ tags:
   - please
   - go
   - log
-timestamp: "2026-07-08T11:02:03-07:00"
+timestamp: "2026-07-09T14:38:00-07:00"
 ---
 
 # Change Log
@@ -36,4 +36,5 @@ All updates and modifications to this knowledge bundle are tracked chronological
 ## 2026-07-09
 
 *   **Approved ssh Tool**: Added `ssh` to the `allowedCommands` list in [tool_defaults.go](internal/engine/tool_defaults.go) to allow the harness engine to use SSH commands.
+*   **Streamlined Agent Bootstrap Memory**: Refactored [GEMINI.md](GEMINI.md) into a thin orientation anchor, deleting redundant features, configurations, and resolved debates, and pointing agents to authoritative source files while preserving developer reminders.
 
