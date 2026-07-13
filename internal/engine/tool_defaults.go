@@ -9,6 +9,11 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 )
 
 var allowedCommands = []string{
@@ -46,6 +51,89 @@ func getStringArg(args map[string]interface{}, key string) (string, error) {
 // GetDefaultTools returns a list of basic tools for the application
 func GetDefaultTools() []Tool {
 	return []Tool{
+		{
+			Name:        "inspect_image",
+			Description: "Read and inspect an image file's properties. Extracts format, resolution, file size, and any embedded generation metadata (such as Stable Diffusion prompts, seeds, negative prompts, and models).",
+			Interactive: false,
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"path": map[string]interface{}{
+						"type":        "string",
+						"description": "The path to the image file to inspect",
+					},
+				},
+				"required": []string{"path"},
+			},
+			Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
+				path, err := getStringArg(args, "path")
+				if err != nil {
+					return "", err
+				}
+				safePath, err := validatePath(path)
+				if err != nil {
+					return "", err
+				}
+
+				file, err := os.Open(safePath)
+				if err != nil {
+					return "", fmt.Errorf("failed to open image: %w", err)
+				}
+				defer file.Close()
+
+				stat, err := file.Stat()
+				if err != nil {
+					return "", fmt.Errorf("failed to stat image: %w", err)
+				}
+
+				cfg, format, decodeErr := image.DecodeConfig(file)
+				if _, err := file.Seek(0, 0); err != nil {
+					return "", fmt.Errorf("failed to seek image: %w", err)
+				}
+
+				var s strings.Builder
+				fmt.Fprintf(&s, "Image Inspection Report for %s:\n", filepath.Base(path))
+				if decodeErr == nil {
+					fmt.Fprintf(&s, "- Format: %s\n", format)
+					fmt.Fprintf(&s, "- Dimensions: %dx%d\n", cfg.Width, cfg.Height)
+				} else {
+					fmt.Fprintf(&s, "- Format: (unsupported by image parser: %v)\n", decodeErr)
+				}
+				fmt.Fprintf(&s, "- File Size: %.2f MB\n", float64(stat.Size())/(1024*1024))
+
+				if strings.ToLower(format) == "png" {
+					meta, err := ExtractPNGMetadata(file)
+					if err == nil && len(meta) > 0 {
+						if params, exists := meta["parameters"]; exists {
+							sdMeta := ParseSDParameters(params)
+							fmt.Fprintf(&s, "\nStable Diffusion Metadata Found:\n")
+							if val, ok := sdMeta["sd_prompt"]; ok && val != "" {
+								fmt.Fprintf(&s, "- Prompt: %s\n", val)
+							}
+							if val, ok := sdMeta["sd_negative_prompt"]; ok && val != "" {
+								fmt.Fprintf(&s, "- Negative Prompt: %s\n", val)
+							}
+							if val, ok := sdMeta["sd_seed"]; ok && val != "" {
+								fmt.Fprintf(&s, "- Seed: %s\n", val)
+							}
+							if val, ok := sdMeta["sd_sampler"]; ok && val != "" {
+								fmt.Fprintf(&s, "- Sampler: %s\n", val)
+							}
+							if val, ok := sdMeta["sd_cfg_scale"]; ok && val != "" {
+								fmt.Fprintf(&s, "- CFG Scale: %s\n", val)
+							}
+							if val, ok := sdMeta["sd_steps"]; ok && val != "" {
+								fmt.Fprintf(&s, "- Steps: %s\n", val)
+							}
+							if val, ok := sdMeta["sd_model"]; ok && val != "" {
+								fmt.Fprintf(&s, "- Model: %s\n", val)
+							}
+						}
+					}
+				}
+				return s.String(), nil
+			},
+		},
 		{
 			Name:        "read_file",
 			Description: "Read the contents of a file from the local filesystem",

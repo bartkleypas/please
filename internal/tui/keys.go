@@ -400,13 +400,18 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 		m.TextInput.Reset()
 		return m, nil
 	}
+	if len(m.PendingImages) > 0 {
+		m.Manager.AttachImages(newNode, m.PendingImages)
+		m.PendingImages = nil
+		_ = m.Manager.Storage.SaveNode(newNode)
+	}
 	m.CurrentID = newNode.ID
 	m.updateViewportWithNode(newNode)
 
 	m.TextInput.Reset()
 	m.IsThinking = true
 
-	messages, err := m.Manager.BuildLLMContext(m.CurrentID)
+	messages, err := m.Manager.BuildLLMContext(m.CurrentID, m.Config.SupportsVision())
 	if err != nil {
 		m.Notification = fmt.Sprintf("Error building context: %v", err)
 		m.IsThinking = false

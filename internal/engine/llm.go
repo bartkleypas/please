@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"encoding/base64"
 )
 
 // Message represents a simplified message for LLM providers
@@ -18,6 +20,7 @@ type Message struct {
 	ToolCallID   string            `json:"tool_call_id,omitempty"`
 	Observations []ToolObservation `json:"observations,omitempty"`
 	Internal     bool              `json:"internal,omitempty"`
+	Images       []string          `json:"images,omitempty"`
 }
 
 // LLMProvider defines the interface for interacting with different AI backends
@@ -67,6 +70,15 @@ type ollamaMessage struct {
 	Reasoning  string           `json:"reasoning,omitempty"`
 	ToolCalls  []ollamaToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string           `json:"tool_call_id,omitempty"`
+	Images     []string         `json:"images,omitempty"`
+}
+
+func encodeImageToBase64(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(data), nil
 }
 
 type ollamaToolCall struct {
@@ -291,6 +303,16 @@ func mapToOllamaMessages(messages []Message) []ollamaMessage {
 			})
 		}
 
+		var base64Images []string
+		for _, imgPath := range m.Images {
+			b64, err := encodeImageToBase64(imgPath)
+			if err == nil {
+				base64Images = append(base64Images, b64)
+			} else {
+				fmt.Printf("Warning: failed to read image for ollama payload: %v\n", err)
+			}
+		}
+
 		out = append(out, ollamaMessage{
 			Role:       string(m.Role),
 			Content:    m.Content,
@@ -298,6 +320,7 @@ func mapToOllamaMessages(messages []Message) []ollamaMessage {
 			Reasoning:  m.Thought,
 			ToolCalls:  tCalls,
 			ToolCallID: m.ToolCallID,
+			Images:     base64Images,
 		})
 
 		// Append side-channel observations as native "tool" responses

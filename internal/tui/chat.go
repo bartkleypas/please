@@ -7,6 +7,13 @@ import (
 	"time"
 
 	"github.com/bartkleypas/please/internal/engine"
+
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
+	"os"
+	"path/filepath"
 )
 
 func (m *Model) renderNode(node *engine.Node) string {
@@ -27,6 +34,41 @@ func (m *Model) renderNode(node *engine.Node) string {
 	var s strings.Builder
 	s.WriteString(roleStyle.Render(prefix))
 	s.WriteString(":\n")
+
+	if len(node.Images) > 0 {
+		var filenames []string
+		for _, img := range node.Images {
+			filenames = append(filenames, filepath.Base(img))
+		}
+		var sdSummary string
+		for _, imgPath := range node.Images {
+			file, err := os.Open(imgPath)
+			if err == nil {
+				_, format, decodeErr := image.DecodeConfig(file)
+				if decodeErr == nil && strings.ToLower(format) == "png" {
+					_, _ = file.Seek(0, 0)
+					meta, err := engine.ExtractPNGMetadata(file)
+					if err == nil {
+						if params, exists := meta["parameters"]; exists {
+							sdDetails := engine.ParseSDParameters(params)
+							if prompt, ok := sdDetails["sd_prompt"]; ok && prompt != "" {
+								shortPrompt := prompt
+								if len(shortPrompt) > 40 {
+									shortPrompt = shortPrompt[:37] + "..."
+								}
+								sdSummary = fmt.Sprintf(" (SD: \"%s\")", shortPrompt)
+								file.Close()
+								break
+							}
+						}
+					}
+				}
+				file.Close()
+			}
+		}
+		s.WriteString(helpStyle.Render(fmt.Sprintf("  🖼️  [Images: %s]%s", strings.Join(filenames, ", "), sdSummary)))
+		s.WriteString("\n")
+	}
 
 	// 1. Check for segments in metadata for chronological rendering
 	var segments []struct {

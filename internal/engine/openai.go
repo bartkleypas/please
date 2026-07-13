@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strings"
 )
 
@@ -38,10 +39,20 @@ type openAITool struct {
 
 type openAIMessage struct {
 	Role       string             `json:"role"`
-	Content    string             `json:"content"`
+	Content    interface{}        `json:"content"` // Can be string or []openAIContentPart
 	Name       string             `json:"name,omitempty"`
 	ToolCalls  []openAIToolCall   `json:"tool_calls,omitempty"`
 	ToolCallID string             `json:"tool_call_id,omitempty"`
+}
+
+type openAIContentPart struct {
+	Type     string          `json:"type"`
+	Text     string          `json:"text,omitempty"`
+	ImageURL *openAIImageURL `json:"image_url,omitempty"`
+}
+
+type openAIImageURL struct {
+	URL string `json:"url"`
 }
 
 type openAIToolCall struct {
@@ -143,9 +154,10 @@ func (o *OpenAIProvider) GenerateResponse(ctx context.Context, messages []Messag
 		})
 	}
 
+	contentStr, _ := choice.Content.(string)
 	msg := &Message{
 		Role:      RoleAssistant,
-		Content:   choice.Content,
+		Content:   contentStr,
 		ToolCalls: tCalls,
 	}
 
@@ -215,8 +227,8 @@ func (o *OpenAIProvider) GenerateResponseStream(ctx context.Context, messages []
 
 			delta := chunk.Choices[0].Delta
 
-			if delta.Content != "" {
-				contentChan <- delta.Content
+			if contentStr, ok := delta.Content.(string); ok && contentStr != "" {
+				contentChan <- contentStr
 			}
 
 			if len(delta.ToolCalls) > 0 {
@@ -287,9 +299,43 @@ func mapToOpenAIMessages(messages []Message) []openAIMessage {
 			})
 		}
 
+		var openAIContent interface{} = m.Content
+		if len(m.Images) > 0 {
+			var parts []openAIContentPart
+			if m.Content != "" {
+				parts = append(parts, openAIContentPart{
+					Type: "text",
+					Text: m.Content,
+				})
+			}
+			for _, imgPath := range m.Images {
+				b64, err := encodeImageToBase64(imgPath)
+				if err == nil {
+					mimeType := "image/png"
+					ext := strings.ToLower(filepath.Ext(imgPath))
+					if ext == ".jpg" || ext == ".jpeg" {
+						mimeType = "image/jpeg"
+					} else if ext == ".gif" {
+						mimeType = "image/gif"
+					} else if ext == ".webp" {
+						mimeType = "image/webp"
+					}
+					parts = append(parts, openAIContentPart{
+						Type: "image_url",
+						ImageURL: &openAIImageURL{
+							URL: fmt.Sprintf("data:%s;base64,%s", mimeType, b64),
+						},
+					})
+				} else {
+					fmt.Printf("Warning: failed to read image for openai payload: %v\n", err)
+				}
+			}
+			openAIContent = parts
+		}
+
 		msg := openAIMessage{
 			Role:       string(m.Role),
-			Content:    m.Content,
+			Content:    openAIContent,
 			ToolCalls:  tCalls,
 			ToolCallID: m.ToolCallID,
 		}

@@ -28,6 +28,7 @@ type Node struct {
 	Thought   string            `json:"thought,omitempty"`
 	Timestamp time.Time         `json:"timestamp"`
 	Metadata  map[string]string `json:"metadata,omitempty"`
+	Images    []string          `json:"images,omitempty"`
 
 	// Tool handling fields
 	ToolCalls    []ToolCall        `json:"tool_calls,omitempty"`  // Present if Role == Assistant

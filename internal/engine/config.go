@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Config holds the application settings
@@ -17,6 +18,21 @@ type Config struct {
 	StorageType   string `json:"storage_type"` // "jsonl" or "sqlite"
 	EncryptionKey string `json:"encryption_key,omitempty"`
 	NaturalPacing *bool  `json:"natural_pacing,omitempty"`
+}
+
+// SupportsVision returns whether the configured model supports vision/multimodal capabilities
+func (c *Config) SupportsVision() bool {
+	if c.Provider == "openai" {
+		return true
+	}
+	modelLower := strings.ToLower(c.Model)
+	keywords := []string{"vision", "llava", "pixtral", "minicpm", "mplug", "bakllava", "llama3.2-vision", "llama-3.2-vision", "llama3-vision"}
+	for _, kw := range keywords {
+		if strings.Contains(modelLower, kw) {
+			return true
+		}
+	}
+	return false
 }
 
 // IsPacingEnabled returns whether natural reading pacing is enabled

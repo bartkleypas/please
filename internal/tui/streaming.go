@@ -246,7 +246,7 @@ func (m *Model) skipPacing() (tea.Model, tea.Cmd) {
 
 func (m *Model) resumeStreamCmd(ctx context.Context, activeNodeID string) tea.Cmd {
 	return func() tea.Msg {
-		messages, err := m.Manager.BuildLLMContext(activeNodeID)
+		messages, err := m.Manager.BuildLLMContext(activeNodeID, m.Config.SupportsVision())
 		if err != nil {
 			return llmStreamFinishedMsg{err: err, activeNodeID: activeNodeID}
 		}

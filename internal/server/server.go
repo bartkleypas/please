@@ -10,6 +10,10 @@ import (
 	"time"
 
 	"github.com/bartkleypas/please/internal/engine"
+
+	"os"
+	"path/filepath"
+	"strings"
 )
 
 //go:embed assets/*
@@ -45,6 +49,7 @@ func (s *Server) Start(port int) error {
 
 	// API Endpoints
 	mux.HandleFunc("/api/graph", s.handleGraph)
+	mux.HandleFunc("/api/image", s.handleImage)
 
 	// Static Assets
 	mux.HandleFunc("/", s.handleIndex)
@@ -121,4 +126,38 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 	// For other paths, try to serve from embedded assets
 	http.FileServer(http.FS(assets)).ServeHTTP(w, r)
+}
+
+func (s *Server) handleImage(w http.ResponseWriter, r *http.Request) {
+	imagePath := r.URL.Query().Get("path")
+	if imagePath == "" {
+		http.Error(w, "Missing 'path' parameter", http.StatusBadRequest)
+		return
+	}
+
+	stat, err := os.Stat(imagePath)
+	if err != nil {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+	if stat.IsDir() {
+		http.Error(w, "Path is a directory", http.StatusBadRequest)
+		return
+	}
+
+	mimeType := "application/octet-stream"
+	ext := strings.ToLower(filepath.Ext(imagePath))
+	switch ext {
+	case ".png":
+		mimeType = "image/png"
+	case ".jpg", ".jpeg":
+		mimeType = "image/jpeg"
+	case ".gif":
+		mimeType = "image/gif"
+	case ".webp":
+		mimeType = "image/webp"
+	}
+
+	w.Header().Set("Content-Type", mimeType)
+	http.ServeFile(w, r, imagePath)
 }

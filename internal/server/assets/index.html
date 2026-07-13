@@ -258,6 +258,58 @@
             content.className = 'content';
             content.innerText = node.content;
 
+            if (node.images && node.images.length > 0) {
+                const imgContainer = document.createElement('div');
+                imgContainer.className = 'image-container';
+                imgContainer.style.display = 'flex';
+                imgContainer.style.flexWrap = 'wrap';
+                imgContainer.style.gap = '15px';
+                imgContainer.style.marginTop = '12px';
+
+                node.images.forEach(img => {
+                    const imgWrapper = document.createElement('div');
+                    imgWrapper.style.display = 'flex';
+                    imgWrapper.style.flexDirection = 'column';
+                    imgWrapper.style.gap = '6px';
+                    
+                    const imgEl = document.createElement('img');
+                    imgEl.src = `/api/image?path=${encodeURIComponent(img)}`;
+                    imgEl.style.maxWidth = '240px';
+                    imgEl.style.maxHeight = '240px';
+                    imgEl.style.borderRadius = '8px';
+                    imgEl.style.border = '1px solid rgba(255, 255, 255, 0.1)';
+                    imgEl.style.cursor = 'pointer';
+                    imgEl.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)';
+                    imgEl.onclick = () => window.open(`/api/image?path=${encodeURIComponent(img)}`, '_blank');
+                    imgWrapper.appendChild(imgEl);
+
+                    if (node.metadata && node.metadata.sd_prompt) {
+                        const metaBadge = document.createElement('div');
+                        metaBadge.style.fontSize = '0.75rem';
+                        metaBadge.style.background = 'rgba(0, 0, 0, 0.4)';
+                        metaBadge.style.color = '#86efac';
+                        metaBadge.style.padding = '8px 12px';
+                        metaBadge.style.borderRadius = '6px';
+                        metaBadge.style.border = '1px solid rgba(134, 239, 172, 0.2)';
+                        metaBadge.style.maxWidth = '216px';
+                        metaBadge.style.wordBreak = 'break-word';
+
+                        let metaHtml = `<strong>Prompt:</strong> ${node.metadata.sd_prompt}`;
+                        if (node.metadata.sd_seed) metaHtml += `<br><strong>Seed:</strong> ${node.metadata.sd_seed}`;
+                        if (node.metadata.sd_sampler) metaHtml += `<br><strong>Sampler:</strong> ${node.metadata.sd_sampler}`;
+                        if (node.metadata.sd_cfg_scale) metaHtml += `<br><strong>CFG:</strong> ${node.metadata.sd_cfg_scale}`;
+                        if (node.metadata.sd_steps) metaHtml += `<br><strong>Steps:</strong> ${node.metadata.sd_steps}`;
+                        if (node.metadata.sd_model) metaHtml += `<br><strong>Model:</strong> ${node.metadata.sd_model}`;
+
+                        metaBadge.innerHTML = metaHtml;
+                        imgWrapper.appendChild(metaBadge);
+                    }
+
+                    imgContainer.appendChild(imgWrapper);
+                });
+                content.appendChild(imgContainer);
+            }
+
             nodeDiv.appendChild(content);
 
             const childrenIDs = graph.Children[node.id] || [];

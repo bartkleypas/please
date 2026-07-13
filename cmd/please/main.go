@@ -13,7 +13,23 @@ import (
 	"github.com/bartkleypas/please/internal/tui"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 )
+
+type arrayFlags []string
+
+func (i *arrayFlags) String() string {
+	return strings.Join(*i, ",")
+}
+
+func (i *arrayFlags) Set(value string) error {
+	*i = append(*i, value)
+	return nil
+}
 
 func main() {
 	// Define flags
@@ -36,6 +52,11 @@ func main() {
 	roleStr := flag.String("role", "", "Override role for the new node (user, assistant, system, tool)")
 	versionFlag := flag.Bool("version", false, "Print the application version and exit")
 
+	var images arrayFlags
+	flag.Var(&images, "image", "Path to an image to attach (can be specified multiple times)")
+	flag.Var(&images, "i", "Path to an image to attach (shorthand)")
+	infoFlag := flag.Bool("info", false, "Print image metadata info and exit")
+
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "🦉 Please: A DAG-based TUI for branching LLM conversations.\n\n")
 		fmt.Fprintf(os.Stderr, "Usage: please [options] [message...]\n\n")
@@ -57,6 +78,37 @@ func main() {
 
 	if *versionFlag {
 		fmt.Printf("please version %s\n", engine.Version)
+		os.Exit(0)
+	}
+
+	if *infoFlag && len(images) > 0 {
+		for _, img := range images {
+			file, err := os.Open(img)
+			if err != nil {
+				fmt.Printf("Error opening %s: %v\n", img, err)
+				continue
+			}
+			cfg, format, err := image.DecodeConfig(file)
+			if err != nil {
+				fmt.Printf("Error decoding %s: %v\n", img, err)
+				file.Close()
+				continue
+			}
+			fmt.Printf("File: %s\n", img)
+			fmt.Printf("Format: %s\n", format)
+			fmt.Printf("Dimensions: %dx%d\n", cfg.Width, cfg.Height)
+			if strings.ToLower(format) == "png" {
+				_, _ = file.Seek(0, 0)
+				meta, err := engine.ExtractPNGMetadata(file)
+				if err == nil {
+					if params, exists := meta["parameters"]; exists {
+						fmt.Printf("Stable Diffusion Parameters:\n%s\n", params)
+					}
+				}
+			}
+			file.Close()
+			fmt.Println()
+		}
 		os.Exit(0)
 	}
 
@@ -164,23 +216,19 @@ func main() {
 			finalID = newNode.ID
 		}
 
-		if !*noGen {
-			path, err := mgr.GetPath(finalID)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error getting path for generation: %v\n", err)
-				os.Exit(1)
+		if len(images) > 0 {
+			finalNode, err := mgr.GetNode(finalID)
+			if err == nil {
+				mgr.AttachImages(finalNode, images)
+				_ = mgr.Storage.SaveNode(finalNode)
 			}
+		}
 
-			var messages []engine.Message
-			for _, n := range path {
-				messages = append(messages, engine.Message{
-					Role:       n.Role,
-					Content:    n.Content,
-					Thought:    n.Thought,
-					ToolCalls:  n.ToolCalls,
-					ToolCallID: n.ToolCallID,
-					Internal:   n.Internal,
-				})
+		if !*noGen {
+			messages, err := mgr.BuildLLMContext(finalID, cfg.SupportsVision())
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error building context for generation: %v\n", err)
+				os.Exit(1)
 			}
 
 			resp, err := provider.GenerateResponse(context.Background(), messages, nil)

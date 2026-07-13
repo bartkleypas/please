@@ -82,6 +82,9 @@ type Model struct {
 	PacingSkipped      bool
 	LLMFinished        bool
 	FinishedMsgPending *llmStreamFinishedMsg
+
+	// Pending attached images
+	PendingImages []string
 }
 
 func NewModel(cfg *engine.Config, g *engine.Graph, s engine.Storage, p engine.LLMProvider, currentID string) Model {

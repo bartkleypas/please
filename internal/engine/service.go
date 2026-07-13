@@ -10,6 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"os"
+	"path/filepath"
+
 	"github.com/google/uuid"
 )
 
@@ -272,7 +275,7 @@ func (m *Manager) calculateResonanceScore(node *Node, distance int) float64 {
 }
 
 // BuildLLMContext constructs the message history for the LLM, applying Priority Pruning based on the Context Resonance Score.
-func (m *Manager) BuildLLMContext(leafID string) ([]Message, error) {
+func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message, error) {
 	path, err := m.GetPath(leafID)
 	if err != nil {
 		return nil, err
@@ -350,11 +353,42 @@ func (m *Manager) BuildLLMContext(leafID string) ([]Message, error) {
 			}
 		}
 
+		var nodeImages []string
+		var metadataText string
+		if len(node.Images) > 0 {
+			var textParts []string
+			for _, imgPath := range node.Images {
+				file, err := os.Open(imgPath)
+				var sdDetails map[string]string
+				if err == nil {
+					meta, err := ExtractPNGMetadata(file)
+					if err == nil {
+						if params, exists := meta["parameters"]; exists {
+							sdDetails = ParseSDParameters(params)
+						}
+					}
+					file.Close()
+				}
+				if sdDetails != nil && sdDetails["sd_prompt"] != "" {
+					textParts = append(textParts, fmt.Sprintf("[Attached Image: %s | SD Prompt: %s | Seed: %s | Model: %s]", filepath.Base(imgPath), sdDetails["sd_prompt"], sdDetails["sd_seed"], sdDetails["sd_model"]))
+				} else {
+					textParts = append(textParts, fmt.Sprintf("[Attached Image: %s (No SD metadata available)]", filepath.Base(imgPath)))
+				}
+			}
+			if len(textParts) > 0 {
+				metadataText = "\n\n" + strings.Join(textParts, "\n")
+			}
+			if supportsVision {
+				nodeImages = node.Images
+			}
+		}
+
 		msg := Message{
 			Role:       node.Role,
-			Content:    node.Content,
+			Content:    node.Content + metadataText,
 			ToolCallID: node.ToolCallID,
 			Internal:   node.Internal,
+			Images:     nodeImages,
 		}
 
 		if v > 5.0 {
@@ -595,4 +629,26 @@ func (m *Manager) GetAllNodeIDs() []string {
 		ids = append(ids, id)
 	}
 	return ids
+}
+
+func (m *Manager) AttachImages(node *Node, images []string) {
+	node.Images = images
+	if node.Metadata == nil {
+		node.Metadata = make(map[string]string)
+	}
+	for _, imgPath := range images {
+		file, err := os.Open(imgPath)
+		if err == nil {
+			meta, err := ExtractPNGMetadata(file)
+			if err == nil {
+				if params, exists := meta["parameters"]; exists {
+					sdDetails := ParseSDParameters(params)
+					for k, v := range sdDetails {
+						node.Metadata[k] = v
+					}
+				}
+			}
+			file.Close()
+		}
+	}
 }

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 )
 
@@ -80,6 +81,13 @@ func (m Model) View() string {
 			s += "\n\n" + helpStyle.Render("h/l: fold/unfold • j/k: move • g/G: top/end • /: search • c: compact • d: prune • esc: chat")
 		}
 	} else {
+		if len(m.PendingImages) > 0 {
+			var filenames []string
+			for _, img := range m.PendingImages {
+				filenames = append(filenames, filepath.Base(img))
+			}
+			s += "\n" + markStyle.Render(fmt.Sprintf("🖼️  Pending attachments: %s", strings.Join(filenames, ", "))) + "\n"
+		}
 		s += "\n\n" + inputBoxStyle.Render(m.TextInput.View())
 		if m.AwaitingToolConfirmation {
 			s += "\n\n" + helpStyle.Render("(Press y/n to confirm/deny, or type a message/command to cancel & bypass them)")

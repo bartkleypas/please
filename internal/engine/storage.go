@@ -53,7 +53,8 @@ func NewSQLiteStorage(path, key string) (*SQLiteStorage, error) {
 		observations TEXT,
 		metadata TEXT,
 		deleted BOOLEAN DEFAULT 0,
-		internal BOOLEAN DEFAULT 0
+		internal BOOLEAN DEFAULT 0,
+		images TEXT
 	);
 	`
 	if _, err := db.Exec(query); err != nil {
@@ -94,6 +95,7 @@ func (s *SQLiteStorage) migrate(db *sql.DB) error {
 		{"thought", "ALTER TABLE nodes ADD COLUMN thought TEXT"},
 		{"internal", "ALTER TABLE nodes ADD COLUMN internal BOOLEAN DEFAULT 0"},
 		{"observations", "ALTER TABLE nodes ADD COLUMN observations TEXT"},
+		{"images", "ALTER TABLE nodes ADD COLUMN images TEXT"},
 	}
 
 	for _, m := range migrations {
@@ -150,6 +152,11 @@ func (s *SQLiteStorage) SaveNode(node *Node) error {
 		return fmt.Errorf("failed to marshal metadata: %w", err)
 	}
 
+	imagesJSON, err := json.Marshal(node.Images)
+	if err != nil {
+		return fmt.Errorf("failed to marshal images: %w", err)
+	}
+
 	encContent, err := EncryptField(node.Content, s.encryptionKey)
 	if err != nil {
 		return err
@@ -166,14 +173,18 @@ func (s *SQLiteStorage) SaveNode(node *Node) error {
 	if err != nil {
 		return err
 	}
+	encImages, err := EncryptField(string(imagesJSON), s.encryptionKey)
+	if err != nil {
+		return err
+	}
 
 	if s.encryptionKey != "" {
 		node.Encrypted = true
 	}
 
 	query := `
-	INSERT OR REPLACE INTO nodes (id, parent_id, role, content, thought, timestamp, tool_calls, tool_call_id, observations, metadata, deleted, internal)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	INSERT OR REPLACE INTO nodes (id, parent_id, role, content, thought, timestamp, tool_calls, tool_call_id, observations, metadata, deleted, internal, images)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err = s.db.Exec(query,
@@ -189,6 +200,7 @@ func (s *SQLiteStorage) SaveNode(node *Node) error {
 		string(metadataJSON),
 		node.Deleted,
 		node.Internal,
+		encImages,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to insert node into sqlite: %w", err)
@@ -261,7 +273,7 @@ func (s *SQLiteStorage) UpdateNodeObservations(nodeID string, obs []ToolObservat
 
 // LoadGraph reads all nodes from the SQLite database and reconstructs the Graph.
 func (s *SQLiteStorage) LoadGraph() (*Graph, string, error) {
-	query := `SELECT id, parent_id, role, content, thought, timestamp, tool_calls, tool_call_id, observations, metadata, deleted, internal FROM nodes ORDER BY timestamp ASC`
+	query := `SELECT id, parent_id, role, content, thought, timestamp, tool_calls, tool_call_id, observations, metadata, deleted, internal, images FROM nodes ORDER BY timestamp ASC`
 	rows, err := s.db.Query(query)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to query nodes from sqlite: %w", err)
@@ -274,6 +286,7 @@ func (s *SQLiteStorage) LoadGraph() (*Graph, string, error) {
 	for rows.Next() {
 		var node Node
 		var roleStr, toolCallsJSON, obsJSON, metadataJSON string
+		var imagesJSON sql.NullString
 		var thought sql.NullString
 		var deleted bool
 
@@ -290,6 +303,7 @@ func (s *SQLiteStorage) LoadGraph() (*Graph, string, error) {
 			&metadataJSON,
 			&deleted,
 			&node.Internal,
+			&imagesJSON,
 		)
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to scan node from sqlite: %w", err)
@@ -299,7 +313,8 @@ func (s *SQLiteStorage) LoadGraph() (*Graph, string, error) {
 			continue // Skip soft-deleted nodes
 		}
 
-		if strings.HasPrefix(node.Content, "enc:v1:") || strings.HasPrefix(thought.String, "enc:v1:") || strings.HasPrefix(toolCallsJSON, "enc:v1:") || strings.HasPrefix(obsJSON, "enc:v1:") {
+		hasImagesEncPrefix := imagesJSON.Valid && strings.HasPrefix(imagesJSON.String, "enc:v1:")
+		if strings.HasPrefix(node.Content, "enc:v1:") || strings.HasPrefix(thought.String, "enc:v1:") || strings.HasPrefix(toolCallsJSON, "enc:v1:") || strings.HasPrefix(obsJSON, "enc:v1:") || hasImagesEncPrefix {
 			node.Encrypted = true
 		}
 
@@ -330,6 +345,15 @@ func (s *SQLiteStorage) LoadGraph() (*Graph, string, error) {
 			}
 			if err := json.Unmarshal([]byte(decObs), &node.Observations); err != nil {
 				return nil, "", fmt.Errorf("failed to unmarshal observations from sqlite: %w", err)
+			}
+		}
+		if imagesJSON.Valid && imagesJSON.String != "" && imagesJSON.String != "null" {
+			decImages, err := DecryptField(imagesJSON.String, s.encryptionKey)
+			if err != nil {
+				return nil, "", fmt.Errorf("failed to decrypt images: %w", err)
+			}
+			if err := json.Unmarshal([]byte(decImages), &node.Images); err != nil {
+				return nil, "", fmt.Errorf("failed to unmarshal images from sqlite: %w", err)
 			}
 		}
 		if err := json.Unmarshal([]byte(metadataJSON), &node.Metadata); err != nil {
