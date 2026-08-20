@@ -99,7 +99,7 @@ func NewModel(cfg *engine.Config, g *engine.Graph, s engine.Storage, p engine.LL
 	}
 
 	mgr := engine.NewManager(g, s)
-	mgr.RegisterDefaultTools()
+	mgr.RegisterDefaultTools(cfg.GetWorkspaceDir())
 
 	si := textinput.New()
 	si.Placeholder = "Fuzzy search content..."

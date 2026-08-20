@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -49,8 +50,13 @@ func (m *Model) generateSystemSupplement() string {
 	var sb strings.Builder
 	sb.WriteString("\n\n### PROJECT CONTEXT (AUTOMATED DISCOVERY)\n")
 
+	wsDir := "."
+	if m.Config != nil {
+		wsDir = m.Config.GetWorkspaceDir()
+	}
+
 	// 1. Shallow Directory Listing
-	entries, err := os.ReadDir(".")
+	entries, err := os.ReadDir(wsDir)
 	if err == nil {
 		sb.WriteString("Current Directory Tree:\n")
 		for _, e := range entries {
@@ -67,7 +73,7 @@ func (m *Model) generateSystemSupplement() string {
 	}
 
 	// 2. Index Header
-	indexContent, err := os.ReadFile("index.md")
+	indexContent, err := os.ReadFile(filepath.Join(wsDir, "index.md"))
 	if err == nil {
 		lines := strings.Split(string(indexContent), "\n")
 		limit := 25

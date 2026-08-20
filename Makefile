@@ -1,9 +1,12 @@
-.PHONY: build run clean test test-livefire format lint
+.PHONY: build run install clean test test-livefire format lint
 .DEFAULT_GOAL := build
 
 # Determine the version string using git tags or fallback to 'dev'
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS := -X github.com/bartkleypas/please/internal/engine.Version=$(VERSION)
+
+PREFIX ?= $(HOME)/.local
+BINDIR ?= $(PREFIX)/bin
 
 build:
 	@echo "Building please version $(VERSION)..."
@@ -11,6 +14,11 @@ build:
 
 run: build
 	./please -c
+
+install: build
+	@echo "Installing please version $(VERSION) to $(BINDIR)..."
+	mkdir -p $(BINDIR)
+	install -m 755 please $(BINDIR)/please
 
 test:
 	go test ./...

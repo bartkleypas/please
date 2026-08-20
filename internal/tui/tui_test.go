@@ -467,3 +467,86 @@ func TestViewportOverrideTextInputAndLiveUpdate(t *testing.T) {
 		t.Errorf("expected ESC to clear ViewportOverride, got %q", m.ViewportOverride)
 	}
 }
+
+func TestConfigCommand_Workspace(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
+	dbPath := filepath.Join(tmpDir, "vault.db")
+
+	storage, _ := engine.NewSQLiteStorage(dbPath, "")
+	graph := engine.NewGraph()
+	mockProvider := &engine.MockLLMProvider{}
+	pacing := false
+	cfg := &engine.Config{NaturalPacing: &pacing}
+	m := NewModel(cfg, graph, storage, mockProvider, "")
+
+	// 1. Initial workspace display
+	m.HandleCommand("/config")
+	if !strings.Contains(m.ViewportOverride, "Workspace:   (current directory)") {
+		t.Errorf("expected initial workspace to be (current directory), got:\n%s", m.ViewportOverride)
+	}
+
+	// 2. Set workspace to custom directory
+	customWs := t.TempDir()
+	m.HandleCommand("/config workspace " + customWs)
+	if m.Config.WorkspaceDir != customWs {
+		t.Errorf("expected WorkspaceDir to be %s, got %s", customWs, m.Config.WorkspaceDir)
+	}
+
+	// Check updated /config view
+	if !strings.Contains(m.ViewportOverride, customWs) {
+		t.Errorf("expected ViewportOverride to show %s, got:\n%s", customWs, m.ViewportOverride)
+	}
+
+	// 3. Reset workspace to default
+	m.HandleCommand("/config workspace default")
+	if m.Config.WorkspaceDir != "" {
+		t.Errorf("expected WorkspaceDir to be empty after reset, got %s", m.Config.WorkspaceDir)
+	}
+	if !strings.Contains(m.ViewportOverride, "(current directory)") {
+		t.Errorf("expected ViewportOverride to show (current directory), got:\n%s", m.ViewportOverride)
+	}
+}
+
+func TestConfigCommand_EncryptionKey(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
+	dbPath := filepath.Join(tmpDir, "vault.db")
+
+	storage, _ := engine.NewSQLiteStorage(dbPath, "")
+	graph := engine.NewGraph()
+	mockProvider := &engine.MockLLMProvider{}
+	pacing := false
+	cfg := &engine.Config{NaturalPacing: &pacing}
+	m := NewModel(cfg, graph, storage, mockProvider, "")
+
+	// 1. Initial display shows disabled
+	m.HandleCommand("/config")
+	if !strings.Contains(m.ViewportOverride, "Encryption:  (disabled)") {
+		t.Errorf("expected initial encryption to be (disabled), got:\n%s", m.ViewportOverride)
+	}
+
+	// 2. Set encryption key
+	secretKey := "super-secret-key-12345"
+	m.HandleCommand("/config key " + secretKey)
+	if m.Config.EncryptionKey != secretKey {
+		t.Errorf("expected EncryptionKey to be %s, got %s", secretKey, m.Config.EncryptionKey)
+	}
+
+	// 3. Verify /config displays redacted key and NEVER reveals plaintext
+	if strings.Contains(m.ViewportOverride, secretKey) {
+		t.Fatalf("security violation: plaintext encryption key leaked in /config sheet display")
+	}
+	if !strings.Contains(m.ViewportOverride, "Encryption:  •••••••• (configured)") {
+		t.Errorf("expected redacted encryption display, got:\n%s", m.ViewportOverride)
+	}
+
+	// 4. Reset encryption key
+	m.HandleCommand("/config key default")
+	if m.Config.EncryptionKey != "" {
+		t.Errorf("expected EncryptionKey to be empty after reset, got %s", m.Config.EncryptionKey)
+	}
+	if !strings.Contains(m.ViewportOverride, "Encryption:  (disabled)") {
+		t.Errorf("expected disabled encryption display after reset, got:\n%s", m.ViewportOverride)
+	}
+}

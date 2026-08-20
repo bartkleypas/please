@@ -29,13 +29,13 @@ The `internal/engine` package contains the core logic of the `Please` applicatio
 *   [storage.go](storage.go) - Connects to the local SQLite database (`vault.db`), manages schemas, indexes parent paths, and executes structural queries.
 
 ### 4. LLM Providers
-*   [llm.go](llm.go) - Interfaces for LLM endpoints and the default local Ollama client driver.
-*   [openai.go](openai.go) - Client integration for the OpenAI API.
+*   [llm.go](llm.go) - Interfaces for LLM endpoints, options payload building, and the default local Ollama client driver.
+*   [openai.go](openai.go) - Client integration for the OpenAI API and OpenAI-compatible endpoints with streaming reasoning token extraction.
 
 ### 5. Function Calling & Tools
 *   [tool.go](tool.go) - Declares tool definition schemas.
-*   [tool_defaults.go](tool_defaults.go) - Defines standard system tools (such as terminal running or git diffing).
+*   [tool_defaults.go](tool_defaults.go) - Defines standard system tools (file I/O, regex editing, command execution) strictly sandboxed to the active workspace directory.
 
 ### 6. Configurations & Security
-*   [config.go](config.go) - Parses local configurations (`~/.config/please/config.json`).
+*   [config.go](config.go) - Parses local configurations (`~/.config/please/config.json`), resolves workspace paths, manages model options, and isolates test directories.
 *   [crypto.go](crypto.go) - Handles AES-256 payload encryption to protect database conversations on disk.

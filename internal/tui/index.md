@@ -18,7 +18,7 @@ The `internal/tui` package implements the Terminal User Interface for `Please`, 
 ### 1. State Machine & Event Loop
 *   [tui.go](tui.go) - Initializer for the TUI runtime environment.
 *   [model.go](model.go) - Declares the core Bubble Tea `Model` state struct tracking active views, inputs, options, and stream buffers.
-*   [handlers.go](handlers.go) - Routes input events (key presses, window resizes) to specific sub-systems.
+*   [handlers.go](handlers.go) - Routes input events, handles synchronization ticks, and generates automated persona context from workspace roots.
 *   [tea_cmds.go](tea_cmds.go) - Declares asynchronous commands (e.g., triggering background stream reads, file storage actions) that update the UI loop.
 
 ### 2. View Rendering
@@ -31,7 +31,7 @@ The `internal/tui` package implements the Terminal User Interface for `Please`, 
 
 ### 4. Navigation & Shortcuts
 *   [keys.go](keys.go) - Defines keybindings and Vim navigation controls (`h/j/k/l` for graph traversal, `c` for compaction, `d` for deletion).
-*   [commands.go](commands.go) - Implementation logic for TUI slash commands (such as `/persona`, `/pacing`, `/jump`, `/gc`).
+*   [commands.go](commands.go) - Implementation logic for TUI slash commands (such as `/persona`, `/pacing`, `/jump`, `/config`, `/gc`).
 
 ### 5. Stream Processing & Tools
 *   [streaming.go](streaming.go) - Implements token buffering and punctuation-sensitive timers for natural reading pace streaming.

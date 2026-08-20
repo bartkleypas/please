@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -634,5 +635,136 @@ Done:
 	}
 	if receivedContent != "Answer chunk" {
 		t.Errorf("expected stream content 'Answer chunk', got '%s'", receivedContent)
+	}
+}
+
+func TestConfig_WorkspaceDir(t *testing.T) {
+	// 1. Unset returns "."
+	var emptyCfg Config
+	if emptyCfg.GetWorkspaceDir() != "." {
+		t.Errorf("expected empty WorkspaceDir to return '.', got %s", emptyCfg.GetWorkspaceDir())
+	}
+
+	// 2. Custom path returns absolute path
+	tmpDir := t.TempDir()
+	cfg := Config{WorkspaceDir: tmpDir}
+	absTmp, _ := filepath.Abs(tmpDir)
+	if cfg.GetWorkspaceDir() != absTmp {
+		t.Errorf("expected %s, got %s", absTmp, cfg.GetWorkspaceDir())
+	}
+
+	// 3. Tilde expansion & trailing slash handling
+	home, _ := os.UserHomeDir()
+	tildeCfg := Config{WorkspaceDir: "~/my-project"}
+	expectedTilde := filepath.Join(home, "my-project")
+	if tildeCfg.GetWorkspaceDir() != expectedTilde {
+		t.Errorf("expected %s, got %s", expectedTilde, tildeCfg.GetWorkspaceDir())
+	}
+
+	tildeSlashCfg := Config{WorkspaceDir: "~/my-project/"}
+	if tildeSlashCfg.GetWorkspaceDir() != expectedTilde {
+		t.Errorf("expected %s for trailing slash, got %s", expectedTilde, tildeSlashCfg.GetWorkspaceDir())
+	}
+
+	// 4. Environment variable expansion ($HOME)
+	envCfg := Config{WorkspaceDir: "$HOME/my-project"}
+	if envCfg.GetWorkspaceDir() != expectedTilde {
+		t.Errorf("expected %s for $HOME, got %s", expectedTilde, envCfg.GetWorkspaceDir())
+	}
+
+	envBraceCfg := Config{WorkspaceDir: "${HOME}/my-project/"}
+	if envBraceCfg.GetWorkspaceDir() != expectedTilde {
+		t.Errorf("expected %s for ${HOME} with trailing slash, got %s", expectedTilde, envBraceCfg.GetWorkspaceDir())
+	}
+
+	// 5. JSON roundtrip
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("failed to marshal config: %v", err)
+	}
+	var loaded Config
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		t.Fatalf("failed to unmarshal config: %v", err)
+	}
+	if loaded.WorkspaceDir != tmpDir {
+		t.Errorf("expected WorkspaceDir %s, got %s", tmpDir, loaded.WorkspaceDir)
+	}
+}
+
+func TestToolDefaults_WorkspaceScoping(t *testing.T) {
+	wsDir := t.TempDir()
+	absWs, _ := filepath.Abs(wsDir)
+
+	g := NewGraph()
+	storage := NewJSONLStorage(":memory:", "")
+	mgr := NewManager(g, storage)
+	mgr.RegisterDefaultTools(wsDir)
+
+	tools := mgr.Registry.GetTools()
+	toolsMap := make(map[string]Tool)
+	for _, tool := range tools {
+		toolsMap[tool.Name] = tool
+	}
+
+	ctx := context.Background()
+
+	// 1. Test write_file in workspace
+	writeTool, ok := toolsMap["write_file"]
+	if !ok {
+		t.Fatal("write_file tool not found")
+	}
+	_, err := writeTool.Function(ctx, map[string]interface{}{
+		"path":    "hello.txt",
+		"content": "Hello Workspace",
+	})
+	if err != nil {
+		t.Fatalf("write_file failed: %v", err)
+	}
+
+	// Verify file was written inside wsDir
+	writtenBytes, err := os.ReadFile(filepath.Join(absWs, "hello.txt"))
+	if err != nil || string(writtenBytes) != "Hello Workspace" {
+		t.Fatalf("file not found in workspace: %v, content: %s", err, string(writtenBytes))
+	}
+
+	// 2. Test read_file in workspace
+	readTool, ok := toolsMap["read_file"]
+	if !ok {
+		t.Fatal("read_file tool not found")
+	}
+	content, err := readTool.Function(ctx, map[string]interface{}{
+		"path": "hello.txt",
+	})
+	if err != nil {
+		t.Fatalf("read_file failed: %v", err)
+	}
+	if content != "Hello Workspace" {
+		t.Errorf("expected 'Hello Workspace', got '%s'", content)
+	}
+
+	// 3. Test security sandbox: Path traversal rejected
+	_, err = readTool.Function(ctx, map[string]interface{}{
+		"path": "../../../etc/passwd",
+	})
+	if err == nil {
+		t.Fatal("expected path traversal outside workspace to fail with security error")
+	}
+	if !strings.Contains(err.Error(), "outside of project root") {
+		t.Errorf("expected security error, got: %v", err)
+	}
+
+	// 4. Test execute_command runs in workspace dir
+	cmdTool, ok := toolsMap["execute_command"]
+	if !ok {
+		t.Fatal("execute_command tool not found")
+	}
+	pwdOut, err := cmdTool.Function(ctx, map[string]interface{}{
+		"command": "pwd",
+	})
+	if err != nil {
+		t.Fatalf("execute_command pwd failed: %v", err)
+	}
+	if strings.TrimSpace(pwdOut) != absWs {
+		t.Errorf("expected execute_command to run in %s, got %s", absWs, strings.TrimSpace(pwdOut))
 	}
 }

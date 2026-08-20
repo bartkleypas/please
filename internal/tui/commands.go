@@ -240,6 +240,16 @@ func (m *Model) renderConfigString() string {
 	fmt.Fprintf(&s, "  Model:       %s\n", m.Config.Model)
 	fmt.Fprintf(&s, "  Endpoint:    %s\n", m.Config.Endpoint)
 	fmt.Fprintf(&s, "  Vault:       %s\n", m.Config.VaultPath)
+	wsStr := m.Config.WorkspaceDir
+	if wsStr == "" {
+		wsStr = "(current directory)"
+	}
+	fmt.Fprintf(&s, "  Workspace:   %s\n", wsStr)
+	encStr := "(disabled)"
+	if m.Config.EncryptionKey != "" {
+		encStr = "•••••••• (configured)"
+	}
+	fmt.Fprintf(&s, "  Encryption:  %s\n", encStr)
 	pacingStr := "disabled"
 	if m.Config.IsPacingEnabled() {
 		pacingStr = "enabled"
@@ -280,6 +290,8 @@ func (m *Model) renderConfigString() string {
 	s.WriteString("\nUsage:\n")
 	s.WriteString("  /config model <name>          Change the LLM model\n")
 	s.WriteString("  /config endpoint <url>        Change the API endpoint\n")
+	s.WriteString("  /config workspace <path|def>  Set workspace directory root\n")
+	s.WriteString("  /config key <val|default>     Set or clear vault encryption key\n")
 	s.WriteString("  /config pacing <on|off>       Toggle natural reading pace\n")
 	s.WriteString("  /config temp <val|default>    Set sampling temperature (e.g. 0.7)\n")
 	s.WriteString("  /config top_p <val|default>   Set top-p sampling (e.g. 0.9)\n")
@@ -301,7 +313,7 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	}
 
 	if len(args) < 2 {
-		m.Notification = "Usage: /config <model|endpoint|pacing|temp|top_p|top_k|ctx|max_tokens> <value>"
+		m.Notification = "Usage: /config <model|endpoint|pacing|workspace|key|temp|top_p|top_k|ctx|max_tokens> <value>"
 		return m, nil
 	}
 
@@ -325,6 +337,24 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 			op.Endpoint = value
 		}
 		m.Notification = "Endpoint updated to " + value
+	case "workspace", "dir", "root", "workdir":
+		if strings.ToLower(value) == "default" || strings.ToLower(value) == "reset" || strings.ToLower(value) == "none" || value == "." {
+			m.Config.WorkspaceDir = ""
+			m.Manager.RegisterDefaultTools(".")
+			m.Notification = "Workspace directory reset to current directory."
+		} else {
+			m.Config.WorkspaceDir = value
+			m.Manager.RegisterDefaultTools(m.Config.GetWorkspaceDir())
+			m.Notification = fmt.Sprintf("Workspace directory set to %s", m.Config.GetWorkspaceDir())
+		}
+	case "key", "encryption_key", "encryption":
+		if strings.ToLower(value) == "default" || strings.ToLower(value) == "reset" || strings.ToLower(value) == "none" || strings.ToLower(value) == "clear" || strings.ToLower(value) == "off" {
+			m.Config.EncryptionKey = ""
+			m.Notification = "Encryption key cleared."
+		} else {
+			m.Config.EncryptionKey = value
+			m.Notification = "Encryption key updated."
+		}
 	case "pacing":
 		switch strings.ToLower(value) {
 		case "on", "true", "yes":

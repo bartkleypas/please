@@ -30,17 +30,19 @@ type AssistantSegment struct {
 // a high-level API that combines graph operations (traversal, branching)
 // with storage persistence, ensuring that all narrative changes are saved.
 type Manager struct {
-	Graph    *Graph
-	Storage  Storage
-	Registry *ToolRegistry
+	Graph        *Graph
+	Storage      Storage
+	Registry     *ToolRegistry
+	WorkspaceDir string
 }
 
 // NewManager creates a new Manager instance
 func NewManager(g *Graph, s Storage) *Manager {
 	return &Manager{
-		Graph:    g,
-		Storage:  s,
-		Registry: NewToolRegistry(),
+		Graph:        g,
+		Storage:      s,
+		Registry:     NewToolRegistry(),
+		WorkspaceDir: ".",
 	}
 }
 

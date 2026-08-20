@@ -39,6 +39,9 @@ func main() {
 	vaultPath := flag.String("vault", "", "Path to a custom vault.jsonl or .db file")
 	flag.StringVar(vaultPath, "v", "", "Path to a custom vault file (shorthand)")
 
+	workspacePath := flag.String("workspace", "", "Path to the project workspace directory")
+	flag.StringVar(workspacePath, "w", "", "Path to the project workspace directory (shorthand)")
+
 	parent := flag.String("parent", "", "Parent node ID for new message")
 	flag.StringVar(parent, "p", "", "Parent node ID (shorthand)")
 
@@ -71,6 +74,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		fmt.Fprintf(os.Stderr, "  -c, --chat             Start the TUI chat interface\n")
 		fmt.Fprintf(os.Stderr, "  -v, --vault <path>     Path to a custom vault file\n")
+		fmt.Fprintf(os.Stderr, "  -w, --workspace <path> Path to project workspace directory\n")
 		fmt.Fprintf(os.Stderr, "  -p, --parent <id>      Parent node ID for new message\n")
 		fmt.Fprintf(os.Stderr, "  -j, --jump <id>        Node ID to jump to in interactive mode\n")
 		fmt.Fprintf(os.Stderr, "  -s, --server <port>    Start visualization server on port\n")
@@ -133,6 +137,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	if *workspacePath != "" {
+		cfg.WorkspaceDir = *workspacePath
+	}
+
 	// Apply CLI flag overrides to cfg.Options
 	if *tempFlag >= 0 || *topPFlag >= 0 || *topKFlag >= 0 || *ctxFlag > 0 || *maxTokensFlag > 0 {
 		if cfg.Options == nil {
@@ -192,6 +200,7 @@ func main() {
 		provider = engine.NewOllamaProvider(cfg.Endpoint, cfg.Model, cfg.Options)
 	}
 	mgr := engine.NewManager(graph, storage)
+	mgr.RegisterDefaultTools(cfg.GetWorkspaceDir())
 	webServer := server.NewServer(mgr)
 
 	// Determine if we have a message from args or stdin

@@ -112,7 +112,7 @@ Or start with the web visualization server directly:
 ```
 
 ### Configuration
-`Please` reads from `~/.config/please/config.json`. You can configure the LLM provider here:
+`Please` reads from `~/.config/please/config.json` (or `~/Library/Application Support/please/config.json` on macOS). You can configure the LLM provider, inference parameters, workspace root, and encryption settings here:
 
 **Local Ollama (Default)**
 ```json
@@ -120,19 +120,36 @@ Or start with the web visualization server directly:
   "provider": "ollama",
   "endpoint": "http://localhost:11434/api/chat",
   "model": "gemma4:e4b",
-  "natural_pacing": true
+  "workspace_dir": "~/Code",
+  "natural_pacing": true,
+  "options": {
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "top_k": 40,
+    "num_ctx": 16384,
+    "max_tokens": 4096
+  }
 }
 ```
 
-**OpenAI API**
+**OpenAI API / Local OpenAI-Compatible Server**
 ```json
 {
   "provider": "openai",
   "endpoint": "https://api.openai.com/v1/chat/completions",
   "model": "gpt-4o",
-  "api_key": "sk-your-api-key"
+  "api_key": "sk-your-api-key",
+  "workspace_dir": "$HOME/Code/my-project",
+  "encryption_key": "your-secret-encryption-key",
+  "options": {
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "max_tokens": 4096
+  }
 }
 ```
+
+*Note: `workspace_dir` supports `~` expansion, `$HOME` environment variable expansion, relative paths, and trailing slashes.*
 
 ---
 
@@ -149,7 +166,14 @@ Inside the app, use these interactive commands to navigate your story:
 | `/mark [id]` | Place a bookmark at the current or specified node. |
 | `/unmark <id>` | Remove a bookmark from a node. |
 | `/persona` | Branch the story into a new timeline with a new system prompt. |
-| `/config` | View or update application settings. |
+| `/config` | View current configuration sheet (with redacted encryption secrets). |
+| `/config workspace <path\|default>` | Set or reset the active workspace directory root. |
+| `/config key <secret\|default>` | Set or clear vault encryption key. |
+| `/config temp <val\|default>` | Adjust sampling temperature (e.g. `0.7`). |
+| `/config top_p <val\|default>` | Adjust top-p nucleus sampling (e.g. `0.9`). |
+| `/config top_k <val\|default>` | Adjust top-k sampling (e.g. `40`). |
+| `/config ctx <val\|default>` | Adjust context window size in tokens (e.g. `16384`). |
+| `/config max_tokens <val\|default>` | Adjust maximum response tokens (e.g. `4096`). |
 | `/server` | Control the web visualization server (`/server on`, `/server off`). |
 | `/version`| Display the application version and git commit hash. |
 | `/gc` | Garbage collect deleted nodes from the database. |

@@ -28,6 +28,32 @@ type Config struct {
 	EncryptionKey string        `json:"encryption_key,omitempty"`
 	NaturalPacing *bool         `json:"natural_pacing,omitempty"`
 	Options       *ModelOptions `json:"options,omitempty"`
+	WorkspaceDir  string        `json:"workspace_dir,omitempty"`
+}
+
+// GetWorkspaceDir returns the resolved absolute workspace directory.
+// If WorkspaceDir is configured, it expands environment variables (e.g. $HOME),
+// expands ~, and returns its absolute path.
+// Otherwise, it returns "." (the current working directory).
+func (c *Config) GetWorkspaceDir() string {
+	if c == nil || c.WorkspaceDir == "" {
+		return "."
+	}
+	dir := os.ExpandEnv(c.WorkspaceDir)
+	if strings.HasPrefix(dir, "~/") || dir == "~" {
+		if home, err := os.UserHomeDir(); err == nil {
+			if dir == "~" {
+				dir = home
+			} else {
+				dir = filepath.Join(home, dir[2:])
+			}
+		}
+	}
+	dir = filepath.Clean(dir)
+	if abs, err := filepath.Abs(dir); err == nil {
+		return abs
+	}
+	return dir
 }
 
 // SupportsVision returns whether the configured model supports vision/multimodal capabilities

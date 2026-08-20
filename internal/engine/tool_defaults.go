@@ -20,19 +20,31 @@ var allowedCommands = []string{
 	"git", "go", "groovy", "ls", "grep", "cat", "echo", "find", "pwd", "date", "rm", "mkdir", "ssh",
 }
 
-func validatePath(path string) (string, error) {
-	absRoot, err := filepath.Abs(".")
+func validatePath(workspaceDir, path string) (string, error) {
+	base := workspaceDir
+	if base == "" {
+		base = "."
+	}
+	absRoot, err := filepath.Abs(base)
 	if err != nil {
 		return "", fmt.Errorf("failed to get absolute root: %w", err)
 	}
 
-	absPath, err := filepath.Abs(path)
+	var targetPath string
+	if filepath.IsAbs(path) {
+		targetPath = filepath.Clean(path)
+	} else {
+		targetPath = filepath.Join(absRoot, path)
+	}
+
+	absPath, err := filepath.Abs(targetPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to get absolute path: %w", err)
 	}
 
-	if !strings.HasPrefix(absPath, absRoot) {
-		return "", fmt.Errorf("security error: path is outside of project root")
+	rel, err := filepath.Rel(absRoot, absPath)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return "", fmt.Errorf("security error: path '%s' is outside of project root (%s)", path, absRoot)
 	}
 
 	return absPath, nil
@@ -47,8 +59,13 @@ func getStringArg(args map[string]interface{}, key string) (string, error) {
 	return val, nil
 }
 
-// GetDefaultTools returns a list of basic tools for the application
-func GetDefaultTools() []Tool {
+// GetDefaultTools returns a list of basic tools for the application scoped to a workspace directory
+func GetDefaultTools(workspaceDir ...string) []Tool {
+	ws := "."
+	if len(workspaceDir) > 0 && workspaceDir[0] != "" {
+		ws = workspaceDir[0]
+	}
+
 	return []Tool{
 		{
 			Name:        "inspect_image",
@@ -69,7 +86,7 @@ func GetDefaultTools() []Tool {
 				if err != nil {
 					return "", err
 				}
-				safePath, err := validatePath(path)
+				safePath, err := validatePath(ws, path)
 				if err != nil {
 					return "", err
 				}
@@ -152,7 +169,7 @@ func GetDefaultTools() []Tool {
 				if err != nil {
 					return "", err
 				}
-				safePath, err := validatePath(path)
+				safePath, err := validatePath(ws, path)
 				if err != nil {
 					return "", err
 				}
@@ -190,7 +207,7 @@ func GetDefaultTools() []Tool {
 				if err != nil {
 					return "", err
 				}
-				safePath, err := validatePath(path)
+				safePath, err := validatePath(ws, path)
 				if err != nil {
 					return "", err
 				}
@@ -232,7 +249,7 @@ func GetDefaultTools() []Tool {
 				if err != nil {
 					return "", err
 				}
-				safePath, err := validatePath(path)
+				safePath, err := validatePath(ws, path)
 				if err != nil {
 					return "", err
 				}
@@ -285,7 +302,7 @@ func GetDefaultTools() []Tool {
 					return "", err
 				}
 				searchPath := "."
-				if p, ok := args["path"].(string); ok {
+				if p, ok := args["path"].(string); ok && p != "" {
 					searchPath = p
 				}
 				includePattern := ""
@@ -293,7 +310,7 @@ func GetDefaultTools() []Tool {
 					includePattern = inc
 				}
 
-				safePath, err := validatePath(searchPath)
+				safePath, err := validatePath(ws, searchPath)
 				if err != nil {
 					return "", err
 				}
@@ -391,8 +408,11 @@ func GetDefaultTools() []Tool {
 
 				// We execute using 'bash -c' for flexibility, but we've validated the primary binary.
 				cmd := exec.CommandContext(ctx, "bash", "-c", command)
-				// Ensure it runs in the project root
-				absRoot, _ := filepath.Abs(".")
+				// Ensure it runs in the configured workspace directory root
+				absRoot, err := filepath.Abs(ws)
+				if err != nil {
+					absRoot, _ = filepath.Abs(".")
+				}
 				cmd.Dir = absRoot
 
 				output, err := cmd.CombinedOutput()
@@ -439,7 +459,7 @@ func GetDefaultTools() []Tool {
 					return "", err
 				}
 
-				safePath, err := validatePath(path)
+				safePath, err := validatePath(ws, path)
 				if err != nil {
 					return "", err
 				}
@@ -503,7 +523,7 @@ func GetDefaultTools() []Tool {
 					return "", err
 				}
 
-				safePath, err := validatePath(path)
+				safePath, err := validatePath(ws, path)
 				if err != nil {
 					return "", err
 				}
@@ -613,10 +633,10 @@ func GetDefaultTools() []Tool {
 			},
 			Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
 				searchPath := "."
-				if p, ok := args["path"].(string); ok {
+				if p, ok := args["path"].(string); ok && p != "" {
 					searchPath = p
 				}
-				safePath, err := validatePath(searchPath)
+				safePath, err := validatePath(ws, searchPath)
 				if err != nil {
 					return "", err
 				}
@@ -683,7 +703,7 @@ func GetDefaultTools() []Tool {
 					return "", err
 				}
 
-				safePath, err := validatePath(path)
+				safePath, err := validatePath(ws, path)
 				if err != nil {
 					return "", err
 				}
@@ -710,9 +730,14 @@ func GetDefaultTools() []Tool {
 	}
 }
 
-// RegisterDefaultTools adds the default toolset to the manager's registry
-func (m *Manager) RegisterDefaultTools() {
-	for _, t := range GetDefaultTools() {
+// RegisterDefaultTools adds the default toolset to the manager's registry scoped to workspaceDir
+func (m *Manager) RegisterDefaultTools(workspaceDir ...string) {
+	ws := m.WorkspaceDir
+	if len(workspaceDir) > 0 && workspaceDir[0] != "" {
+		ws = workspaceDir[0]
+		m.WorkspaceDir = ws
+	}
+	for _, t := range GetDefaultTools(ws) {
 		m.Registry.Register(t)
 	}
 }

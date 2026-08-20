@@ -38,3 +38,12 @@ All updates and modifications to this knowledge bundle are tracked chronological
 *   **Approved ssh Tool**: Added `ssh` to the `allowedCommands` list in [tool_defaults.go](internal/engine/tool_defaults.go) to allow the harness engine to use SSH commands.
 *   **Streamlined Agent Bootstrap Memory**: Refactored [GEMINI.md](GEMINI.md) into a thin orientation anchor, deleting redundant features, configurations, and resolved debates, and pointing agents to authoritative source files while preserving developer reminders.
 
+## 2026-08-20
+
+*   **Model Runner Parameters**: Added `ModelOptions` struct supporting `temperature`, `top_p`, `top_k`, `num_ctx`, and `max_tokens` with request payload mappings for Ollama and OpenAI providers in [config.go](internal/engine/config.go), [llm.go](internal/engine/llm.go), [openai.go](internal/engine/openai.go), and CLI flags in [main.go](cmd/please/main.go).
+*   **OpenAI Reasoning Token Streaming**: Added parsing for `reasoning_content` and `reasoning` deltas in [openai.go](internal/engine/openai.go) to stream thinking tokens over OpenAI-compatible endpoints (DeepSeek-R1, Ollama `/v1`) to `thoughtChan`.
+*   **Automated Test Isolation**: Implemented `GetConfigDir()` respecting `PLEASE_CONFIG_DIR` in [config.go](internal/engine/config.go) and isolated all unit test suites (`t.Setenv("PLEASE_CONFIG_DIR", tmpDir)`), protecting user configs from test writes.
+*   **Configurable Workspace Directory**: Added `workspace_dir` setting to `Config` with `~` and `$HOME` environment variable expansion in [config.go](internal/engine/config.go), scoped tool sandboxing and command execution in [tool_defaults.go](internal/engine/tool_defaults.go), scoped persona context generation in [handlers.go](internal/tui/handlers.go), and added the `-w`/`--workspace` CLI flag.
+*   **Encryption Key & Redacted Display**: Added `/config key` management in [commands.go](internal/tui/commands.go) and ensured the configuration sheet masks encryption secrets (`•••••••• (configured)`).
+
+
