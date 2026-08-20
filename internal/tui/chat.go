@@ -142,6 +142,7 @@ func (m *Model) renderNode(node *engine.Node) string {
 }
 
 func (m *Model) updateViewportWithNode(node *engine.Node) {
+	m.ViewportOverride = ""
 	line := m.renderNode(node)
 	m.ChatHistoryBuffer += line
 	m.Viewport.SetContent(m.ChatHistoryBuffer)

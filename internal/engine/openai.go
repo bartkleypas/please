@@ -16,14 +16,16 @@ type OpenAIProvider struct {
 	Endpoint string
 	Model    string
 	APIKey   string
+	Options  *ModelOptions
 	client   *http.Client
 }
 
-func NewOpenAIProvider(endpoint, model, apiKey string) *OpenAIProvider {
+func NewOpenAIProvider(endpoint, model, apiKey string, options *ModelOptions) *OpenAIProvider {
 	return &OpenAIProvider{
 		Endpoint: endpoint,
 		Model:    model,
 		APIKey:   apiKey,
+		Options:  options,
 		client:   &http.Client{},
 	}
 }
@@ -38,11 +40,13 @@ type openAITool struct {
 }
 
 type openAIMessage struct {
-	Role       string             `json:"role"`
-	Content    interface{}        `json:"content"` // Can be string or []openAIContentPart
-	Name       string             `json:"name,omitempty"`
-	ToolCalls  []openAIToolCall   `json:"tool_calls,omitempty"`
-	ToolCallID string             `json:"tool_call_id,omitempty"`
+	Role             string           `json:"role"`
+	Content          interface{}      `json:"content"` // Can be string or []openAIContentPart
+	ReasoningContent string           `json:"reasoning_content,omitempty"`
+	Reasoning        string           `json:"reasoning,omitempty"`
+	Name             string           `json:"name,omitempty"`
+	ToolCalls        []openAIToolCall `json:"tool_calls,omitempty"`
+	ToolCallID       string           `json:"tool_call_id,omitempty"`
 }
 
 type openAIContentPart struct {
@@ -66,10 +70,13 @@ type openAIToolCall struct {
 }
 
 type openAIRequest struct {
-	Model    string          `json:"model"`
-	Messages []openAIMessage `json:"messages"`
-	Stream   bool            `json:"stream"`
-	Tools    []openAITool    `json:"tools,omitempty"`
+	Model       string          `json:"model"`
+	Messages    []openAIMessage `json:"messages"`
+	Stream      bool            `json:"stream"`
+	Tools       []openAITool    `json:"tools,omitempty"`
+	Temperature *float64        `json:"temperature,omitempty"`
+	TopP        *float64        `json:"top_p,omitempty"`
+	MaxTokens   *int            `json:"max_tokens,omitempty"`
 }
 
 type openAIResponse struct {
@@ -116,6 +123,11 @@ func (o *OpenAIProvider) GenerateResponse(ctx context.Context, messages []Messag
 		Stream:   false,
 		Tools:    mapToOpenAITools(tools),
 	}
+	if o.Options != nil {
+		reqBody.Temperature = o.Options.Temperature
+		reqBody.TopP = o.Options.TopP
+		reqBody.MaxTokens = o.Options.MaxTokens
+	}
 
 	// OpenAI API drops empty tool arrays sometimes, best to omit if zero
 	if len(reqBody.Tools) == 0 {
@@ -161,6 +173,12 @@ func (o *OpenAIProvider) GenerateResponse(ctx context.Context, messages []Messag
 		ToolCalls: tCalls,
 	}
 
+	if choice.ReasoningContent != "" {
+		msg.Thought = choice.ReasoningContent
+	} else if choice.Reasoning != "" {
+		msg.Thought = choice.Reasoning
+	}
+
 	return msg, nil
 }
 
@@ -182,6 +200,11 @@ func (o *OpenAIProvider) GenerateResponseStream(ctx context.Context, messages []
 			Stream:   true,
 			Tools:    mapToOpenAITools(tools),
 		}
+		if o.Options != nil {
+			reqBody.Temperature = o.Options.Temperature
+			reqBody.TopP = o.Options.TopP
+			reqBody.MaxTokens = o.Options.MaxTokens
+		}
 
 		if len(reqBody.Tools) == 0 {
 			reqBody.Tools = nil
@@ -195,7 +218,7 @@ func (o *OpenAIProvider) GenerateResponseStream(ctx context.Context, messages []
 		defer resp.Body.Close()
 
 		scanner := bufio.NewScanner(resp.Body)
-		
+
 		// Map of index to tool call builder since tool calls arrive in chunks
 		type toolCallBuilder struct {
 			id        string
@@ -227,6 +250,12 @@ func (o *OpenAIProvider) GenerateResponseStream(ctx context.Context, messages []
 
 			delta := chunk.Choices[0].Delta
 
+			if delta.ReasoningContent != "" {
+				thoughtChan <- delta.ReasoningContent
+			} else if delta.Reasoning != "" {
+				thoughtChan <- delta.Reasoning
+			}
+
 			if contentStr, ok := delta.Content.(string); ok && contentStr != "" {
 				contentChan <- contentStr
 			}
@@ -237,7 +266,7 @@ func (o *OpenAIProvider) GenerateResponseStream(ctx context.Context, messages []
 					if tc.Index == nil {
 						continue // Malformed tool call delta without an index
 					}
-					
+
 					idx := *tc.Index
 					if tc.ID != "" {
 						toolCallsMap[idx] = &toolCallBuilder{
@@ -312,12 +341,12 @@ func mapToOpenAIMessages(messages []Message) []openAIMessage {
 				b64, err := encodeImageToBase64(imgPath)
 				if err == nil {
 					mimeType := "image/png"
-					ext := strings.ToLower(filepath.Ext(imgPath))
-					if ext == ".jpg" || ext == ".jpeg" {
+					switch strings.ToLower(filepath.Ext(imgPath)) {
+					case ".jpg", ".jpeg":
 						mimeType = "image/jpeg"
-					} else if ext == ".gif" {
+					case ".gif":
 						mimeType = "image/gif"
-					} else if ext == ".webp" {
+					case ".webp":
 						mimeType = "image/webp"
 					}
 					parts = append(parts, openAIContentPart{

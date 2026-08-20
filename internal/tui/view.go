@@ -91,6 +91,8 @@ func (m Model) View() string {
 		s += "\n\n" + inputBoxStyle.Render(m.TextInput.View())
 		if m.AwaitingToolConfirmation {
 			s += "\n\n" + helpStyle.Render("(Press y/n to confirm/deny, or type a message/command to cancel & bypass them)")
+		} else if m.ViewportOverride != "" {
+			s += "\n\n" + helpStyle.Render("(ESC: return to chat • ↑/↓ or PgUp/PgDn to scroll • /q to exit)")
 		} else {
 			s += "\n\n" + helpStyle.Render("(/q to exit • /map for graph • /help for more)")
 		}

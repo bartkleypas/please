@@ -20,7 +20,6 @@ var allowedCommands = []string{
 	"git", "go", "groovy", "ls", "grep", "cat", "echo", "find", "pwd", "date", "rm", "mkdir", "ssh",
 }
 
-
 func validatePath(path string) (string, error) {
 	absRoot, err := filepath.Abs(".")
 	if err != nil {
@@ -195,19 +194,19 @@ func GetDefaultTools() []Tool {
 				if err != nil {
 					return "", err
 				}
-				
+
 				// Create parent directories if they don't exist
 				if err := os.MkdirAll(filepath.Dir(safePath), 0755); err != nil {
 					return "", fmt.Errorf("failed to create directories: %w", err)
 				}
-				
+
 				// Fail if file already exists
 				if _, err := os.Stat(safePath); err == nil {
 					return "", fmt.Errorf("file already exists (use edit_file or patch_file to modify): %s", path)
 				} else if !os.IsNotExist(err) {
 					return "", fmt.Errorf("error checking file: %w", err)
 				}
-				
+
 				if err := os.WriteFile(safePath, []byte(content), 0644); err != nil {
 					return "", fmt.Errorf("failed to write file: %w", err)
 				}

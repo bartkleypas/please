@@ -3,12 +3,12 @@ package engine
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"encoding/base64"
 )
 
 // Message represents a simplified message for LLM providers
@@ -33,18 +33,46 @@ type LLMProvider interface {
 type OllamaProvider struct {
 	Endpoint string
 	Model    string
+	Options  *ModelOptions
 	client   *http.Client
 }
 
-func NewOllamaProvider(endpoint, model string) *OllamaProvider {
+func NewOllamaProvider(endpoint, model string, options *ModelOptions) *OllamaProvider {
 	return &OllamaProvider{
 		Endpoint: endpoint,
 		Model:    model,
-		client: &http.Client{
+		Options:  options,
+		client:   &http.Client{
 			// We don't set a global timeout here because we want to
 			// control the timeout via the context passed to GenerateResponse.
 		},
 	}
+}
+
+func (o *OllamaProvider) buildOllamaOptions() map[string]interface{} {
+	if o.Options == nil {
+		return nil
+	}
+	opts := make(map[string]interface{})
+	if o.Options.Temperature != nil {
+		opts["temperature"] = *o.Options.Temperature
+	}
+	if o.Options.TopP != nil {
+		opts["top_p"] = *o.Options.TopP
+	}
+	if o.Options.TopK != nil {
+		opts["top_k"] = *o.Options.TopK
+	}
+	if o.Options.NumCtx != nil {
+		opts["num_ctx"] = *o.Options.NumCtx
+	}
+	if o.Options.MaxTokens != nil {
+		opts["num_predict"] = *o.Options.MaxTokens
+	}
+	if len(opts) == 0 {
+		return nil
+	}
+	return opts
 }
 
 type ollamaTool struct {
@@ -57,10 +85,11 @@ type ollamaTool struct {
 }
 
 type ollamaRequest struct {
-	Model    string          `json:"model"`
-	Messages []ollamaMessage `json:"messages"`
-	Stream   bool            `json:"stream"`
-	Tools    []ollamaTool    `json:"tools,omitempty"`
+	Model    string                 `json:"model"`
+	Messages []ollamaMessage        `json:"messages"`
+	Stream   bool                   `json:"stream"`
+	Tools    []ollamaTool           `json:"tools,omitempty"`
+	Options  map[string]interface{} `json:"options,omitempty"`
 }
 
 type ollamaMessage struct {
@@ -111,6 +140,7 @@ func (o *OllamaProvider) GenerateResponse(ctx context.Context, messages []Messag
 		Messages: mapToOllamaMessages(messages),
 		Stream:   false,
 		Tools:    oTools,
+		Options:  o.buildOllamaOptions(),
 	}
 
 	jsonBody, err := json.Marshal(reqBody)
@@ -202,6 +232,7 @@ func (o *OllamaProvider) GenerateResponseStream(ctx context.Context, messages []
 			Messages: mapToOllamaMessages(messages),
 			Stream:   true,
 			Tools:    oTools,
+			Options:  o.buildOllamaOptions(),
 		}
 
 		jsonBody, err := json.Marshal(reqBody)

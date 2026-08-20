@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -113,9 +116,9 @@ func setupLiveFire(t *testing.T) (*Manager, LLMProvider) {
 
 	var provider LLMProvider
 	if providerType == "openai" {
-		provider = NewOpenAIProvider(endpoint, model, apiKey)
+		provider = NewOpenAIProvider(endpoint, model, apiKey, nil)
 	} else {
-		provider = NewOllamaProvider(endpoint, model)
+		provider = NewOllamaProvider(endpoint, model, nil)
 	}
 
 	return mgr, provider
@@ -338,4 +341,298 @@ func TestLLM_ToolExecution(t *testing.T) {
 	// Feedback
 	input = "We just tested write_file, list_directory, list_files_recursive, grep_search, patch_file, edit_file, search_and_replace, and execute_command. Summarize your experience with these tools and their ease of use."
 	simulateTurn(t, ctx, mgr, provider, input, turn8.ID)
+}
+
+func TestOllamaProvider_OptionsSerialization(t *testing.T) {
+	var capturedBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		resp := ollamaResponse{
+			Message: ollamaMessage{
+				Role:    "assistant",
+				Content: "Hello from mock ollama",
+			},
+			Done: true,
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	temp := 0.7
+	topP := 0.9
+	topK := 40
+	numCtx := 16384
+	maxTokens := 2048
+
+	options := &ModelOptions{
+		Temperature: &temp,
+		TopP:        &topP,
+		TopK:        &topK,
+		NumCtx:      &numCtx,
+		MaxTokens:   &maxTokens,
+	}
+
+	provider := NewOllamaProvider(server.URL, "test-model", options)
+	ctx := context.Background()
+	messages := []Message{{Role: RoleUser, Content: "hi"}}
+	resp, err := provider.GenerateResponse(ctx, messages, nil)
+	if err != nil {
+		t.Fatalf("GenerateResponse failed: %v", err)
+	}
+	if resp.Content != "Hello from mock ollama" {
+		t.Fatalf("unexpected content: %s", resp.Content)
+	}
+
+	var reqData map[string]interface{}
+	if err := json.Unmarshal(capturedBody, &reqData); err != nil {
+		t.Fatalf("failed to unmarshal captured body: %v", err)
+	}
+
+	opts, ok := reqData["options"].(map[string]interface{})
+	if !ok || opts == nil {
+		t.Fatalf("expected options object in request body, got: %v", reqData["options"])
+	}
+
+	if opts["temperature"] != 0.7 {
+		t.Errorf("expected temperature 0.7, got %v", opts["temperature"])
+	}
+	if opts["top_p"] != 0.9 {
+		t.Errorf("expected top_p 0.9, got %v", opts["top_p"])
+	}
+	if opts["top_k"] != float64(40) {
+		t.Errorf("expected top_k 40, got %v", opts["top_k"])
+	}
+	if opts["num_ctx"] != float64(16384) {
+		t.Errorf("expected num_ctx 16384, got %v", opts["num_ctx"])
+	}
+	if opts["num_predict"] != float64(2048) {
+		t.Errorf("expected num_predict 2048, got %v", opts["num_predict"])
+	}
+}
+
+func TestOpenAIProvider_OptionsSerialization(t *testing.T) {
+	var capturedBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		resp := openAIResponse{
+			Choices: []struct {
+				Message      openAIMessage `json:"message"`
+				Delta        openAIMessage `json:"delta"`
+				FinishReason string        `json:"finish_reason"`
+			}{
+				{
+					Message: openAIMessage{
+						Role:    "assistant",
+						Content: "Hello from mock openai",
+					},
+					FinishReason: "stop",
+				},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	temp := 0.2
+	topP := 0.85
+	maxTokens := 1024
+
+	options := &ModelOptions{
+		Temperature: &temp,
+		TopP:        &topP,
+		MaxTokens:   &maxTokens,
+	}
+
+	provider := NewOpenAIProvider(server.URL, "gpt-4o", "test-key", options)
+	ctx := context.Background()
+	messages := []Message{{Role: RoleUser, Content: "hi"}}
+	resp, err := provider.GenerateResponse(ctx, messages, nil)
+	if err != nil {
+		t.Fatalf("GenerateResponse failed: %v", err)
+	}
+	if resp.Content != "Hello from mock openai" {
+		t.Fatalf("unexpected content: %s", resp.Content)
+	}
+
+	var reqData map[string]interface{}
+	if err := json.Unmarshal(capturedBody, &reqData); err != nil {
+		t.Fatalf("failed to unmarshal captured body: %v", err)
+	}
+
+	if reqData["temperature"] != 0.2 {
+		t.Errorf("expected temperature 0.2, got %v", reqData["temperature"])
+	}
+	if reqData["top_p"] != 0.85 {
+		t.Errorf("expected top_p 0.85, got %v", reqData["top_p"])
+	}
+	if reqData["max_tokens"] != float64(1024) {
+		t.Errorf("expected max_tokens 1024, got %v", reqData["max_tokens"])
+	}
+}
+
+func TestConfig_OptionsSerialization(t *testing.T) {
+	temp := 0.5
+	ctxVal := 8192
+	cfg := Config{
+		Provider:    "ollama",
+		Model:       "llama3:8b",
+		Endpoint:    "http://localhost:11434/api/chat",
+		VaultPath:   "vault.db",
+		StorageType: "sqlite",
+		Options: &ModelOptions{
+			Temperature: &temp,
+			NumCtx:      &ctxVal,
+		},
+	}
+
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("failed to marshal config: %v", err)
+	}
+
+	var loaded Config
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		t.Fatalf("failed to unmarshal config: %v", err)
+	}
+
+	if loaded.Options == nil {
+		t.Fatalf("expected options to be non-nil")
+	}
+	if loaded.Options.Temperature == nil || *loaded.Options.Temperature != 0.5 {
+		t.Errorf("expected temperature 0.5, got %v", loaded.Options.Temperature)
+	}
+	if loaded.Options.NumCtx == nil || *loaded.Options.NumCtx != 8192 {
+		t.Errorf("expected num_ctx 8192, got %v", loaded.Options.NumCtx)
+	}
+	if loaded.Options.TopP != nil {
+		t.Errorf("expected top_p to be nil, got %v", loaded.Options.TopP)
+	}
+}
+
+func TestConfig_SaveAndLoad_Isolation(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
+
+	temp := 0.6
+	cfg := &Config{
+		Provider:    "openai",
+		Model:       "gpt-4o-mini",
+		Endpoint:    "https://api.openai.com/v1/chat/completions",
+		VaultPath:   filepath.Join(tmpDir, "vault.db"),
+		StorageType: "sqlite",
+		Options: &ModelOptions{
+			Temperature: &temp,
+		},
+	}
+
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("failed to save config to isolated dir: %v", err)
+	}
+
+	loaded, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("failed to load config from isolated dir: %v", err)
+	}
+
+	if loaded.Model != "gpt-4o-mini" {
+		t.Errorf("expected model gpt-4o-mini, got %s", loaded.Model)
+	}
+	if loaded.Options == nil || loaded.Options.Temperature == nil || *loaded.Options.Temperature != 0.6 {
+		t.Errorf("expected temperature 0.6, got %v", loaded.Options)
+	}
+}
+
+func TestOpenAIProvider_ReasoningExtraction(t *testing.T) {
+	// 1. Test Batch mode with reasoning_content
+	serverBatch := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		resp := openAIResponse{
+			Choices: []struct {
+				Message      openAIMessage `json:"message"`
+				Delta        openAIMessage `json:"delta"`
+				FinishReason string        `json:"finish_reason"`
+			}{
+				{
+					Message: openAIMessage{
+						Role:             "assistant",
+						Content:          "Final answer",
+						ReasoningContent: "Thinking step 1... step 2...",
+					},
+					FinishReason: "stop",
+				},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer serverBatch.Close()
+
+	providerBatch := NewOpenAIProvider(serverBatch.URL, "deepseek-r1", "key", nil)
+	msg, err := providerBatch.GenerateResponse(context.Background(), []Message{{Role: RoleUser, Content: "problem"}}, nil)
+	if err != nil {
+		t.Fatalf("GenerateResponse failed: %v", err)
+	}
+	if msg.Content != "Final answer" {
+		t.Errorf("expected content 'Final answer', got '%s'", msg.Content)
+	}
+	if msg.Thought != "Thinking step 1... step 2..." {
+		t.Errorf("expected thought 'Thinking step 1... step 2...', got '%s'", msg.Thought)
+	}
+
+	// 2. Test Streaming mode with reasoning_content deltas
+	serverStream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Fatal("expected flusher")
+		}
+
+		// Chunk 1: Thought delta
+		fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"Thought chunk \"}}]}\n\n")
+		flusher.Flush()
+
+		// Chunk 2: Content delta
+		fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Answer chunk\"}}]}\n\n")
+		flusher.Flush()
+
+		// Done
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+	defer serverStream.Close()
+
+	providerStream := NewOpenAIProvider(serverStream.URL, "deepseek-r1", "key", nil)
+	contentChan, thoughtChan, _, errChan := providerStream.GenerateResponseStream(context.Background(), []Message{{Role: RoleUser, Content: "problem"}}, nil)
+
+	var receivedContent string
+	var receivedThought string
+
+	for {
+		select {
+		case c, ok := <-contentChan:
+			if ok {
+				receivedContent += c
+			}
+		case th, ok := <-thoughtChan:
+			if ok {
+				receivedThought += th
+			}
+		case err, ok := <-errChan:
+			if ok && err != nil {
+				t.Fatalf("unexpected stream error: %v", err)
+			}
+			goto Done
+		}
+		if contentChan == nil && thoughtChan == nil {
+			break
+		}
+	}
+Done:
+	if receivedThought != "Thought chunk " {
+		t.Errorf("expected stream thought 'Thought chunk ', got '%s'", receivedThought)
+	}
+	if receivedContent != "Answer chunk" {
+		t.Errorf("expected stream content 'Answer chunk', got '%s'", receivedContent)
+	}
 }

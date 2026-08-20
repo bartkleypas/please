@@ -234,7 +234,7 @@ func (m *Manager) calculateResonanceScore(node *Node, distance int) float64 {
 	case RoleTool:
 		weight = 0.5
 	}
-	
+
 	if node.Internal {
 		weight = 0.3
 	}
@@ -285,7 +285,7 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 	for i, node := range path {
 		distance := len(path) - 1 - i
 		v := m.calculateResonanceScore(node, distance)
-		
+
 		// The active/latest node should always be kept in high fidelity regardless of score
 		if distance == 0 {
 			v = math.MaxFloat64
@@ -554,7 +554,7 @@ func (m *Manager) CompactRange(ctx context.Context, provider LLMProvider, nodeID
 	}
 
 	// 3. Create Supernode
-	// We add 1 millisecond to ensure strict monotonicity. If it shared the exact same ms, 
+	// We add 1 millisecond to ensure strict monotonicity. If it shared the exact same ms,
 	// a lower random tail would cause the Supernode to sort *before* the last node lexically.
 	superNode, err := m.createSupernode(parentID, resp.Content, lastNode.Timestamp.Add(1*time.Millisecond))
 	if err != nil {
@@ -598,16 +598,16 @@ func (m *Manager) createSupernode(parentID string, content string, baseTime time
 // newV7FromTime generates a valid UUIDv7 using a specific timestamp
 func newV7FromTime(t time.Time) (uuid.UUID, error) {
 	var id uuid.UUID
-	
+
 	// Start with a completely random v4 (or random byte slice)
-	// We can just call uuid.NewV7() to get a valid v7 with correct variant/version, 
+	// We can just call uuid.NewV7() to get a valid v7 with correct variant/version,
 	// then just overwrite the 48-bit timestamp.
 	var err error
 	id, err = uuid.NewV7()
 	if err != nil {
 		return id, err
 	}
-	
+
 	ms := t.UnixMilli()
 	id[0] = byte(ms >> 40)
 	id[1] = byte(ms >> 32)
@@ -615,7 +615,7 @@ func newV7FromTime(t time.Time) (uuid.UUID, error) {
 	id[3] = byte(ms >> 16)
 	id[4] = byte(ms >> 8)
 	id[5] = byte(ms)
-	
+
 	return id, nil
 }
 

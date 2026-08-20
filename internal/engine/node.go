@@ -31,7 +31,7 @@ type Node struct {
 	Images    []string          `json:"images,omitempty"`
 
 	// Tool handling fields
-	ToolCalls    []ToolCall        `json:"tool_calls,omitempty"`  // Present if Role == Assistant
+	ToolCalls    []ToolCall        `json:"tool_calls,omitempty"`   // Present if Role == Assistant
 	ToolCallID   string            `json:"tool_call_id,omitempty"` // Present if Role == Tool
 	Observations []ToolObservation `json:"observations,omitempty"` // Side-channel results
 

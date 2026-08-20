@@ -86,6 +86,9 @@ func (s *SQLiteStorage) migrate(db *sql.DB) error {
 		}
 		columns[name] = true
 	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("error reading table info: %w", err)
+	}
 
 	migrations := []struct {
 		column string

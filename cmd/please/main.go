@@ -52,6 +52,14 @@ func main() {
 	roleStr := flag.String("role", "", "Override role for the new node (user, assistant, system, tool)")
 	versionFlag := flag.Bool("version", false, "Print the application version and exit")
 
+	tempFlag := flag.Float64("temperature", -1.0, "Sampling temperature (e.g., 0.7)")
+	flag.Float64Var(tempFlag, "t", -1.0, "Sampling temperature (shorthand)")
+	topPFlag := flag.Float64("top-p", -1.0, "Top-p sampling parameter (e.g., 0.9)")
+	topKFlag := flag.Int("top-k", -1, "Top-k sampling parameter (e.g., 40)")
+	ctxFlag := flag.Int("num-ctx", 0, "Context window size in tokens (e.g., 16384)")
+	flag.IntVar(ctxFlag, "ctx", 0, "Context window size in tokens (shorthand)")
+	maxTokensFlag := flag.Int("max-tokens", 0, "Maximum response tokens to generate (e.g., 2048)")
+
 	var images arrayFlags
 	flag.Var(&images, "image", "Path to an image to attach (can be specified multiple times)")
 	flag.Var(&images, "i", "Path to an image to attach (shorthand)")
@@ -61,16 +69,22 @@ func main() {
 		fmt.Fprintf(os.Stderr, "🦉 Please: A DAG-based TUI for branching LLM conversations.\n\n")
 		fmt.Fprintf(os.Stderr, "Usage: please [options] [message...]\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
-		fmt.Fprintf(os.Stderr, "  -c, --chat          Start the TUI chat interface\n")
-		fmt.Fprintf(os.Stderr, "  -v, --vault <path>  Path to a custom vault file\n")
-		fmt.Fprintf(os.Stderr, "  -p, --parent <id>   Parent node ID for new message\n")
-		fmt.Fprintf(os.Stderr, "  -j, --jump <id>     Node ID to jump to in interactive mode\n")
-		fmt.Fprintf(os.Stderr, "  -s, --server <port> Start visualization server on port\n")
-		fmt.Fprintf(os.Stderr, "      --no-gen        Disable auto-generation when passing a message\n")
-		fmt.Fprintf(os.Stderr, "      --role <role>   Override role (user, tool, system, assistant)\n")
+		fmt.Fprintf(os.Stderr, "  -c, --chat             Start the TUI chat interface\n")
+		fmt.Fprintf(os.Stderr, "  -v, --vault <path>     Path to a custom vault file\n")
+		fmt.Fprintf(os.Stderr, "  -p, --parent <id>      Parent node ID for new message\n")
+		fmt.Fprintf(os.Stderr, "  -j, --jump <id>        Node ID to jump to in interactive mode\n")
+		fmt.Fprintf(os.Stderr, "  -s, --server <port>    Start visualization server on port\n")
+		fmt.Fprintf(os.Stderr, "  -t, --temperature <f>  Sampling temperature (0.0 - 2.0)\n")
+		fmt.Fprintf(os.Stderr, "      --top-p <f>        Top-p nucleus sampling (0.0 - 1.0)\n")
+		fmt.Fprintf(os.Stderr, "      --top-k <i>        Top-k sampling\n")
+		fmt.Fprintf(os.Stderr, "      --ctx, --num-ctx   Context window size in tokens\n")
+		fmt.Fprintf(os.Stderr, "      --max-tokens <i>   Maximum generation tokens\n")
+		fmt.Fprintf(os.Stderr, "      --no-gen           Disable auto-generation when passing a message\n")
+		fmt.Fprintf(os.Stderr, "      --role <role>      Override role (user, tool, system, assistant)\n")
 		fmt.Fprintf(os.Stderr, "\nCommands inside the TUI:\n")
 		fmt.Fprintf(os.Stderr, "  /help    Show internal command list\n")
 		fmt.Fprintf(os.Stderr, "  /map     Visualize conversation branches\n")
+		fmt.Fprintf(os.Stderr, "  /config  View or adjust model and runner settings\n")
 		fmt.Fprintf(os.Stderr, "  /server  Control the web visualization server\n")
 	}
 
@@ -119,6 +133,28 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Apply CLI flag overrides to cfg.Options
+	if *tempFlag >= 0 || *topPFlag >= 0 || *topKFlag >= 0 || *ctxFlag > 0 || *maxTokensFlag > 0 {
+		if cfg.Options == nil {
+			cfg.Options = &engine.ModelOptions{}
+		}
+		if *tempFlag >= 0 {
+			cfg.Options.Temperature = tempFlag
+		}
+		if *topPFlag >= 0 {
+			cfg.Options.TopP = topPFlag
+		}
+		if *topKFlag >= 0 {
+			cfg.Options.TopK = topKFlag
+		}
+		if *ctxFlag > 0 {
+			cfg.Options.NumCtx = ctxFlag
+		}
+		if *maxTokensFlag > 0 {
+			cfg.Options.MaxTokens = maxTokensFlag
+		}
+	}
+
 	// Initialize Storage
 	finalVaultPath := cfg.VaultPath
 	if *vaultPath != "" {
@@ -151,9 +187,9 @@ func main() {
 
 	var provider engine.LLMProvider
 	if cfg.Provider == "openai" {
-		provider = engine.NewOpenAIProvider(cfg.Endpoint, cfg.Model, cfg.APIKey)
+		provider = engine.NewOpenAIProvider(cfg.Endpoint, cfg.Model, cfg.APIKey, cfg.Options)
 	} else {
-		provider = engine.NewOllamaProvider(cfg.Endpoint, cfg.Model)
+		provider = engine.NewOllamaProvider(cfg.Endpoint, cfg.Model, cfg.Options)
 	}
 	mgr := engine.NewManager(graph, storage)
 	webServer := server.NewServer(mgr)

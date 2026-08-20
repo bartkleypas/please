@@ -34,7 +34,7 @@ func TestGraph_ConcurrencyStress(t *testing.T) {
 				if j > 0 {
 					parentID = fmt.Sprintf("W%d-N%d", writerID, j-1)
 				}
-				
+
 				node := &Node{
 					ID:        nodeID,
 					ParentID:  parentID,

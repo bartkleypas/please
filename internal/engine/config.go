@@ -8,16 +8,26 @@ import (
 	"strings"
 )
 
+// ModelOptions holds model inference and sampling parameters
+type ModelOptions struct {
+	Temperature *float64 `json:"temperature,omitempty"`
+	TopP        *float64 `json:"top_p,omitempty"`
+	TopK        *int     `json:"top_k,omitempty"`
+	NumCtx      *int     `json:"num_ctx,omitempty"`
+	MaxTokens   *int     `json:"max_tokens,omitempty"`
+}
+
 // Config holds the application settings
 type Config struct {
-	Provider      string `json:"provider"`
-	APIKey        string `json:"api_key,omitempty"`
-	Model         string `json:"model"`
-	Endpoint      string `json:"endpoint"`
-	VaultPath     string `json:"vault_path"`
-	StorageType   string `json:"storage_type"` // "jsonl" or "sqlite"
-	EncryptionKey string `json:"encryption_key,omitempty"`
-	NaturalPacing *bool  `json:"natural_pacing,omitempty"`
+	Provider      string        `json:"provider"`
+	APIKey        string        `json:"api_key,omitempty"`
+	Model         string        `json:"model"`
+	Endpoint      string        `json:"endpoint"`
+	VaultPath     string        `json:"vault_path"`
+	StorageType   string        `json:"storage_type"` // "jsonl" or "sqlite"
+	EncryptionKey string        `json:"encryption_key,omitempty"`
+	NaturalPacing *bool         `json:"natural_pacing,omitempty"`
+	Options       *ModelOptions `json:"options,omitempty"`
 }
 
 // SupportsVision returns whether the configured model supports vision/multimodal capabilities
@@ -40,15 +50,27 @@ func (c *Config) IsPacingEnabled() bool {
 	return c.NaturalPacing == nil || *c.NaturalPacing
 }
 
+// GetConfigDir returns the directory where the configuration file is stored.
+// If PLEASE_CONFIG_DIR is set, it overrides the system user config directory.
+func GetConfigDir() (string, error) {
+	if dir := os.Getenv("PLEASE_CONFIG_DIR"); dir != "" {
+		return dir, nil
+	}
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("could not determine user config directory: %w", err)
+	}
+	return filepath.Join(configDir, "please"), nil
+}
+
 // LoadConfig attempts to load the config from the user's config directory.
 // If it doesn't exist, it creates one with sensible defaults.
 func LoadConfig() (*Config, error) {
-	configDir, err := os.UserConfigDir()
+	appDir, err := GetConfigDir()
 	if err != nil {
-		return nil, fmt.Errorf("could not determine user config directory: %w", err)
+		return nil, err
 	}
 
-	appDir := filepath.Join(configDir, "please")
 	configPath := filepath.Join(appDir, "config.json")
 	// fmt.Printf("DEBUG: Looking for config at: %s\n", configPath)
 
@@ -93,12 +115,11 @@ func LoadConfig() (*Config, error) {
 
 // Save writes the current configuration to the user's config directory
 func (c *Config) Save() error {
-	configDir, err := os.UserConfigDir()
+	appDir, err := GetConfigDir()
 	if err != nil {
 		return err
 	}
 
-	appDir := filepath.Join(configDir, "please")
 	configPath := filepath.Join(appDir, "config.json")
 
 	data, err := json.MarshalIndent(c, "", "  ")

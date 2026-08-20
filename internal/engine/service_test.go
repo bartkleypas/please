@@ -71,14 +71,14 @@ func TestManager_Validation(t *testing.T) {
 // MockStorage for testing
 type MockStorage struct{}
 
-func (s *MockStorage) SaveNode(n *Node) error            { return nil }
-func (s *MockStorage) LoadGraph() (*Graph, string, error) { return NewGraph(), "", nil }
-func (s *MockStorage) UpdateNodeMetadata(n *Node) error  { return nil }
-func (s *MockStorage) UpdateNodeParentID(id, p string) error { return nil }
+func (s *MockStorage) SaveNode(n *Node) error                                        { return nil }
+func (s *MockStorage) LoadGraph() (*Graph, string, error)                            { return NewGraph(), "", nil }
+func (s *MockStorage) UpdateNodeMetadata(n *Node) error                              { return nil }
+func (s *MockStorage) UpdateNodeParentID(id, p string) error                         { return nil }
 func (s *MockStorage) UpdateNodeObservations(id string, obs []ToolObservation) error { return nil }
-func (s *MockStorage) GarbageCollect() (int64, error)   { return 0, nil }
-func (s *MockStorage) Close() error                     { return nil }
-func (s *MockStorage) Vacuum() error                    { return nil }
+func (s *MockStorage) GarbageCollect() (int64, error)                                { return 0, nil }
+func (s *MockStorage) Close() error                                                  { return nil }
+func (s *MockStorage) Vacuum() error                                                 { return nil }
 
 func TestManager_ResonanceScoring(t *testing.T) {
 	mgr := NewManager(NewGraph(), &MockStorage{})
@@ -93,9 +93,9 @@ func TestManager_ResonanceScoring(t *testing.T) {
 	}
 
 	summaryNode := &Node{
-		ID:       "summary_1",
-		Role:     RoleSummary,
-		Content:  "Compacted discussion",
+		ID:      "summary_1",
+		Role:    RoleSummary,
+		Content: "Compacted discussion",
 	}
 	score = mgr.calculateResonanceScore(summaryNode, 10)
 	if score != math.MaxFloat64 {
@@ -137,7 +137,7 @@ func TestManager_BuildLLMContext_FidelityAndToolSummaries(t *testing.T) {
 	// Construct a path of nodes standardly
 	// 1. Root system node
 	n1, _ := mgr.CreateNode("", RoleSystem, "System Prompt", false)
-	
+
 	// 2. Assistant node with large tool calls
 	tcs := []ToolCall{
 		{
@@ -152,12 +152,12 @@ func TestManager_BuildLLMContext_FidelityAndToolSummaries(t *testing.T) {
 			},
 		},
 	}
-	
+
 	n2, err := mgr.CreateAssistantNode(n1.ID, "Executing read_file...", "", tcs, false)
 	if err != nil {
 		t.Fatalf("failed to create assistant node 2: %v", err)
 	}
-	
+
 	// Add massive observation to force low fidelity
 	err = mgr.UpdateAssistantObservations(n2.ID, "call_abc", strings.Repeat("some large output content ", 2000))
 	if err != nil {

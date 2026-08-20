@@ -194,4 +194,3 @@ func (g *Graph) GetSystemRoot() (*Node, error) {
 	}
 	return root, nil
 }
-

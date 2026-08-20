@@ -36,7 +36,7 @@ func TestEncryptDecryptField(t *testing.T) {
 
 func TestEncryptDecryptEmptyKey(t *testing.T) {
 	plaintext := "some text"
-	
+
 	ciphertext, err := EncryptField(plaintext, "")
 	if err != nil {
 		t.Fatalf("Failed to encrypt with empty key: %v", err)
@@ -58,7 +58,7 @@ func TestEncryptDecryptEmptyKey(t *testing.T) {
 
 func TestDecryptUnencrypted(t *testing.T) {
 	unencrypted := "just some normal unencrypted json"
-	
+
 	decrypted, err := DecryptField(unencrypted, "some-key")
 	if err != nil {
 		t.Fatalf("Failed to decrypt unencrypted text: %v", err)

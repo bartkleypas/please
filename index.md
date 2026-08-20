@@ -11,7 +11,7 @@ timestamp: "2026-07-05T14:26:05-07:00"
 
 # Please Project Knowledge Index
 
-`Please` is a lightweight, Go-based Terminal User Interface (TUI) application designed for dynamic interaction with Large Language Models (LLMs). It models conversation histories as a Directed Acyclic Graph (DAG) of message nodes, supporting context resonance calculations, and native streaming playback.
+`Please` is a lightweight conversation harness designed for dynamic interaction with Large Language Models (LLMs). Originating as a terminal utility 30 years ago, it models conversation histories as a Directed Acyclic Graph (DAG) of message nodes, supporting context resonance calculations, and native streaming playback. It is evolving into a multi-platform Swift Package targeting macOS and iPadOS alongside its Go CLI baseline.
 
 ## Subdirectories
 
@@ -19,8 +19,9 @@ timestamp: "2026-07-05T14:26:05-07:00"
 *   [internal/engine](internal/engine/index.md) - Core engine package managing graph structures, SQLite storage, LLM providers, and tools.
 *   [internal/tui](internal/tui/index.md) - Bubble Tea TUI state machine and handle rendering.
 
-## Concepts
+## Concepts & Architecture
 
 *   [bootstrap_memory](GEMINI.md) - The bootstrap intent document detailing architecture overview and development conventions.
+*   [swift_apple_evolution](decisions/004-swift-apple-ecosystem-evolution.md) - ADR 004: Swift port strategy, iPad Mini device targeting, and Intel Mac dev bridge strategy.
 *   [context_resonance](context_resonance.md) - Dynamic Context Resonance Scoring algorithm (`V = (W * C) * e^(-k * Δt)`) to prune old tool outputs.
 *   [natural_pacing](natural_pacing.md) - Natural reading-pace stream buffering with punctuation-sensitive pauses.

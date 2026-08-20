@@ -66,9 +66,7 @@ func (m *Model) handleKeyEvent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	var tiCmd tea.Cmd
-	if m.ViewportOverride == "" {
-		m.TextInput, tiCmd = m.TextInput.Update(msg)
-	}
+	m.TextInput, tiCmd = m.TextInput.Update(msg)
 	return m, tea.Batch(cmd, tiCmd)
 }
 
@@ -163,9 +161,8 @@ func (m *Model) handleToolConfirmKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 
 func (m *Model) handleChatKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 	var cmd tea.Cmd
-	// Only send specific scrolling keys to the viewport if we are typing,
-	// or send all keys if the viewport override is active.
-	if m.ViewportOverride != "" || msg.String() == "pgup" || msg.String() == "pgdown" || msg.String() == "up" || msg.String() == "down" {
+	// Only send specific scrolling keys to the viewport
+	if msg.String() == "pgup" || msg.String() == "pgdown" || msg.String() == "up" || msg.String() == "down" {
 		var vCmd tea.Cmd
 		m.Viewport, vCmd = m.Viewport.Update(msg)
 		cmd = tea.Batch(cmd, vCmd)

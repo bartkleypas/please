@@ -1,4 +1,4 @@
-.PHONY: build run clean test test-livefire
+.PHONY: build run clean test test-livefire format lint
 .DEFAULT_GOAL := build
 
 # Determine the version string using git tags or fallback to 'dev'
@@ -17,6 +17,12 @@ test:
 
 test-livefire:
 	PLEASE_LIVE_FIRE=1 go test -v ./internal/engine
+
+format:
+	go fmt ./...
+
+lint:
+	go vet ./...
 
 clean:
 	rm -f please

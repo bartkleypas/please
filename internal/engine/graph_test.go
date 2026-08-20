@@ -13,7 +13,7 @@ func TestGraph_GetPath(t *testing.T) {
 	// Setup a branching scenario:
 	// Root -> NodeA -> NodeB
 	//         \-> NodeC
-	
+
 	root := &Node{ID: "1_root", ParentID: "", Role: RoleSystem, Content: "System Prompt", Timestamp: now}
 	nodeA := &Node{ID: "2_A", ParentID: "1_root", Role: RoleUser, Content: "Hello", Timestamp: now}
 	nodeB := &Node{ID: "3_B", ParentID: "2_A", Role: RoleAssistant, Content: "Hi there!", Timestamp: now}

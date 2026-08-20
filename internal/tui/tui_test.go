@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/bartkleypas/please/internal/engine"
@@ -20,6 +21,7 @@ func TestUpdateStateTransitions(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(tmpDir)
+	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
 	dbPath := filepath.Join(tmpDir, "vault.jsonl")
 
 	storage := engine.NewJSONLStorage(dbPath, "")
@@ -81,6 +83,7 @@ func TestUpdateStateTransitions(t *testing.T) {
 func TestThoughtStreaming(t *testing.T) {
 	tmpDir, _ := os.MkdirTemp("", "please-test-thought")
 	defer os.RemoveAll(tmpDir)
+	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
 	dbPath := filepath.Join(tmpDir, "vault.db")
 
 	storage, _ := engine.NewSQLiteStorage(dbPath, "")
@@ -128,6 +131,8 @@ func TestThoughtStreaming(t *testing.T) {
 }
 
 func TestHandleCommand(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
 	storage := engine.NewJSONLStorage(":memory:", "")
 	graph := engine.NewGraph()
 	mockProvider := &engine.MockLLMProvider{}
@@ -177,6 +182,7 @@ func updateModel(m Model, msg tea.Msg) (Model, tea.Cmd) {
 func TestNaturalPacing(t *testing.T) {
 	tmpDir, _ := os.MkdirTemp("", "please-test-pacing")
 	defer os.RemoveAll(tmpDir)
+	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
 	dbPath := filepath.Join(tmpDir, "vault.db")
 
 	storage, _ := engine.NewSQLiteStorage(dbPath, "")
@@ -237,6 +243,7 @@ func TestToolExecutionErrorRetention(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(tmpDir)
+	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
 	dbPath := filepath.Join(tmpDir, "vault.db")
 
 	storage, err := engine.NewSQLiteStorage(dbPath, "")
@@ -250,21 +257,18 @@ func TestToolExecutionErrorRetention(t *testing.T) {
 	cfg := &engine.Config{NaturalPacing: &pacing}
 	m := NewModel(cfg, graph, storage, mockProvider, "")
 
-	// Register a mock tool that returns both output and error
+	// Register a tool that fails
 	m.Manager.Registry.Register(engine.Tool{
-		Name: "fail_tool",
+		Name:        "fail_tool",
+		Description: "A tool that returns an error and some output",
+		Parameters:  nil,
 		Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			return "some partial output here", fmt.Errorf("something went wrong")
 		},
 	})
 
-	// Create a root system node and an assistant node
-	sysNode, err := m.Manager.CreateNode("", engine.RoleSystem, "System prompt", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	
-	assistantNode, err := m.Manager.CreateAssistantNode(sysNode.ID, "Running tool...", "", []engine.ToolCall{
+	// Create an assistant node with pending tool call
+	assistantNode, err := m.Manager.CreateAssistantNode("", "calling tool", "", []engine.ToolCall{
 		{
 			ID:   "call_123",
 			Type: "function",
@@ -315,5 +319,151 @@ func TestToolExecutionErrorRetention(t *testing.T) {
 	expectedResult := "Error: something went wrong\nOutput:\nsome partial output here"
 	if obs.Result != expectedResult {
 		t.Errorf("expected observation result:\n%s\ngot:\n%s", expectedResult, obs.Result)
+	}
+}
+
+func TestConfigCommand_RunnerOptions(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
+	dbPath := filepath.Join(tmpDir, "vault.db")
+
+	storage, _ := engine.NewSQLiteStorage(dbPath, "")
+	graph := engine.NewGraph()
+	pacing := false
+	cfg := &engine.Config{NaturalPacing: &pacing}
+	ollamaProvider := engine.NewOllamaProvider("http://localhost:11434/api/chat", "gemma", nil)
+	m := NewModel(cfg, graph, storage, ollamaProvider, "")
+
+	// 1. Set Temperature
+	_, _, handled := m.HandleCommand("/config temp 0.75")
+	if !handled {
+		t.Fatal("expected /config temp to be handled")
+	}
+	if m.Config.Options == nil || m.Config.Options.Temperature == nil || *m.Config.Options.Temperature != 0.75 {
+		t.Errorf("expected temperature to be 0.75, got %v", m.Config.Options.Temperature)
+	}
+	if ollamaProvider.Options == nil || ollamaProvider.Options.Temperature == nil || *ollamaProvider.Options.Temperature != 0.75 {
+		t.Errorf("expected provider options temperature to be 0.75, got %v", ollamaProvider.Options.Temperature)
+	}
+
+	// 2. Set Top-P
+	m.HandleCommand("/config top_p 0.95")
+	if m.Config.Options.TopP == nil || *m.Config.Options.TopP != 0.95 {
+		t.Errorf("expected top_p to be 0.95, got %v", m.Config.Options.TopP)
+	}
+
+	// 3. Set Top-K
+	m.HandleCommand("/config top_k 50")
+	if m.Config.Options.TopK == nil || *m.Config.Options.TopK != 50 {
+		t.Errorf("expected top_k to be 50, got %v", m.Config.Options.TopK)
+	}
+
+	// 4. Set Context Size
+	m.HandleCommand("/config ctx 32768")
+	if m.Config.Options.NumCtx == nil || *m.Config.Options.NumCtx != 32768 {
+		t.Errorf("expected num_ctx to be 32768, got %v", m.Config.Options.NumCtx)
+	}
+
+	// 5. Set Max Tokens
+	m.HandleCommand("/config max_tokens 4096")
+	if m.Config.Options.MaxTokens == nil || *m.Config.Options.MaxTokens != 4096 {
+		t.Errorf("expected max_tokens to be 4096, got %v", m.Config.Options.MaxTokens)
+	}
+
+	// 6. Reset Temperature
+	m.HandleCommand("/config temp default")
+	if m.Config.Options.Temperature != nil {
+		t.Errorf("expected temperature to be reset to nil, got %v", m.Config.Options.Temperature)
+	}
+
+	// 7. Test display output
+	m.HandleCommand("/config")
+	if m.ViewportOverride == "" {
+		t.Fatal("expected /config with no args to set ViewportOverride")
+	}
+
+	// Verify that the saved config file was written to tmpDir and NOT user's real config directory
+	savedData, err := os.ReadFile(filepath.Join(tmpDir, "config.json"))
+	if err != nil {
+		t.Fatalf("expected config.json to be saved in tmpDir: %v", err)
+	}
+	var loaded engine.Config
+	if err := json.Unmarshal(savedData, &loaded); err != nil {
+		t.Fatalf("failed to unmarshal saved config: %v", err)
+	}
+	if loaded.Options == nil || loaded.Options.TopP == nil || *loaded.Options.TopP != 0.95 {
+		t.Errorf("expected saved top_p to be 0.95, got %v", loaded.Options)
+	}
+}
+
+func TestViewportOverrideTextInputAndLiveUpdate(t *testing.T) {
+	tmpDir, _ := os.MkdirTemp("", "please-test-override")
+	defer os.RemoveAll(tmpDir)
+	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
+	dbPath := filepath.Join(tmpDir, "vault.db")
+
+	storage, _ := engine.NewSQLiteStorage(dbPath, "")
+	graph := engine.NewGraph()
+	mockProvider := &engine.MockLLMProvider{ResponseContent: "Response"}
+	pacing := false
+	cfg := &engine.Config{NaturalPacing: &pacing}
+	m := NewModel(cfg, graph, storage, mockProvider, "")
+
+	// 1. Initial setup
+	m.TextInput.SetValue("System prompt")
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	// 2. Open /config view
+	m.TextInput.SetValue("/config")
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.ViewportOverride == "" {
+		t.Fatal("expected /config to set ViewportOverride")
+	}
+
+	// 3. Type while ViewportOverride is active
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	if m.TextInput.Value() != "hi" {
+		t.Fatalf("expected TextInput to receive typing during ViewportOverride, got %q", m.TextInput.Value())
+	}
+	m.TextInput.Reset()
+
+	// 4. Run /config temp 0.85 while config view is open
+	m.TextInput.SetValue("/config temp 0.85")
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.Config.Options == nil || m.Config.Options.Temperature == nil || *m.Config.Options.Temperature != 0.85 {
+		t.Fatalf("expected temperature to be 0.85, got %v", m.Config.Options)
+	}
+	if !strings.Contains(m.ViewportOverride, "0.85") {
+		t.Errorf("expected ViewportOverride to live-update with new temperature, got:\n%s", m.ViewportOverride)
+	}
+
+	// 5. Send a regular chat message while ViewportOverride is active
+	m.TextInput.SetValue("Let's resume chat")
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.ViewportOverride != "" {
+		t.Errorf("expected ViewportOverride to be cleared on user message, got %q", m.ViewportOverride)
+	}
+	if !m.IsThinking {
+		t.Error("expected IsThinking to be true after user message")
+	}
+
+	// Finish stream
+	m, _ = updateModel(m, llmStreamFinishedMsg{parentID: m.CurrentID})
+
+	// 6. Open /help view and test ESC dismiss
+	m.TextInput.SetValue("/help")
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.ViewportOverride == "" {
+		t.Fatal("expected /help to set ViewportOverride")
+	}
+
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.ViewportOverride != "" {
+		t.Errorf("expected ESC to clear ViewportOverride, got %q", m.ViewportOverride)
 	}
 }
