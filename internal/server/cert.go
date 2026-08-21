@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha1"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
@@ -24,8 +25,15 @@ type CertBundle struct {
 	ServerKeyPath  string
 }
 
-// Generate20YearCerts generates a self-signed Root CA and a Server Leaf Certificate
-// valid for 20 years (7,300 days) with Subject Alternative Names (SANs).
+func computeSKI(pub *ecdsa.PublicKey) []byte {
+	pubBytes := elliptic.Marshal(pub.Curve, pub.X, pub.Y)
+	h := sha1.Sum(pubBytes)
+	return h[:]
+}
+
+// Generate20YearCerts generates a self-signed Root CA (valid for 20 years / 7,300 days)
+// and an Apple/RFC 5280 standards-compliant Server Leaf Certificate (valid for 365 days)
+// with Subject Alternative Names (SANs) and Key Identifiers.
 func Generate20YearCerts(outDir string, hosts []string) (*CertBundle, error) {
 	if err := os.MkdirAll(outDir, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create certificate directory: %w", err)
@@ -47,21 +55,23 @@ func Generate20YearCerts(outDir string, hosts []string) (*CertBundle, error) {
 		return nil, fmt.Errorf("failed to generate CA serial number: %w", err)
 	}
 
-	// 20-year duration (7300 days)
+	// 20-year duration (7300 days) for the Root CA
 	notBefore := time.Now().Add(-1 * time.Hour)
-	notAfter := notBefore.Add(7300 * 24 * time.Hour)
+	caNotAfter := notBefore.Add(7300 * 24 * time.Hour)
+	caSKI := computeSKI(&caKey.PublicKey)
 
 	caTemplate := &x509.Certificate{
 		SerialNumber: caSerial,
 		Subject: pkix.Name{
 			Organization: []string{"Please Internal Authority"},
-			CommonName:   "Please-Internal-Root-CA",
+			CommonName:   "Please Internal Root CA",
 		},
 		NotBefore:             notBefore,
-		NotAfter:              notAfter,
+		NotAfter:              caNotAfter,
 		IsCA:                  true,
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageDigitalSignature,
 		BasicConstraintsValid: true,
+		SubjectKeyId:          caSKI,
 	}
 
 	caBytes, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
@@ -94,6 +104,10 @@ func Generate20YearCerts(outDir string, hosts []string) (*CertBundle, error) {
 		return nil, fmt.Errorf("failed to generate server serial number: %w", err)
 	}
 
+	// Server Leaf Certificate validity must be <= 398 days for Apple / CA/Browser Forum compliance
+	serverNotAfter := notBefore.Add(365 * 24 * time.Hour)
+	serverSKI := computeSKI(&serverKey.PublicKey)
+
 	serverTemplate := &x509.Certificate{
 		SerialNumber: serverSerial,
 		Subject: pkix.Name{
@@ -101,10 +115,13 @@ func Generate20YearCerts(outDir string, hosts []string) (*CertBundle, error) {
 			CommonName:   "please.local",
 		},
 		NotBefore:             notBefore,
-		NotAfter:              notAfter,
+		NotAfter:              serverNotAfter,
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
 		BasicConstraintsValid: true,
+		IsCA:                  false,
+		SubjectKeyId:          serverSKI,
+		AuthorityKeyId:        caSKI,
 	}
 
 	// Add SANs
