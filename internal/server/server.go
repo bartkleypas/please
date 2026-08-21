@@ -5,6 +5,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -295,6 +296,25 @@ func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodPost:
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "Failed to read body", http.StatusBadRequest)
+			return
+		}
+
+		var node engine.Node
+		if err := json.Unmarshal(bodyBytes, &node); err == nil && node.ID != "" {
+			// Complete node upsert
+			if err := s.Manager.Storage.SaveNode(&node); err != nil {
+				http.Error(w, "Failed to save node: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			s.Manager.Graph.AddNode(&node)
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(node)
+			return
+		}
+
 		var payload struct {
 			ParentID string      `json:"parent_id"`
 			Role     engine.Role `json:"role"`
@@ -302,7 +322,7 @@ func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 			Internal bool        `json:"internal"`
 		}
 
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		if err := json.Unmarshal(bodyBytes, &payload); err != nil {
 			http.Error(w, "Invalid JSON payload: "+err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -311,14 +331,14 @@ func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 			payload.Role = engine.RoleUser
 		}
 
-		node, err := s.Manager.CreateNode(payload.ParentID, payload.Role, payload.Content, payload.Internal)
+		createdNode, err := s.Manager.CreateNode(payload.ParentID, payload.Role, payload.Content, payload.Internal)
 		if err != nil {
 			http.Error(w, "Failed to create node: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
 		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(node)
+		_ = json.NewEncoder(w).Encode(createdNode)
 
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)

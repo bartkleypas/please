@@ -8,9 +8,11 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 // RemoteDaemonProvider connects to a running Please engine daemon over HTTP/HTTPS and SSE.
@@ -98,7 +100,7 @@ func (p *RemoteDaemonProvider) GenerateResponse(ctx context.Context, messages []
 	}
 }
 
-// GenerateResponseStream streams responses character-by-character from the daemon SSE endpoint.
+// GenerateResponseStream initiates a streaming request to /api/v1/chat/stream on the daemon.
 func (p *RemoteDaemonProvider) GenerateResponseStream(ctx context.Context, messages []Message, tools []Tool) (<-chan string, <-chan string, <-chan []ToolCall, <-chan error) {
 	contentChan := make(chan string, 100)
 	thoughtChan := make(chan string, 100)
@@ -111,35 +113,37 @@ func (p *RemoteDaemonProvider) GenerateResponseStream(ctx context.Context, messa
 		defer close(toolCallChan)
 		defer close(errChan)
 
-		// 1. Determine last message content & images
-		userMessage := ""
-		role := RoleUser
+		// Extract the latest user message and history
+		var lastUserMessage string
+		var parentID string
 		var images []string
 
-		if len(messages) > 0 {
-			lastMsg := messages[len(messages)-1]
-			userMessage = lastMsg.Content
-			role = lastMsg.Role
-			images = lastMsg.Images
+		for i := len(messages) - 1; i >= 0; i-- {
+			if messages[i].Role == RoleUser {
+				lastUserMessage = messages[i].Content
+				images = messages[i].Images
+				break
+			}
 		}
 
 		payload := map[string]interface{}{
-			"message":        userMessage,
-			"role":           string(role),
-			"images":         images,
-			"max_tool_depth": 10,
+			"message":   lastUserMessage,
+			"role":      "user",
+			"parent_id": parentID,
+			"images":    images,
+			"messages":  messages,
 		}
 
 		bodyBytes, err := json.Marshal(payload)
 		if err != nil {
-			errChan <- fmt.Errorf("failed to encode stream request payload: %w", err)
+			errChan <- fmt.Errorf("failed to serialize request: %w", err)
 			return
 		}
 
-		endpoint := fmt.Sprintf("%s/api/v1/chat/stream", p.BaseURL)
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(bodyBytes))
+		streamURL := p.BaseURL + "/api/v1/chat/stream"
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, streamURL, bytes.NewReader(bodyBytes))
 		if err != nil {
-			errChan <- fmt.Errorf("failed to create HTTP request: %w", err)
+			errChan <- fmt.Errorf("failed to create stream request: %w", err)
 			return
 		}
 
@@ -151,19 +155,17 @@ func (p *RemoteDaemonProvider) GenerateResponseStream(ctx context.Context, messa
 
 		resp, err := p.client.Do(req)
 		if err != nil {
-			errChan <- fmt.Errorf("failed to connect to daemon at %s: %w", endpoint, err)
+			errChan <- fmt.Errorf("failed to connect to daemon: %w", err)
 			return
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
-			errBody := make([]byte, 512)
-			n, _ := resp.Body.Read(errBody)
-			errChan <- fmt.Errorf("daemon returned error (%d): %s", resp.StatusCode, strings.TrimSpace(string(errBody[:n])))
+			body, _ := io.ReadAll(resp.Body)
+			errChan <- fmt.Errorf("daemon returned HTTP %d: %s", resp.StatusCode, string(body))
 			return
 		}
 
-		// 2. Read SSE stream line-by-line
 		scanner := bufio.NewScanner(resp.Body)
 		var currentEvent string
 
@@ -176,6 +178,7 @@ func (p *RemoteDaemonProvider) GenerateResponseStream(ctx context.Context, messa
 			}
 
 			line := scanner.Text()
+
 			if strings.HasPrefix(line, "event: ") {
 				currentEvent = strings.TrimSpace(strings.TrimPrefix(line, "event: "))
 				continue
@@ -245,4 +248,138 @@ func (p *RemoteDaemonProvider) GenerateResponseStream(ctx context.Context, messa
 	}()
 
 	return contentChan, thoughtChan, toolCallChan, errChan
+}
+
+// RemoteDaemonStorage implements Storage by proxying node mutations and queries to a Please engine daemon
+type RemoteDaemonStorage struct {
+	BaseURL    string
+	AuthToken  string
+	HTTPClient *http.Client
+}
+
+// NewRemoteDaemonStorage initializes a storage instance connected to the Please engine daemon
+func NewRemoteDaemonStorage(baseURL, authToken, caCertPath string) (*RemoteDaemonStorage, error) {
+	baseURL = strings.TrimRight(baseURL, "/")
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "http://" + baseURL
+	}
+
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+
+	if caCertPath != "" {
+		caPEM, err := os.ReadFile(caCertPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read CA certificate: %w", err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caPEM) {
+			return nil, fmt.Errorf("failed to parse CA certificate")
+		}
+		transport.TLSClientConfig = &tls.Config{RootCAs: pool}
+	}
+
+	return &RemoteDaemonStorage{
+		BaseURL:    baseURL,
+		AuthToken:  authToken,
+		HTTPClient: &http.Client{Transport: transport, Timeout: 15 * time.Second},
+	}, nil
+}
+
+// SaveNode persists a node into the remote daemon's vault
+func (s *RemoteDaemonStorage) SaveNode(node *Node) error {
+	data, err := json.Marshal(node)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodPost, s.BaseURL+"/api/v1/nodes", bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if s.AuthToken != "" {
+		req.Header.Set("Authorization", "Bearer "+s.AuthToken)
+	}
+	resp, err := s.HTTPClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("daemon error (%d): %s", resp.StatusCode, string(respBytes))
+	}
+	return nil
+}
+
+// LoadGraph fetches the full conversation graph from the remote daemon
+func (s *RemoteDaemonStorage) LoadGraph() (*Graph, string, error) {
+	req, err := http.NewRequest(http.MethodGet, s.BaseURL+"/api/v1/graph", nil)
+	if err != nil {
+		return nil, "", err
+	}
+	if s.AuthToken != "" {
+		req.Header.Set("Authorization", "Bearer "+s.AuthToken)
+	}
+	resp, err := s.HTTPClient.Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("daemon returned status %d", resp.StatusCode)
+	}
+
+	var graph Graph
+	if err := json.NewDecoder(resp.Body).Decode(&graph); err != nil {
+		return nil, "", err
+	}
+
+	var latestID string
+	var latestTime time.Time
+	for id, node := range graph.Nodes {
+		if latestID == "" || node.Timestamp.After(latestTime) {
+			latestTime = node.Timestamp
+			latestID = id
+		}
+	}
+	return &graph, latestID, nil
+}
+
+// GarbageCollect triggers database garbage collection on the remote daemon
+func (s *RemoteDaemonStorage) GarbageCollect() (int64, error) {
+	req, err := http.NewRequest(http.MethodPost, s.BaseURL+"/api/v1/gc", nil)
+	if err != nil {
+		return 0, err
+	}
+	if s.AuthToken != "" {
+		req.Header.Set("Authorization", "Bearer "+s.AuthToken)
+	}
+	resp, err := s.HTTPClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		DeletedNodes int64 `json:"deleted_nodes"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&result)
+	return result.DeletedNodes, nil
+}
+
+// UpdateNodeMetadata updates node attributes on the daemon
+func (s *RemoteDaemonStorage) UpdateNodeMetadata(node *Node) error {
+	return s.SaveNode(node)
+}
+
+// UpdateNodeParentID updates the parent link of a node
+func (s *RemoteDaemonStorage) UpdateNodeParentID(nodeID, newParentID string) error {
+	return nil
+}
+
+// UpdateNodeObservations updates tool execution observations on the daemon
+func (s *RemoteDaemonStorage) UpdateNodeObservations(nodeID string, obs []ToolObservation) error {
+	return nil
 }

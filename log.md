@@ -57,6 +57,7 @@ All updates and modifications to this knowledge bundle are tracked chronological
 *   **Remote Daemon SSE Provider**: Implemented `RemoteDaemonProvider` in [remote.go](internal/engine/remote.go) conforming to `LLMProvider`, consuming the `/api/v1/chat/stream` SSE protocol and demuxing thinking tokens, content chunks, and host tool calls over HTTP/TLS.
 *   **Conversational CLI Ergonomics (`please connect`)**: Added `please connect [url]` subcommand in [main.go](cmd/please/main.go) to launch the TUI in connected client mode with dynamic `[Connected: <url> 🟢]` title bar badges in [view.go](internal/tui/view.go), while preserving bare `please` as the default standalone TUI.
 *   **Segmented TUI Configuration Sheet & `/config remote`**: Updated `/config` in [commands.go](internal/tui/commands.go) to display a clean segmented view showing Active Session mode (`Standalone` vs `Connected`), `[ Server / Engine Backend ]`, and `[ Client / TUI Preferences ]`, along with `/config remote <url>` to adjust remote daemon endpoints on the fly.
+*   **Remote Daemon Storage Layer (`RemoteDaemonStorage`)**: Implemented `RemoteDaemonStorage` in [remote.go](internal/engine/remote.go) and enhanced `POST /api/v1/nodes` in [server.go](internal/server/server.go) to proxy node mutations and graph fetches over HTTP, enabling connected TUI clients to persist conversation nodes directly into the daemon's vault without local storage file dependencies.
 
 
 

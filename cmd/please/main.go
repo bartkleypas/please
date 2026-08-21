@@ -2,19 +2,14 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/bartkleypas/please/internal/engine"
 	"github.com/bartkleypas/please/internal/server"
@@ -529,16 +524,20 @@ func runConnect(args []string) {
 		os.Exit(1)
 	}
 
-	// 2. Pull initial graph from daemon
-	graph, lastID, err := fetchRemoteGraph(remoteURL, token, caCert)
+	// 2. Initialize RemoteDaemonStorage
+	storage, err := engine.NewRemoteDaemonStorage(remoteURL, token, caCert)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to initialize remote storage: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 3. Pull initial graph from daemon
+	graph, lastID, err := storage.LoadGraph()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to connect to daemon at %s: %v\n", remoteURL, err)
 		fmt.Fprintf(os.Stderr, "Ensure the daemon is running with: please serve\n")
 		os.Exit(1)
 	}
-
-	// 3. Setup lightweight in-memory storage for local TUI caching
-	storage := engine.NewJSONLStorage("", "")
 
 	startID := lastID
 	if *jumpID != "" {
@@ -552,66 +551,6 @@ func runConnect(args []string) {
 		fmt.Fprintf(os.Stderr, "Error running TUI: %v\n", err)
 		os.Exit(1)
 	}
-}
-
-func fetchRemoteGraph(baseURL, token, caCertPath string) (*engine.Graph, string, error) {
-	baseURL = strings.TrimRight(baseURL, "/")
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		baseURL = "http://" + baseURL
-	}
-
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
-
-	if caCertPath != "" {
-		caPEM, err := os.ReadFile(caCertPath)
-		if err != nil {
-			return nil, "", fmt.Errorf("failed to read CA certificate: %w", err)
-		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(caPEM) {
-			return nil, "", fmt.Errorf("failed to parse CA certificate")
-		}
-		client.Transport = &http.Transport{
-			TLSClientConfig: &tls.Config{RootCAs: pool},
-		}
-	}
-
-	req, err := http.NewRequest(http.MethodGet, baseURL+"/api/v1/graph", nil)
-	if err != nil {
-		return nil, "", err
-	}
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, "", fmt.Errorf("server returned HTTP %d", resp.StatusCode)
-	}
-
-	var graph engine.Graph
-	if err := json.NewDecoder(resp.Body).Decode(&graph); err != nil {
-		return nil, "", fmt.Errorf("failed to decode graph JSON: %w", err)
-	}
-
-	// Find active leaf (latest timestamp)
-	var latestID string
-	var latestTime time.Time
-	for id, node := range graph.Nodes {
-		if node.Timestamp.After(latestTime) {
-			latestTime = node.Timestamp
-			latestID = id
-		}
-	}
-
-	return &graph, latestID, nil
 }
 
 func runCertGenerate(args []string) {
