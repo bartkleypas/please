@@ -271,11 +271,11 @@ func (m *Model) handleMapKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		if m.MapSelectionIndex >= 0 && m.MapSelectionIndex < len(m.MapNodeIDs) {
-			m.CurrentID = m.MapNodeIDs[m.MapSelectionIndex]
-			m.ViewMode = ModeChat
-			m.ViewportOverride = ""
-			m.updateViewportContent()
-			return m, nil
+			targetID := m.MapNodeIDs[m.MapSelectionIndex]
+			if node, err := m.Manager.GetNode(targetID); err == nil {
+				m.navigateToNode(node)
+				return m, nil
+			}
 		}
 	case "esc":
 		m.ViewMode = ModeChat

@@ -46,4 +46,8 @@ All updates and modifications to this knowledge bundle are tracked chronological
 *   **Configurable Workspace Directory**: Added `workspace_dir` setting to `Config` with `~` and `$HOME` environment variable expansion in [config.go](internal/engine/config.go), scoped tool sandboxing and command execution in [tool_defaults.go](internal/engine/tool_defaults.go), scoped persona context generation in [handlers.go](internal/tui/handlers.go), and added the `-w`/`--workspace` CLI flag.
 *   **Encryption Key & Redacted Display**: Added `/config key` management in [commands.go](internal/tui/commands.go) and ensured the configuration sheet masks encryption secrets (`•••••••• (configured)`).
 
+## 2026-08-21
+
+*   **"Rewind & Edit" User Turn Navigation**: Implemented `navigateToNode()` in [chat.go](internal/tui/chat.go) utilized by `/jump` in [commands.go](internal/tui/commands.go) and Enter in [keys.go](internal/tui/keys.go) (`ModeMap`). Navigating to an existing user turn rewinds `CurrentID` to the preceding parent turn, clears succeeding chat history from the viewport, and pre-populates `TextInput` (and attached images) with the user turn's content for rapid branch editing. Assistant/system turn navigation retains direct jumping with an empty prompt box.
+
 

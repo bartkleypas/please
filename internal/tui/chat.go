@@ -246,6 +246,37 @@ func (m *Model) syncMapSelection() {
 	}
 }
 
+// navigateToNode handles jumping/selecting a specific node in the DAG.
+// If the selected node is a User turn, it rewinds the active anchor to the
+// node's ParentID (the preceding assistant turn or system prompt), pre-populates
+// the input box with the user turn's content for editing, and restores any images.
+// If the selected node is an Assistant/System/Tool turn, it sets the active anchor
+// directly to that node and clears the input box for a fresh prompt.
+func (m *Model) navigateToNode(node *engine.Node) {
+	if node == nil {
+		return
+	}
+	if node.Role == engine.RoleUser {
+		m.CurrentID = node.ParentID
+		m.TextInput.SetValue(node.Content)
+		m.TextInput.CursorEnd()
+		if len(node.Images) > 0 {
+			m.PendingImages = append([]string(nil), node.Images...)
+		} else {
+			m.PendingImages = nil
+		}
+		m.Notification = "Rewound to edit user turn."
+	} else {
+		m.CurrentID = node.ID
+		m.TextInput.Reset()
+		m.PendingImages = nil
+		m.Notification = fmt.Sprintf("Jumped to %s", node.ID)
+	}
+	m.ViewMode = ModeChat
+	m.ViewportOverride = ""
+	m.updateViewportContent()
+}
+
 func (m *Model) updateViewportWithJump() {
 	m.updateViewportContent()
 }

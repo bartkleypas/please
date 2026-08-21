@@ -550,3 +550,115 @@ func TestConfigCommand_EncryptionKey(t *testing.T) {
 		t.Errorf("expected disabled encryption display after reset, got:\n%s", m.ViewportOverride)
 	}
 }
+
+func TestNavigateToNode_AssistantAndUserTurns(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
+	dbPath := filepath.Join(tmpDir, "vault.db")
+
+	storage, _ := engine.NewSQLiteStorage(dbPath, "")
+	graph := engine.NewGraph()
+	mockProvider := &engine.MockLLMProvider{
+		ResponseContent: "Mock assistant reply",
+	}
+	pacing := false
+	cfg := &engine.Config{NaturalPacing: &pacing}
+	m := NewModel(cfg, graph, storage, mockProvider, "")
+
+	// 1. Build conversation: Root System -> User1 -> Assistant1 -> User2 -> Assistant2
+	sysNode, _ := m.Manager.CreateNode("", engine.RoleSystem, "System prompt", false)
+	m.CurrentID = sysNode.ID
+
+	user1, _ := m.Manager.CreateNode(sysNode.ID, engine.RoleUser, "First question from user", false)
+	asst1, _ := m.Manager.CreateNode(user1.ID, engine.RoleAssistant, "First answer from assistant", false)
+	user2, _ := m.Manager.CreateNode(asst1.ID, engine.RoleUser, "Second question from user with detail", false)
+	user2.Images = []string{"/tmp/test.png"}
+	_ = m.Manager.Storage.SaveNode(user2)
+	asst2, _ := m.Manager.CreateNode(user2.ID, engine.RoleAssistant, "Second answer from assistant", false)
+	m.CurrentID = asst2.ID
+	m.SetupMode = false
+	m.updateViewportContent()
+
+	// 2. Test navigating to an Assistant Turn via /jump
+	m.HandleCommand("/jump " + asst1.ID)
+	if m.CurrentID != asst1.ID {
+		t.Fatalf("expected CurrentID to be asst1 %s, got %s", asst1.ID, m.CurrentID)
+	}
+	if m.TextInput.Value() != "" {
+		t.Fatalf("expected TextInput to be empty when jumping to assistant turn, got %q", m.TextInput.Value())
+	}
+	if len(m.PendingImages) != 0 {
+		t.Fatalf("expected PendingImages to be empty, got %v", m.PendingImages)
+	}
+
+	// 3. Test navigating to a User Turn via /jump (Rewind & Edit)
+	m.HandleCommand("/jump " + user2.ID)
+	if m.CurrentID != asst1.ID {
+		t.Fatalf("expected CurrentID to rewind to user2's parent (asst1 %s), got %s", asst1.ID, m.CurrentID)
+	}
+	if m.TextInput.Value() != "Second question from user with detail" {
+		t.Fatalf("expected TextInput to contain user2 content, got %q", m.TextInput.Value())
+	}
+	if len(m.PendingImages) != 1 || m.PendingImages[0] != "/tmp/test.png" {
+		t.Fatalf("expected PendingImages to restore user2 images, got %v", m.PendingImages)
+	}
+	if !strings.Contains(m.Notification, "Rewound") {
+		t.Errorf("expected notification about rewinding, got %q", m.Notification)
+	}
+	// Verify chat history rendered only up to asst1 (user2 should not be in active chat buffer)
+	if strings.Contains(m.ChatHistoryBuffer, "Second question from user with detail") {
+		t.Errorf("expected chat history buffer to exclude rewound user2 prompt, got:\n%s", m.ChatHistoryBuffer)
+	}
+	if !strings.Contains(m.ChatHistoryBuffer, "First answer from assistant") {
+		t.Errorf("expected chat history buffer to include asst1, got:\n%s", m.ChatHistoryBuffer)
+	}
+
+	// 4. Test submitting modified turn creates a new branch off asst1
+	m.TextInput.SetValue("Modified second question branching off asst1")
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Process stream finish
+	m, _ = updateModel(m, llmStreamFinishedMsg{parentID: m.CurrentID})
+
+	// Assert the new leaf's lineage leads back to asst1
+	newPath, err := m.Manager.GetPath(m.CurrentID)
+	if err != nil || len(newPath) < 4 {
+		t.Fatalf("unexpected new path: %v, err: %v", newPath, err)
+	}
+	// newPath should be: [sysNode, user1, asst1, newUserBranch, newAsstBranch]
+	if newPath[2].ID != asst1.ID {
+		t.Errorf("expected branch ancestor to be asst1 %s, got %s", asst1.ID, newPath[2].ID)
+	}
+	if newPath[3].Content != "Modified second question branching off asst1" {
+		t.Errorf("expected new user branch content, got %s", newPath[3].Content)
+	}
+
+	// 5. Test Map Mode Enter key on a user turn
+	m.HandleCommand("/map")
+	if m.ViewMode != ModeMap {
+		t.Fatalf("expected ViewMode to be ModeMap, got %v", m.ViewMode)
+	}
+	// Find index of user1 in MapNodeIDs
+	user1Idx := -1
+	for i, id := range m.MapNodeIDs {
+		if id == user1.ID {
+			user1Idx = i
+			break
+		}
+	}
+	if user1Idx == -1 {
+		t.Fatalf("user1 %s not found in MapNodeIDs: %v", user1.ID, m.MapNodeIDs)
+	}
+	m.MapSelectionIndex = user1Idx
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.ViewMode != ModeChat {
+		t.Errorf("expected ViewMode to return to ModeChat after enter, got %v", m.ViewMode)
+	}
+	if m.CurrentID != sysNode.ID {
+		t.Errorf("expected CurrentID to rewind to user1's parent (sysNode %s), got %s", sysNode.ID, m.CurrentID)
+	}
+	if m.TextInput.Value() != "First question from user" {
+		t.Errorf("expected TextInput to contain user1 content, got %q", m.TextInput.Value())
+	}
+}
