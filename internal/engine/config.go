@@ -29,6 +29,9 @@ type Config struct {
 	NaturalPacing *bool         `json:"natural_pacing,omitempty"`
 	Options       *ModelOptions `json:"options,omitempty"`
 	WorkspaceDir  string        `json:"workspace_dir,omitempty"`
+	AuthToken     string        `json:"auth_token,omitempty"`
+	TLSCertFile   string        `json:"tls_cert_file,omitempty"`
+	TLSKeyFile    string        `json:"tls_key_file,omitempty"`
 }
 
 // GetWorkspaceDir returns the resolved absolute workspace directory.

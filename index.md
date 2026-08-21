@@ -17,6 +17,7 @@ timestamp: "2026-07-05T14:26:05-07:00"
 
 *   [decisions](decisions/index.md) - Architecture Decision Records (ADRs) tracking design debates and key trade-offs.
 *   [internal/engine](internal/engine/index.md) - Core engine package managing graph structures, SQLite storage, LLM providers, and tools.
+*   [internal/server](internal/server/index.md) - Engine daemon, REST v1 API, SSE streaming protocol, and 20-year internal PKI cert generator.
 *   [internal/tui](internal/tui/index.md) - Bubble Tea TUI state machine and handle rendering.
 
 ## Concepts & Architecture

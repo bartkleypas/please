@@ -29,7 +29,8 @@ Unlike linear chat applications, `Please` treats conversations as a Directed Acy
 *   **Visual Mapping:** Use `/map` to visualize the branching paths of your story with Vim-style navigation (`h/j/k/l`).
 *   **Supernodes (Compaction):** Press `c` in the map to summarize long-winded branches into high-density context nodes, helping to prevent the onset of "context bloat" in longer conversations (especially useful after heavy tool use).
 *   **Branch Pruning:** Press `d` in the map to soft-delete unwanted branches, with `/gc` for permanent secure scrubbing.
-*   **Web Visualization:** Run with `-s` to start an embedded web server featuring a premium radial gradient background and glassmorphic UI elements. The graph renders as collapsible narrative threads, clamps long root messages to keep the view clean, and includes a toggle to show or hide the LLM's internal thinking tokens.
+*   **Engine Daemon & Streaming API:** Run `please serve --port 8080` to launch the headless API service. Features a Server-Sent Events (SSE) streaming endpoint (`POST /api/v1/chat/stream`), complete DAG REST API (`/api/v1/graph`, `/api/v1/nodes`), and host tool execution loops for client applications (Swift macOS/iPadOS, Web UI, CLI).
+*   **20-Year Internal PKI Certificates:** Run `please cert generate` to mint 20-year self-signed Root CA and Server Leaf certificates with SANs for zero-expiration TLS across local and home mesh networks.
 *   **Persona Management:** Easily switch between different system prompts and characters using the `/persona` command.
 *   **Natural Reading Pacing:** Buffer and stream assistant replies at a realistic human reading pace with punctuation-sensitive pauses (300ms for ends of sentences, 100ms for commas). Supports instant skipping to flush the output.
 
@@ -106,7 +107,18 @@ Build and launch the TUI chat interface instantly:
 make run
 ```
 
-Or start with the web visualization server directly:
+Start the headless API and streaming engine daemon:
+```bash
+./please serve --port 8080
+```
+
+Generate 20-year internal Root CA and Server certificates for TLS:
+```bash
+./please cert generate
+./please serve --port 8443 --tls --generate-certs
+```
+
+Or start the TUI with the embedded web visualizer directly:
 ```bash
 ./please -c -s 8080
 ```

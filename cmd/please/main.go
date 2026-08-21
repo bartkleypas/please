@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
+	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/bartkleypas/please/internal/engine"
 	"github.com/bartkleypas/please/internal/server"
@@ -32,7 +35,23 @@ func (i *arrayFlags) Set(value string) error {
 }
 
 func main() {
-	// Define flags
+	// Subcommand routing
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "serve":
+			runServe(os.Args[2:])
+			return
+		case "cert":
+			if len(os.Args) > 2 && os.Args[2] == "generate" {
+				runCertGenerate(os.Args[3:])
+				return
+			}
+			fmt.Fprintf(os.Stderr, "Usage: please cert generate [options]\n")
+			os.Exit(1)
+		}
+	}
+
+	// Default CLI / TUI flag parsing
 	chatFlag := flag.Bool("chat", false, "Start the TUI chat interface")
 	flag.BoolVar(chatFlag, "c", false, "Start the TUI chat interface (shorthand)")
 
@@ -48,7 +67,7 @@ func main() {
 	jumpID := flag.String("jump", "", "Node ID to jump to in interactive mode")
 	flag.StringVar(jumpID, "j", "", "Node ID to jump to in interactive mode (shorthand)")
 
-	serverPort := flag.Int("server", 0, "Start visualization server on specified port")
+	serverPort := flag.Int("server", 0, "Start visualization & API server on specified port")
 	flag.IntVar(serverPort, "s", 0, "Start server on port (shorthand)")
 
 	noGen := flag.Bool("no-gen", false, "Disable automatic LLM generation when passing a message")
@@ -69,15 +88,18 @@ func main() {
 	infoFlag := flag.Bool("info", false, "Print image metadata info and exit")
 
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "🦉 Please: A DAG-based TUI for branching LLM conversations.\n\n")
-		fmt.Fprintf(os.Stderr, "Usage: please [options] [message...]\n\n")
+		fmt.Fprintf(os.Stderr, "🦉 Please: A DAG-based TUI and streaming daemon for branching LLM conversations.\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: please [command] [options] [message...]\n\n")
+		fmt.Fprintf(os.Stderr, "Commands:\n")
+		fmt.Fprintf(os.Stderr, "  serve            Start the API & streaming engine daemon\n")
+		fmt.Fprintf(os.Stderr, "  cert generate    Generate 20-year internal Root CA and Server certificates\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		fmt.Fprintf(os.Stderr, "  -c, --chat             Start the TUI chat interface\n")
 		fmt.Fprintf(os.Stderr, "  -v, --vault <path>     Path to a custom vault file\n")
 		fmt.Fprintf(os.Stderr, "  -w, --workspace <path> Path to project workspace directory\n")
 		fmt.Fprintf(os.Stderr, "  -p, --parent <id>      Parent node ID for new message\n")
 		fmt.Fprintf(os.Stderr, "  -j, --jump <id>        Node ID to jump to in interactive mode\n")
-		fmt.Fprintf(os.Stderr, "  -s, --server <port>    Start visualization server on port\n")
+		fmt.Fprintf(os.Stderr, "  -s, --server <port>    Start API & visualization server on port\n")
 		fmt.Fprintf(os.Stderr, "  -t, --temperature <f>  Sampling temperature (0.0 - 2.0)\n")
 		fmt.Fprintf(os.Stderr, "      --top-p <f>        Top-p nucleus sampling (0.0 - 1.0)\n")
 		fmt.Fprintf(os.Stderr, "      --top-k <i>        Top-k sampling\n")
@@ -201,7 +223,7 @@ func main() {
 	}
 	mgr := engine.NewManager(graph, storage)
 	mgr.RegisterDefaultTools(cfg.GetWorkspaceDir())
-	webServer := server.NewServer(mgr)
+	webServer := server.NewServerWithProvider(mgr, provider, cfg)
 
 	// Determine if we have a message from args or stdin
 	var pipedContent string
@@ -209,7 +231,6 @@ func main() {
 
 	stat, statErr := os.Stdin.Stat()
 	if statErr == nil && (stat.Mode()&os.ModeCharDevice) == 0 {
-		// Data is being piped in
 		bytes, err := io.ReadAll(os.Stdin)
 		if err == nil {
 			pipedContent = strings.TrimSpace(string(bytes))
@@ -221,17 +242,15 @@ func main() {
 		argContent = strings.Join(flag.Args(), " ")
 	}
 
-	// If explicit role is provided, override the piped input role
 	if *roleStr != "" {
 		pipedRole = engine.Role(*roleStr)
 	}
 
-	// Handle Message Mode (either piped input, args, or both)
+	// Handle Message Mode
 	if pipedContent != "" || argContent != "" {
 		parentID := *parent
 		if parentID == "" {
 			if pipedContent != "" && pipedRole == engine.RoleSystem {
-				// The Silicon Seed: Create a new narrative root for system prompts
 				parentID = ""
 			} else {
 				parentID = lastID
@@ -240,7 +259,6 @@ func main() {
 
 		var finalID string
 
-		// 1. If we have piped content, create a node for it first
 		if pipedContent != "" {
 			newNode, err := mgr.CreateNode(parentID, pipedRole, pipedContent, false)
 			if err != nil {
@@ -248,10 +266,9 @@ func main() {
 				os.Exit(1)
 			}
 			finalID = newNode.ID
-			parentID = finalID // For the subsequent argument node, the parent is the piped node
+			parentID = finalID
 		}
 
-		// 2. If we also have arguments, create a user node parented by the piped node
 		if argContent != "" {
 			newNode, err := mgr.CreateNode(parentID, engine.RoleUser, argContent, false)
 			if err != nil {
@@ -294,7 +311,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Handle Server
+	// Handle legacy server flag
 	if *serverPort > 0 {
 		if err := webServer.Start(*serverPort); err != nil {
 			fmt.Printf("Error starting web server: %v\n", err)
@@ -316,4 +333,180 @@ func main() {
 		fmt.Printf("Alas, there was an error running the TUI: %v", err)
 		os.Exit(1)
 	}
+}
+
+func runServe(args []string) {
+	fs := flag.NewFlagSet("serve", flag.ExitOnError)
+	port := fs.Int("port", 8080, "Port to listen on")
+	fs.IntVar(port, "p", 8080, "Port to listen on (shorthand)")
+	host := fs.String("host", "127.0.0.1", "Host address to bind to")
+	fs.StringVar(host, "H", "127.0.0.1", "Host address to bind to (shorthand)")
+
+	tlsFlag := fs.Bool("tls", false, "Enable TLS (HTTPS)")
+	certFile := fs.String("cert", "", "Path to TLS certificate file")
+	keyFile := fs.String("key", "", "Path to TLS private key file")
+	genCerts := fs.Bool("generate-certs", false, "Automatically generate 20-year internal certificates if missing")
+	tokenFlag := fs.String("token", "", "Pre-shared bearer token for authentication")
+	vaultPath := fs.String("vault", "", "Path to vault file")
+	workspacePath := fs.String("workspace", "", "Path to workspace directory")
+
+	_ = fs.Parse(args)
+
+	cfg, err := engine.LoadConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Configuration error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if *workspacePath != "" {
+		cfg.WorkspaceDir = *workspacePath
+	}
+	if *tokenFlag != "" {
+		cfg.AuthToken = *tokenFlag
+	}
+
+	finalVaultPath := cfg.VaultPath
+	if *vaultPath != "" {
+		finalVaultPath = *vaultPath
+	}
+
+	storageType := cfg.StorageType
+	if strings.HasSuffix(finalVaultPath, ".db") {
+		storageType = "sqlite"
+	} else if strings.HasSuffix(finalVaultPath, ".jsonl") {
+		storageType = "jsonl"
+	}
+
+	var storage engine.Storage
+	if storageType == "sqlite" {
+		storage, err = engine.NewSQLiteStorage(finalVaultPath, cfg.EncryptionKey)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error initializing sqlite storage: %v\n", err)
+			os.Exit(1)
+		}
+	} else {
+		storage = engine.NewJSONLStorage(finalVaultPath, cfg.EncryptionKey)
+	}
+
+	graph, _, err := storage.LoadGraph()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading graph: %v\n", err)
+		os.Exit(1)
+	}
+
+	var provider engine.LLMProvider
+	if cfg.Provider == "openai" {
+		provider = engine.NewOpenAIProvider(cfg.Endpoint, cfg.Model, cfg.APIKey, cfg.Options)
+	} else {
+		provider = engine.NewOllamaProvider(cfg.Endpoint, cfg.Model, cfg.Options)
+	}
+
+	mgr := engine.NewManager(graph, storage)
+	mgr.RegisterDefaultTools(cfg.GetWorkspaceDir())
+
+	srv := server.NewServerWithProvider(mgr, provider, cfg)
+	if cfg.AuthToken != "" {
+		srv.SetAuthToken(cfg.AuthToken)
+	}
+
+	protocol := "http"
+	if *tlsFlag {
+		protocol = "https"
+		cFile := *certFile
+		kFile := *keyFile
+
+		if cFile == "" && cfg.TLSCertFile != "" {
+			cFile = cfg.TLSCertFile
+			kFile = cfg.TLSKeyFile
+		}
+
+		if cFile == "" || kFile == "" || *genCerts {
+			cfgDir, _ := engine.GetConfigDir()
+			certDir := filepath.Join(cfgDir, "certs")
+			if _, statErr := os.Stat(filepath.Join(certDir, "server.crt")); os.IsNotExist(statErr) || *genCerts {
+				bundle, genErr := server.Generate20YearCerts(certDir, []string{*host, "localhost", "127.0.0.1", "please.local"})
+				if genErr != nil {
+					fmt.Fprintf(os.Stderr, "Failed to generate certificates: %v\n", genErr)
+					os.Exit(1)
+				}
+				cFile = bundle.ServerCertPath
+				kFile = bundle.ServerKeyPath
+				fmt.Printf("🔐 Generated 20-year internal certificates in %s\n", certDir)
+			} else {
+				cFile = filepath.Join(certDir, "server.crt")
+				kFile = filepath.Join(certDir, "server.key")
+			}
+		}
+
+		if err := srv.StartTLS(*port, *host, cFile, kFile); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to start TLS server: %v\n", err)
+			os.Exit(1)
+		}
+	} else {
+		if err := srv.StartWithHost(*port, *host); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to start server: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	authStatus := "disabled (open local)"
+	if cfg.AuthToken != "" {
+		authStatus = "enabled (Bearer token active)"
+	}
+
+	fmt.Printf("\n🦉 Please Engine Daemon v%s\n", engine.Version)
+	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	fmt.Printf("  • Endpoint:       %s://%s:%d\n", protocol, *host, *port)
+	fmt.Printf("  • Vault:          %s (%s)\n", finalVaultPath, storageType)
+	fmt.Printf("  • Provider:       %s (%s)\n", cfg.Provider, cfg.Model)
+	fmt.Printf("  • Authentication: %s\n", authStatus)
+	fmt.Printf("  • SSE Stream:     %s://%s:%d/api/v1/chat/stream\n", protocol, *host, *port)
+	fmt.Printf("  • Graph REST:     %s://%s:%d/api/v1/graph\n", protocol, *host, *port)
+	fmt.Printf("  • Web View:       %s://%s:%d/\n", protocol, *host, *port)
+	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	fmt.Printf("Ready for client connections. Press Ctrl+C to stop.\n\n")
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	<-sigChan
+
+	fmt.Println("\nShutting down engine daemon gracefully...")
+	_ = srv.Stop()
+	fmt.Println("Server stopped.")
+}
+
+func runCertGenerate(args []string) {
+	fs := flag.NewFlagSet("cert generate", flag.ExitOnError)
+	dir := fs.String("dir", "", "Output directory for certificates")
+	hosts := fs.String("hosts", "localhost,127.0.0.1,please.local", "Comma-separated hostnames/IPs for SANs")
+	_ = fs.Parse(args)
+
+	outDir := *dir
+	if outDir == "" {
+		cfgDir, err := engine.GetConfigDir()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Could not determine config directory: %v\n", err)
+			os.Exit(1)
+		}
+		outDir = filepath.Join(cfgDir, "certs")
+	}
+
+	hostList := strings.Split(*hosts, ",")
+	bundle, err := server.Generate20YearCerts(outDir, hostList)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error generating certificates: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("\n✨ 20-Year Internal Certificates Generated Successfully!\n")
+	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	fmt.Printf("  • Root CA Cert:    %s\n", bundle.CACertPath)
+	fmt.Printf("  • Root CA Key:     %s (Keep private!)\n", bundle.CAKeyPath)
+	fmt.Printf("  • Server Cert:     %s\n", bundle.ServerCertPath)
+	fmt.Printf("  • Server Key:      %s\n", bundle.ServerKeyPath)
+	fmt.Printf("  • Validity:        20 Years (7,300 Days)\n")
+	fmt.Printf("  • SANs:            %s\n", strings.Join(hostList, ", "))
+	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	fmt.Printf("To use with daemon:\n")
+	fmt.Printf("  please serve --tls --cert %s --key %s\n\n", bundle.ServerCertPath, bundle.ServerKeyPath)
 }

@@ -6,62 +6,162 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/bartkleypas/please/internal/engine"
-
-	"os"
-	"path/filepath"
-	"strings"
 )
 
 //go:embed assets/*
 var assets embed.FS
 
-// Server manages the HTTP server for graph visualization
+// Server manages the HTTP and SSE server for graph visualization and API interaction
 type Server struct {
-	Manager *engine.Manager
-	server  *http.Server
-	port    int
-	mu      sync.Mutex
-	running bool
+	Manager   *engine.Manager
+	Provider  engine.LLMProvider
+	Config    *engine.Config
+	AuthToken string
+	server    *http.Server
+	host      string
+	port      int
+	isTLS     bool
+	mu        sync.Mutex
+	running   bool
 }
 
 // NewServer creates a new Server instance
 func NewServer(mgr *engine.Manager) *Server {
 	return &Server{
 		Manager: mgr,
+		host:    "127.0.0.1",
 	}
 }
 
-// Start begins the HTTP server in a goroutine
+// NewServerWithProvider creates a Server instance with provider and configuration
+func NewServerWithProvider(mgr *engine.Manager, provider engine.LLMProvider, cfg *engine.Config) *Server {
+	token := ""
+	if cfg != nil {
+		token = cfg.AuthToken
+	}
+	return &Server{
+		Manager:   mgr,
+		Provider:  provider,
+		Config:    cfg,
+		AuthToken: token,
+		host:      "127.0.0.1",
+	}
+}
+
+// SetProvider updates the LLMProvider on the server
+func (s *Server) SetProvider(p engine.LLMProvider) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Provider = p
+}
+
+// SetConfig updates the configuration on the server
+func (s *Server) SetConfig(cfg *engine.Config) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Config = cfg
+	if cfg != nil && cfg.AuthToken != "" {
+		s.AuthToken = cfg.AuthToken
+	}
+}
+
+// SetAuthToken configures a pre-shared bearer token for request authentication
+func (s *Server) SetAuthToken(token string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.AuthToken = token
+}
+
+// Handler constructs the configured http.Handler with all middlewares and routes
+func (s *Server) Handler() http.Handler {
+	mux := http.NewServeMux()
+
+	// REST API v1
+	mux.HandleFunc("/api/v1/health", s.handleHealth)
+	mux.HandleFunc("/api/v1/graph", s.handleGraph)
+	mux.HandleFunc("/api/v1/nodes", s.handleNodes)
+	mux.HandleFunc("/api/v1/nodes/", s.handleNodeByID)
+	mux.HandleFunc("/api/v1/branches/", s.handleBranchByID)
+	mux.HandleFunc("/api/v1/supernodes", s.handleSupernodes)
+	mux.HandleFunc("/api/v1/gc", s.handleGC)
+	mux.HandleFunc("/api/v1/tools", s.handleTools)
+	mux.HandleFunc("/api/v1/chat/stream", s.handleChatStream)
+
+	// Legacy endpoints for backward compatibility with visualizer
+	mux.HandleFunc("/api/graph", s.handleGraph)
+	mux.HandleFunc("/api/image", s.handleImage)
+	mux.HandleFunc("/", s.handleIndex)
+
+	return s.corsMiddleware(s.authMiddleware(mux))
+}
+
+// Start begins the HTTP server on 127.0.0.1:port
 func (s *Server) Start(port int) error {
+	return s.StartWithHost(port, "127.0.0.1")
+}
+
+// StartWithHost begins the HTTP server on host:port
+func (s *Server) StartWithHost(port int, host string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if s.running {
-		return fmt.Errorf("server is already running on port %d", s.port)
+		return fmt.Errorf("server is already running on %s:%d", s.host, s.port)
 	}
 
+	if host == "" {
+		host = "127.0.0.1"
+	}
 	s.port = port
-	mux := http.NewServeMux()
-
-	// API Endpoints
-	mux.HandleFunc("/api/graph", s.handleGraph)
-	mux.HandleFunc("/api/image", s.handleImage)
-
-	// Static Assets
-	mux.HandleFunc("/", s.handleIndex)
+	s.host = host
+	s.isTLS = false
 
 	s.server = &http.Server{
-		Addr:    fmt.Sprintf(":%d", port),
-		Handler: mux,
+		Addr:    fmt.Sprintf("%s:%d", host, port),
+		Handler: s.Handler(),
 	}
 
 	go func() {
 		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			fmt.Printf("Web server error: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
+		}
+	}()
+
+	s.running = true
+	return nil
+}
+
+// StartTLS begins the HTTPS server using the provided cert and key files
+func (s *Server) StartTLS(port int, host string, certFile, keyFile string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.running {
+		return fmt.Errorf("server is already running on %s:%d", s.host, s.port)
+	}
+
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	s.port = port
+	s.host = host
+	s.isTLS = true
+
+	s.server = &http.Server{
+		Addr:    fmt.Sprintf("%s:%d", host, port),
+		Handler: s.Handler(),
+	}
+
+	go func() {
+		if err := s.server.ListenAndServeTLS(certFile, keyFile); err != nil && err != http.ErrServerClosed {
+			fmt.Fprintf(os.Stderr, "TLS Server error: %v\n", err)
 		}
 	}()
 
@@ -74,7 +174,7 @@ func (s *Server) Stop() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if !s.running {
+	if !s.running || s.server == nil {
 		return nil
 	}
 
@@ -96,23 +196,276 @@ func (s *Server) Status() (bool, int) {
 	return s.running, s.port
 }
 
+// DetailStatus returns running state, port, host, and whether TLS is enabled
+func (s *Server) DetailStatus() (bool, int, string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.running, s.port, s.host, s.isTLS
+}
+
+// --- Middlewares ---
+
+func (s *Server) authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Health check, index, and legacy images bypass auth
+		if r.URL.Path == "/api/v1/health" || r.URL.Path == "/" || strings.HasPrefix(r.URL.Path, "/assets/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		s.mu.Lock()
+		token := s.AuthToken
+		s.mu.Unlock()
+
+		if token == "" {
+			// No token configured: allow request
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Check Authorization: Bearer <token>
+		authHeader := r.Header.Get("Authorization")
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			if strings.TrimPrefix(authHeader, "Bearer ") == token {
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+
+		// Check query param ?token=<token>
+		if r.URL.Query().Get("token") == token {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "Unauthorized: invalid or missing Bearer token", http.StatusUnauthorized)
+	})
+}
+
+func (s *Server) corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept, X-Requested-With")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// --- REST Endpoint Handlers ---
+
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	provider := "unknown"
+	model := "unknown"
+	if s.Config != nil {
+		provider = s.Config.Provider
+		model = s.Config.Model
+	}
+
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":   "ok",
+		"version":  engine.Version,
+		"provider": provider,
+		"model":    model,
+		"time":     time.Now().Format(time.RFC3339),
+	})
+}
+
 func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	// Synchronize with disk to ensure external CLI modifications are reflected
 	if _, _, err := s.Manager.Sync(); err != nil {
 		http.Error(w, "Failed to synchronize graph: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// We return the graph directly. engine.Graph is serializable.
 	if err := json.NewEncoder(w).Encode(s.Manager.Graph); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
+func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	switch r.Method {
+	case http.MethodPost:
+		var payload struct {
+			ParentID string      `json:"parent_id"`
+			Role     engine.Role `json:"role"`
+			Content  string      `json:"content"`
+			Internal bool        `json:"internal"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "Invalid JSON payload: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if payload.Role == "" {
+			payload.Role = engine.RoleUser
+		}
+
+		node, err := s.Manager.CreateNode(payload.ParentID, payload.Role, payload.Content, payload.Internal)
+		if err != nil {
+			http.Error(w, "Failed to create node: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(node)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleNodeByID(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	id := strings.TrimPrefix(r.URL.Path, "/api/v1/nodes/")
+	id = strings.TrimSuffix(id, "/prune")
+
+	if id == "" {
+		http.Error(w, "Missing node ID", http.StatusBadRequest)
+		return
+	}
+
+	// Check if this is a POST to /api/v1/nodes/{id}/prune
+	if strings.HasSuffix(r.URL.Path, "/prune") && r.Method == http.MethodPost {
+		if err := s.Manager.PruneBranch(id); err != nil {
+			http.Error(w, "Failed to prune branch: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "pruned", "node_id": id})
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		node, err := s.Manager.GetNode(id)
+		if err != nil {
+			http.Error(w, "Node not found: "+err.Error(), http.StatusNotFound)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(node)
+
+	case http.MethodDelete:
+		if err := s.Manager.PruneBranch(id); err != nil {
+			http.Error(w, "Failed to prune branch: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "pruned", "node_id": id})
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleBranchByID(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	id := strings.TrimPrefix(r.URL.Path, "/api/v1/branches/")
+
+	if id == "" {
+		http.Error(w, "Missing branch root node ID", http.StatusBadRequest)
+		return
+	}
+
+	if r.Method == http.MethodDelete || r.Method == http.MethodPost {
+		if err := s.Manager.PruneBranch(id); err != nil {
+			http.Error(w, "Failed to prune branch: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "pruned", "branch_id": id})
+		return
+	}
+
+	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+}
+
+func (s *Server) handleSupernodes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	var payload struct {
+		NodeIDs []string `json:"node_ids"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "Invalid JSON payload: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if len(payload.NodeIDs) == 0 {
+		http.Error(w, "node_ids array cannot be empty", http.StatusBadRequest)
+		return
+	}
+
+	if s.Provider == nil {
+		http.Error(w, "LLM provider is not configured", http.StatusInternalServerError)
+		return
+	}
+
+	superNode, err := s.Manager.CompactRange(r.Context(), s.Provider, payload.NodeIDs)
+	if err != nil {
+		http.Error(w, "Failed to create supernode: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(superNode)
+}
+
+func (s *Server) handleGC(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	count, err := s.Manager.GarbageCollect()
+	if err != nil {
+		http.Error(w, "Garbage collection failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":         "success",
+		"purged_records": count,
+	})
+}
+
+func (s *Server) handleTools(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	type toolInfo struct {
+		Name        string      `json:"name"`
+		Description string      `json:"description"`
+		Parameters  interface{} `json:"parameters"`
+	}
+
+	var list []toolInfo
+	if s.Manager.Registry != nil {
+		for _, t := range s.Manager.Registry.Tools {
+			list = append(list, toolInfo{
+				Name:        t.Name,
+				Description: t.Description,
+				Parameters:  t.Parameters,
+			})
+		}
+	}
+
+	_ = json.NewEncoder(w).Encode(list)
+}
+
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	// Serve index.html for the root path
 	if r.URL.Path == "/" {
 		data, err := assets.ReadFile("assets/index.html")
 		if err != nil {
@@ -124,7 +477,6 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// For other paths, try to serve from embedded assets
 	http.FileServer(http.FS(assets)).ServeHTTP(w, r)
 }
 
@@ -148,16 +500,24 @@ func (s *Server) handleImage(w http.ResponseWriter, r *http.Request) {
 	mimeType := "application/octet-stream"
 	ext := strings.ToLower(filepath.Ext(imagePath))
 	switch ext {
-	case ".png":
-		mimeType = "image/png"
 	case ".jpg", ".jpeg":
 		mimeType = "image/jpeg"
+	case ".png":
+		mimeType = "image/png"
 	case ".gif":
 		mimeType = "image/gif"
 	case ".webp":
 		mimeType = "image/webp"
+	case ".svg":
+		mimeType = "image/svg+xml"
+	}
+
+	data, err := os.ReadFile(imagePath)
+	if err != nil {
+		http.Error(w, "Failed to read image", http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", mimeType)
-	http.ServeFile(w, r, imagePath)
+	w.Write(data)
 }

@@ -49,5 +49,10 @@ All updates and modifications to this knowledge bundle are tracked chronological
 ## 2026-08-21
 
 *   **"Rewind & Edit" User Turn Navigation**: Implemented `navigateToNode()` in [chat.go](internal/tui/chat.go) utilized by `/jump` in [commands.go](internal/tui/commands.go) and Enter in [keys.go](internal/tui/keys.go) (`ModeMap`). Navigating to an existing user turn rewinds `CurrentID` to the preceding parent turn, clears succeeding chat history from the viewport, and pre-populates `TextInput` (and attached images) with the user turn's content for rapid branch editing. Assistant/system turn navigation retains direct jumping with an empty prompt box.
+*   **Server-Sent Events (SSE) Streaming API**: Implemented real-time streaming endpoint `POST /api/v1/chat/stream` in [stream.go](internal/server/stream.go) emitting typed `thought`, `token`, `tool_call`, `tool_result`, and `node_complete` events with iterative host tool execution loops up to configurable depth.
+*   **REST API v1 Suite & Bearer Auth**: Implemented complete DAG and node CRUD handlers (`/api/v1/graph`, `/api/v1/nodes`, `/api/v1/branches/{id}`, `/api/v1/supernodes`, `/api/v1/gc`, `/api/v1/tools`, `/api/v1/health`), CORS, and Bearer token auth middleware in [server.go](internal/server/server.go).
+*   **20-Year Internal PKI Certificate Generator**: Added `Generate20YearCerts` in [cert.go](internal/server/cert.go) to generate self-signed ECDSA Root CA and Server Leaf certificates valid for 7,300 days with SANs (`localhost`, `127.0.0.1`, `please.local`), eliminating SSL cert expiration friction for local and home network setups.
+*   **Engine Daemon & Cert CLI Subcommands**: Added `please serve` and `please cert generate` subcommands in [main.go](cmd/please/main.go) with flags for port, host, TLS, auto-certificate generation, and authentication tokens.
+
 
 
