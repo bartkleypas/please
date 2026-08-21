@@ -32,7 +32,7 @@ func TestUpdateStateTransitions(t *testing.T) {
 
 	// 2. Initialize Model
 	pacing := false
-	cfg := &engine.Config{NaturalPacing: &pacing}
+	cfg := &engine.Config{Client: &engine.ClientConfig{NaturalPacing: &pacing}}
 	m := NewModel(cfg, graph, storage, mockProvider, "")
 
 	// Ensure we start in SetupMode if graph is empty
@@ -90,7 +90,7 @@ func TestThoughtStreaming(t *testing.T) {
 	graph := engine.NewGraph()
 	mockProvider := &engine.MockLLMProvider{}
 	pacing := false
-	cfg := &engine.Config{NaturalPacing: &pacing}
+	cfg := &engine.Config{Client: &engine.ClientConfig{NaturalPacing: &pacing}}
 	m := NewModel(cfg, graph, storage, mockProvider, "")
 
 	// 1. Setup - Create root node
@@ -137,7 +137,7 @@ func TestHandleCommand(t *testing.T) {
 	graph := engine.NewGraph()
 	mockProvider := &engine.MockLLMProvider{}
 	pacing := false
-	cfg := &engine.Config{NaturalPacing: &pacing}
+	cfg := &engine.Config{Client: &engine.ClientConfig{NaturalPacing: &pacing}}
 	m := NewModel(cfg, graph, storage, mockProvider, "")
 
 	tests := []struct {
@@ -189,7 +189,7 @@ func TestNaturalPacing(t *testing.T) {
 	graph := engine.NewGraph()
 	mockProvider := &engine.MockLLMProvider{}
 	pacing := true
-	cfg := &engine.Config{NaturalPacing: &pacing}
+	cfg := &engine.Config{Client: &engine.ClientConfig{NaturalPacing: &pacing}}
 	m := NewModel(cfg, graph, storage, mockProvider, "")
 
 	// 1. Exit setup mode
@@ -254,7 +254,7 @@ func TestToolExecutionErrorRetention(t *testing.T) {
 	mockProvider := &engine.MockLLMProvider{}
 
 	pacing := false
-	cfg := &engine.Config{NaturalPacing: &pacing}
+	cfg := &engine.Config{Client: &engine.ClientConfig{NaturalPacing: &pacing}}
 	m := NewModel(cfg, graph, storage, mockProvider, "")
 
 	// Register a tool that fails
@@ -330,7 +330,7 @@ func TestConfigCommand_RunnerOptions(t *testing.T) {
 	storage, _ := engine.NewSQLiteStorage(dbPath, "")
 	graph := engine.NewGraph()
 	pacing := false
-	cfg := &engine.Config{NaturalPacing: &pacing}
+	cfg := &engine.Config{Client: &engine.ClientConfig{NaturalPacing: &pacing}}
 	ollamaProvider := engine.NewOllamaProvider("http://localhost:11434/api/chat", "gemma", nil)
 	m := NewModel(cfg, graph, storage, ollamaProvider, "")
 
@@ -339,8 +339,8 @@ func TestConfigCommand_RunnerOptions(t *testing.T) {
 	if !handled {
 		t.Fatal("expected /config temp to be handled")
 	}
-	if m.Config.Options == nil || m.Config.Options.Temperature == nil || *m.Config.Options.Temperature != 0.75 {
-		t.Errorf("expected temperature to be 0.75, got %v", m.Config.Options.Temperature)
+	if m.Config.Server == nil || m.Config.Server.Options == nil || m.Config.Server.Options.Temperature == nil || *m.Config.Server.Options.Temperature != 0.75 {
+		t.Errorf("expected temperature to be 0.75, got %v", m.Config.Server)
 	}
 	if ollamaProvider.Options == nil || ollamaProvider.Options.Temperature == nil || *ollamaProvider.Options.Temperature != 0.75 {
 		t.Errorf("expected provider options temperature to be 0.75, got %v", ollamaProvider.Options.Temperature)
@@ -348,32 +348,32 @@ func TestConfigCommand_RunnerOptions(t *testing.T) {
 
 	// 2. Set Top-P
 	m.HandleCommand("/config top_p 0.95")
-	if m.Config.Options.TopP == nil || *m.Config.Options.TopP != 0.95 {
-		t.Errorf("expected top_p to be 0.95, got %v", m.Config.Options.TopP)
+	if m.Config.Server.Options.TopP == nil || *m.Config.Server.Options.TopP != 0.95 {
+		t.Errorf("expected top_p to be 0.95, got %v", m.Config.Server.Options.TopP)
 	}
 
 	// 3. Set Top-K
 	m.HandleCommand("/config top_k 50")
-	if m.Config.Options.TopK == nil || *m.Config.Options.TopK != 50 {
-		t.Errorf("expected top_k to be 50, got %v", m.Config.Options.TopK)
+	if m.Config.Server.Options.TopK == nil || *m.Config.Server.Options.TopK != 50 {
+		t.Errorf("expected top_k to be 50, got %v", m.Config.Server.Options.TopK)
 	}
 
 	// 4. Set Context Size
 	m.HandleCommand("/config ctx 32768")
-	if m.Config.Options.NumCtx == nil || *m.Config.Options.NumCtx != 32768 {
-		t.Errorf("expected num_ctx to be 32768, got %v", m.Config.Options.NumCtx)
+	if m.Config.Server.Options.NumCtx == nil || *m.Config.Server.Options.NumCtx != 32768 {
+		t.Errorf("expected num_ctx to be 32768, got %v", m.Config.Server.Options.NumCtx)
 	}
 
 	// 5. Set Max Tokens
 	m.HandleCommand("/config max_tokens 4096")
-	if m.Config.Options.MaxTokens == nil || *m.Config.Options.MaxTokens != 4096 {
-		t.Errorf("expected max_tokens to be 4096, got %v", m.Config.Options.MaxTokens)
+	if m.Config.Server.Options.MaxTokens == nil || *m.Config.Server.Options.MaxTokens != 4096 {
+		t.Errorf("expected max_tokens to be 4096, got %v", m.Config.Server.Options.MaxTokens)
 	}
 
 	// 6. Reset Temperature
 	m.HandleCommand("/config temp default")
-	if m.Config.Options.Temperature != nil {
-		t.Errorf("expected temperature to be reset to nil, got %v", m.Config.Options.Temperature)
+	if m.Config.Server.Options.Temperature != nil {
+		t.Errorf("expected temperature to be reset to nil, got %v", m.Config.Server.Options.Temperature)
 	}
 
 	// 7. Test display output
@@ -391,8 +391,8 @@ func TestConfigCommand_RunnerOptions(t *testing.T) {
 	if err := json.Unmarshal(savedData, &loaded); err != nil {
 		t.Fatalf("failed to unmarshal saved config: %v", err)
 	}
-	if loaded.Options == nil || loaded.Options.TopP == nil || *loaded.Options.TopP != 0.95 {
-		t.Errorf("expected saved top_p to be 0.95, got %v", loaded.Options)
+	if loaded.Server == nil || loaded.Server.Options == nil || loaded.Server.Options.TopP == nil || *loaded.Server.Options.TopP != 0.95 {
+		t.Errorf("expected saved top_p to be 0.95, got %v", loaded.Server)
 	}
 }
 
@@ -406,7 +406,7 @@ func TestViewportOverrideTextInputAndLiveUpdate(t *testing.T) {
 	graph := engine.NewGraph()
 	mockProvider := &engine.MockLLMProvider{ResponseContent: "Response"}
 	pacing := false
-	cfg := &engine.Config{NaturalPacing: &pacing}
+	cfg := &engine.Config{Client: &engine.ClientConfig{NaturalPacing: &pacing}}
 	m := NewModel(cfg, graph, storage, mockProvider, "")
 
 	// 1. Initial setup
@@ -433,8 +433,8 @@ func TestViewportOverrideTextInputAndLiveUpdate(t *testing.T) {
 	m.TextInput.SetValue("/config temp 0.85")
 	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
 
-	if m.Config.Options == nil || m.Config.Options.Temperature == nil || *m.Config.Options.Temperature != 0.85 {
-		t.Fatalf("expected temperature to be 0.85, got %v", m.Config.Options)
+	if m.Config.Server.Options == nil || m.Config.Server.Options.Temperature == nil || *m.Config.Server.Options.Temperature != 0.85 {
+		t.Fatalf("expected temperature to be 0.85, got %v", m.Config.Server.Options)
 	}
 	if !strings.Contains(m.ViewportOverride, "0.85") {
 		t.Errorf("expected ViewportOverride to live-update with new temperature, got:\n%s", m.ViewportOverride)
@@ -477,7 +477,7 @@ func TestConfigCommand_Workspace(t *testing.T) {
 	graph := engine.NewGraph()
 	mockProvider := &engine.MockLLMProvider{}
 	pacing := false
-	cfg := &engine.Config{NaturalPacing: &pacing}
+	cfg := &engine.Config{Client: &engine.ClientConfig{NaturalPacing: &pacing}}
 	m := NewModel(cfg, graph, storage, mockProvider, "")
 
 	// 1. Initial workspace display
@@ -489,8 +489,8 @@ func TestConfigCommand_Workspace(t *testing.T) {
 	// 2. Set workspace to custom directory
 	customWs := t.TempDir()
 	m.HandleCommand("/config workspace " + customWs)
-	if m.Config.WorkspaceDir != customWs {
-		t.Errorf("expected WorkspaceDir to be %s, got %s", customWs, m.Config.WorkspaceDir)
+	if m.Config.Server.WorkspaceDir != customWs {
+		t.Errorf("expected WorkspaceDir to be %s, got %s", customWs, m.Config.Server.WorkspaceDir)
 	}
 
 	// Check updated /config view
@@ -500,8 +500,8 @@ func TestConfigCommand_Workspace(t *testing.T) {
 
 	// 3. Reset workspace to default
 	m.HandleCommand("/config workspace default")
-	if m.Config.WorkspaceDir != "" {
-		t.Errorf("expected WorkspaceDir to be empty after reset, got %s", m.Config.WorkspaceDir)
+	if m.Config.Server.WorkspaceDir != "" {
+		t.Errorf("expected WorkspaceDir to be empty after reset, got %s", m.Config.Server.WorkspaceDir)
 	}
 	if !strings.Contains(m.ViewportOverride, "(current directory)") {
 		t.Errorf("expected ViewportOverride to show (current directory), got:\n%s", m.ViewportOverride)
@@ -517,7 +517,7 @@ func TestConfigCommand_EncryptionKey(t *testing.T) {
 	graph := engine.NewGraph()
 	mockProvider := &engine.MockLLMProvider{}
 	pacing := false
-	cfg := &engine.Config{NaturalPacing: &pacing}
+	cfg := &engine.Config{Client: &engine.ClientConfig{NaturalPacing: &pacing}}
 	m := NewModel(cfg, graph, storage, mockProvider, "")
 
 	// 1. Initial display shows disabled
@@ -529,8 +529,8 @@ func TestConfigCommand_EncryptionKey(t *testing.T) {
 	// 2. Set encryption key
 	secretKey := "super-secret-key-12345"
 	m.HandleCommand("/config key " + secretKey)
-	if m.Config.EncryptionKey != secretKey {
-		t.Errorf("expected EncryptionKey to be %s, got %s", secretKey, m.Config.EncryptionKey)
+	if m.Config.Server.EncryptionKey != secretKey {
+		t.Errorf("expected EncryptionKey to be %s, got %s", secretKey, m.Config.Server.EncryptionKey)
 	}
 
 	// 3. Verify /config displays redacted key and NEVER reveals plaintext
@@ -543,8 +543,8 @@ func TestConfigCommand_EncryptionKey(t *testing.T) {
 
 	// 4. Reset encryption key
 	m.HandleCommand("/config key default")
-	if m.Config.EncryptionKey != "" {
-		t.Errorf("expected EncryptionKey to be empty after reset, got %s", m.Config.EncryptionKey)
+	if m.Config.Server.EncryptionKey != "" {
+		t.Errorf("expected EncryptionKey to be empty after reset, got %s", m.Config.Server.EncryptionKey)
 	}
 	if !strings.Contains(m.ViewportOverride, "Encryption:  (disabled)") {
 		t.Errorf("expected disabled encryption display after reset, got:\n%s", m.ViewportOverride)
@@ -562,7 +562,7 @@ func TestNavigateToNode_AssistantAndUserTurns(t *testing.T) {
 		ResponseContent: "Mock assistant reply",
 	}
 	pacing := false
-	cfg := &engine.Config{NaturalPacing: &pacing}
+	cfg := &engine.Config{Client: &engine.ClientConfig{NaturalPacing: &pacing}}
 	m := NewModel(cfg, graph, storage, mockProvider, "")
 
 	// 1. Build conversation: Root System -> User1 -> Assistant1 -> User2 -> Assistant2

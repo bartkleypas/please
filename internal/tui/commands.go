@@ -80,17 +80,20 @@ func (c *AuditCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 type PacingCommand struct{}
 
 func (c *PacingCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
+	if m.Config.Client == nil {
+		m.Config.Client = &engine.ClientConfig{}
+	}
 	if len(args) == 0 {
 		pacing := !m.Config.IsPacingEnabled()
-		m.Config.NaturalPacing = &pacing
+		m.Config.Client.NaturalPacing = &pacing
 	} else {
 		switch strings.ToLower(args[0]) {
 		case "on", "true", "yes":
 			pacing := true
-			m.Config.NaturalPacing = &pacing
+			m.Config.Client.NaturalPacing = &pacing
 		case "off", "false", "no":
 			pacing := false
-			m.Config.NaturalPacing = &pacing
+			m.Config.Client.NaturalPacing = &pacing
 		default:
 			m.Notification = "Usage: /pacing [on|off]"
 			return m, nil
@@ -225,26 +228,35 @@ func (c *MapCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) syncProviderOptions() {
+	if m.Config.Server == nil {
+		return
+	}
 	if op, ok := m.Provider.(*engine.OllamaProvider); ok {
-		op.Options = m.Config.Options
+		op.Options = m.Config.Server.Options
 	} else if op, ok := m.Provider.(*engine.OpenAIProvider); ok {
-		op.Options = m.Config.Options
+		op.Options = m.Config.Server.Options
 	}
 }
 
 func (m *Model) renderConfigString() string {
 	var s strings.Builder
 	s.WriteString("--- ⚙️  Current Configuration ---\n\n")
-	fmt.Fprintf(&s, "  Model:       %s\n", m.Config.Model)
-	fmt.Fprintf(&s, "  Endpoint:    %s\n", m.Config.Endpoint)
-	fmt.Fprintf(&s, "  Vault:       %s\n", m.Config.VaultPath)
-	wsStr := m.Config.WorkspaceDir
+
+	srv := m.Config.Server
+	if srv == nil {
+		srv = &engine.ServerConfig{}
+	}
+
+	fmt.Fprintf(&s, "  Model:       %s\n", srv.Model)
+	fmt.Fprintf(&s, "  Endpoint:    %s\n", srv.Endpoint)
+	fmt.Fprintf(&s, "  Vault:       %s\n", srv.VaultPath)
+	wsStr := srv.WorkspaceDir
 	if wsStr == "" {
 		wsStr = "(current directory)"
 	}
 	fmt.Fprintf(&s, "  Workspace:   %s\n", wsStr)
 	encStr := "(disabled)"
-	if m.Config.EncryptionKey != "" {
+	if srv.EncryptionKey != "" {
 		encStr = "•••••••• (configured)"
 	}
 	fmt.Fprintf(&s, "  Encryption:  %s\n", encStr)
@@ -255,29 +267,29 @@ func (m *Model) renderConfigString() string {
 	fmt.Fprintf(&s, "  Pacing:      %s\n", pacingStr)
 
 	s.WriteString("\n  Inference / Runner Options:\n")
-	if m.Config.Options != nil {
-		if m.Config.Options.Temperature != nil {
-			fmt.Fprintf(&s, "    Temperature:  %.2f\n", *m.Config.Options.Temperature)
+	if srv.Options != nil {
+		if srv.Options.Temperature != nil {
+			fmt.Fprintf(&s, "    Temperature:  %.2f\n", *srv.Options.Temperature)
 		} else {
 			s.WriteString("    Temperature:  (default)\n")
 		}
-		if m.Config.Options.TopP != nil {
-			fmt.Fprintf(&s, "    Top P:        %.2f\n", *m.Config.Options.TopP)
+		if srv.Options.TopP != nil {
+			fmt.Fprintf(&s, "    Top P:        %.2f\n", *srv.Options.TopP)
 		} else {
 			s.WriteString("    Top P:        (default)\n")
 		}
-		if m.Config.Options.TopK != nil {
-			fmt.Fprintf(&s, "    Top K:        %d\n", *m.Config.Options.TopK)
+		if srv.Options.TopK != nil {
+			fmt.Fprintf(&s, "    Top K:        %d\n", *srv.Options.TopK)
 		} else {
 			s.WriteString("    Top K:        (default)\n")
 		}
-		if m.Config.Options.NumCtx != nil {
-			fmt.Fprintf(&s, "    Context Size: %d tokens\n", *m.Config.Options.NumCtx)
+		if srv.Options.NumCtx != nil {
+			fmt.Fprintf(&s, "    Context Size: %d tokens\n", *srv.Options.NumCtx)
 		} else {
 			s.WriteString("    Context Size: (default)\n")
 		}
-		if m.Config.Options.MaxTokens != nil {
-			fmt.Fprintf(&s, "    Max Tokens:   %d tokens\n", *m.Config.Options.MaxTokens)
+		if srv.Options.MaxTokens != nil {
+			fmt.Fprintf(&s, "    Max Tokens:   %d tokens\n", *srv.Options.MaxTokens)
 		} else {
 			s.WriteString("    Max Tokens:   (default)\n")
 		}
@@ -315,12 +327,19 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if m.Config.Server == nil {
+		m.Config.Server = &engine.ServerConfig{}
+	}
+	if m.Config.Client == nil {
+		m.Config.Client = &engine.ClientConfig{}
+	}
+
 	key := args[0]
 	value := args[1]
 
 	switch key {
 	case "model":
-		m.Config.Model = value
+		m.Config.Server.Model = value
 		if op, ok := m.Provider.(*engine.OllamaProvider); ok {
 			op.Model = value
 		} else if op, ok := m.Provider.(*engine.OpenAIProvider); ok {
@@ -328,7 +347,7 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		}
 		m.Notification = "Model updated to " + value
 	case "endpoint":
-		m.Config.Endpoint = value
+		m.Config.Server.Endpoint = value
 		if op, ok := m.Provider.(*engine.OllamaProvider); ok {
 			op.Endpoint = value
 		} else if op, ok := m.Provider.(*engine.OpenAIProvider); ok {
@@ -337,42 +356,42 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		m.Notification = "Endpoint updated to " + value
 	case "workspace", "dir", "root", "workdir":
 		if strings.ToLower(value) == "default" || strings.ToLower(value) == "reset" || strings.ToLower(value) == "none" || value == "." {
-			m.Config.WorkspaceDir = ""
+			m.Config.Server.WorkspaceDir = ""
 			m.Manager.RegisterDefaultTools(".")
 			m.Notification = "Workspace directory reset to current directory."
 		} else {
-			m.Config.WorkspaceDir = value
+			m.Config.Server.WorkspaceDir = value
 			m.Manager.RegisterDefaultTools(m.Config.GetWorkspaceDir())
 			m.Notification = fmt.Sprintf("Workspace directory set to %s", m.Config.GetWorkspaceDir())
 		}
 	case "key", "encryption_key", "encryption":
 		if strings.ToLower(value) == "default" || strings.ToLower(value) == "reset" || strings.ToLower(value) == "none" || strings.ToLower(value) == "clear" || strings.ToLower(value) == "off" {
-			m.Config.EncryptionKey = ""
+			m.Config.Server.EncryptionKey = ""
 			m.Notification = "Encryption key cleared."
 		} else {
-			m.Config.EncryptionKey = value
+			m.Config.Server.EncryptionKey = value
 			m.Notification = "Encryption key updated."
 		}
 	case "pacing":
 		switch strings.ToLower(value) {
 		case "on", "true", "yes":
 			pacing := true
-			m.Config.NaturalPacing = &pacing
+			m.Config.Client.NaturalPacing = &pacing
 			m.Notification = "Natural reading pacing enabled."
 		case "off", "false", "no":
 			pacing := false
-			m.Config.NaturalPacing = &pacing
+			m.Config.Client.NaturalPacing = &pacing
 			m.Notification = "Natural reading pacing disabled."
 		default:
 			m.Notification = "Usage: /config pacing <on|off>"
 			return m, nil
 		}
 	case "temp", "temperature":
-		if m.Config.Options == nil {
-			m.Config.Options = &engine.ModelOptions{}
+		if m.Config.Server.Options == nil {
+			m.Config.Server.Options = &engine.ModelOptions{}
 		}
 		if strings.ToLower(value) == "default" || strings.ToLower(value) == "reset" || strings.ToLower(value) == "none" {
-			m.Config.Options.Temperature = nil
+			m.Config.Server.Options.Temperature = nil
 			m.Notification = "Temperature reset to default"
 		} else {
 			var val float64
@@ -380,16 +399,16 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 				m.Notification = "Invalid temperature value. Expected positive float (e.g. 0.7)"
 				return m, nil
 			}
-			m.Config.Options.Temperature = &val
+			m.Config.Server.Options.Temperature = &val
 			m.Notification = fmt.Sprintf("Temperature set to %.2f", val)
 		}
 		m.syncProviderOptions()
 	case "top_p", "topp":
-		if m.Config.Options == nil {
-			m.Config.Options = &engine.ModelOptions{}
+		if m.Config.Server.Options == nil {
+			m.Config.Server.Options = &engine.ModelOptions{}
 		}
 		if strings.ToLower(value) == "default" || strings.ToLower(value) == "reset" || strings.ToLower(value) == "none" {
-			m.Config.Options.TopP = nil
+			m.Config.Server.Options.TopP = nil
 			m.Notification = "Top-p reset to default"
 		} else {
 			var val float64
@@ -397,16 +416,16 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 				m.Notification = "Invalid top_p value. Expected float between 0.0 and 1.0 (e.g. 0.9)"
 				return m, nil
 			}
-			m.Config.Options.TopP = &val
+			m.Config.Server.Options.TopP = &val
 			m.Notification = fmt.Sprintf("Top-p set to %.2f", val)
 		}
 		m.syncProviderOptions()
 	case "top_k", "topk":
-		if m.Config.Options == nil {
-			m.Config.Options = &engine.ModelOptions{}
+		if m.Config.Server.Options == nil {
+			m.Config.Server.Options = &engine.ModelOptions{}
 		}
 		if strings.ToLower(value) == "default" || strings.ToLower(value) == "reset" || strings.ToLower(value) == "none" {
-			m.Config.Options.TopK = nil
+			m.Config.Server.Options.TopK = nil
 			m.Notification = "Top-k reset to default"
 		} else {
 			var val int
@@ -414,16 +433,16 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 				m.Notification = "Invalid top_k value. Expected positive integer (e.g. 40)"
 				return m, nil
 			}
-			m.Config.Options.TopK = &val
+			m.Config.Server.Options.TopK = &val
 			m.Notification = fmt.Sprintf("Top-k set to %d", val)
 		}
 		m.syncProviderOptions()
 	case "ctx", "num_ctx", "context", "context_size":
-		if m.Config.Options == nil {
-			m.Config.Options = &engine.ModelOptions{}
+		if m.Config.Server.Options == nil {
+			m.Config.Server.Options = &engine.ModelOptions{}
 		}
 		if strings.ToLower(value) == "default" || strings.ToLower(value) == "reset" || strings.ToLower(value) == "none" {
-			m.Config.Options.NumCtx = nil
+			m.Config.Server.Options.NumCtx = nil
 			m.Notification = "Context size reset to default"
 		} else {
 			var val int
@@ -431,16 +450,16 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 				m.Notification = "Invalid context size value. Expected positive integer (e.g. 16384)"
 				return m, nil
 			}
-			m.Config.Options.NumCtx = &val
+			m.Config.Server.Options.NumCtx = &val
 			m.Notification = fmt.Sprintf("Context size set to %d tokens", val)
 		}
 		m.syncProviderOptions()
 	case "max_tokens", "num_predict", "tokens":
-		if m.Config.Options == nil {
-			m.Config.Options = &engine.ModelOptions{}
+		if m.Config.Server.Options == nil {
+			m.Config.Server.Options = &engine.ModelOptions{}
 		}
 		if strings.ToLower(value) == "default" || strings.ToLower(value) == "reset" || strings.ToLower(value) == "none" {
-			m.Config.Options.MaxTokens = nil
+			m.Config.Server.Options.MaxTokens = nil
 			m.Notification = "Max tokens reset to default"
 		} else {
 			var val int
@@ -448,7 +467,7 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 				m.Notification = "Invalid max_tokens value. Expected positive integer (e.g. 2048)"
 				return m, nil
 			}
-			m.Config.Options.MaxTokens = &val
+			m.Config.Server.Options.MaxTokens = &val
 			m.Notification = fmt.Sprintf("Max tokens set to %d", val)
 		}
 		m.syncProviderOptions()

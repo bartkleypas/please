@@ -85,18 +85,18 @@ func setupLiveFire(t *testing.T) (*Manager, LLMProvider) {
 		}
 	} else {
 		// 3. Fall back to the user's global please config
-		if globalCfg, err := LoadConfig(); err == nil {
-			if globalCfg.Provider != "" {
-				providerType = globalCfg.Provider
+		if globalCfg, err := LoadConfig(); err == nil && globalCfg.Server != nil {
+			if globalCfg.Server.Provider != "" {
+				providerType = globalCfg.Server.Provider
 			}
-			if globalCfg.Endpoint != "" {
-				endpoint = globalCfg.Endpoint
+			if globalCfg.Server.Endpoint != "" {
+				endpoint = globalCfg.Server.Endpoint
 			}
-			if globalCfg.Model != "" {
-				model = globalCfg.Model
+			if globalCfg.Server.Model != "" {
+				model = globalCfg.Server.Model
 			}
-			if globalCfg.APIKey != "" {
-				apiKey = globalCfg.APIKey
+			if globalCfg.Server.APIKey != "" {
+				apiKey = globalCfg.Server.APIKey
 			}
 		}
 	}
@@ -476,15 +476,17 @@ func TestOpenAIProvider_OptionsSerialization(t *testing.T) {
 func TestConfig_OptionsSerialization(t *testing.T) {
 	temp := 0.5
 	ctxVal := 8192
-	cfg := Config{
-		Provider:    "ollama",
-		Model:       "llama3:8b",
-		Endpoint:    "http://localhost:11434/api/chat",
-		VaultPath:   "vault.db",
-		StorageType: "sqlite",
-		Options: &ModelOptions{
-			Temperature: &temp,
-			NumCtx:      &ctxVal,
+	cfg := &Config{
+		Server: &ServerConfig{
+			Provider:    "ollama",
+			Model:       "llama3:8b",
+			Endpoint:    "http://localhost:11434/api/chat",
+			VaultPath:   "vault.db",
+			StorageType: "sqlite",
+			Options: &ModelOptions{
+				Temperature: &temp,
+				NumCtx:      &ctxVal,
+			},
 		},
 	}
 
@@ -498,17 +500,17 @@ func TestConfig_OptionsSerialization(t *testing.T) {
 		t.Fatalf("failed to unmarshal config: %v", err)
 	}
 
-	if loaded.Options == nil {
-		t.Fatalf("expected options to be non-nil")
+	if loaded.Server == nil || loaded.Server.Options == nil {
+		t.Fatalf("expected server options to be non-nil")
 	}
-	if loaded.Options.Temperature == nil || *loaded.Options.Temperature != 0.5 {
-		t.Errorf("expected temperature 0.5, got %v", loaded.Options.Temperature)
+	if loaded.Server.Options.Temperature == nil || *loaded.Server.Options.Temperature != 0.5 {
+		t.Errorf("expected temperature 0.5, got %v", loaded.Server.Options.Temperature)
 	}
-	if loaded.Options.NumCtx == nil || *loaded.Options.NumCtx != 8192 {
-		t.Errorf("expected num_ctx 8192, got %v", loaded.Options.NumCtx)
+	if loaded.Server.Options.NumCtx == nil || *loaded.Server.Options.NumCtx != 8192 {
+		t.Errorf("expected num_ctx 8192, got %v", loaded.Server.Options.NumCtx)
 	}
-	if loaded.Options.TopP != nil {
-		t.Errorf("expected top_p to be nil, got %v", loaded.Options.TopP)
+	if loaded.Server.Options.TopP != nil {
+		t.Errorf("expected top_p to be nil, got %v", loaded.Server.Options.TopP)
 	}
 }
 
@@ -518,13 +520,15 @@ func TestConfig_SaveAndLoad_Isolation(t *testing.T) {
 
 	temp := 0.6
 	cfg := &Config{
-		Provider:    "openai",
-		Model:       "gpt-4o-mini",
-		Endpoint:    "https://api.openai.com/v1/chat/completions",
-		VaultPath:   filepath.Join(tmpDir, "vault.db"),
-		StorageType: "sqlite",
-		Options: &ModelOptions{
-			Temperature: &temp,
+		Server: &ServerConfig{
+			Provider:    "openai",
+			Model:       "gpt-4o-mini",
+			Endpoint:    "https://api.openai.com/v1/chat/completions",
+			VaultPath:   filepath.Join(tmpDir, "vault.db"),
+			StorageType: "sqlite",
+			Options: &ModelOptions{
+				Temperature: &temp,
+			},
 		},
 	}
 
@@ -537,11 +541,11 @@ func TestConfig_SaveAndLoad_Isolation(t *testing.T) {
 		t.Fatalf("failed to load config from isolated dir: %v", err)
 	}
 
-	if loaded.Model != "gpt-4o-mini" {
-		t.Errorf("expected model gpt-4o-mini, got %s", loaded.Model)
+	if loaded.Server == nil || loaded.Server.Model != "gpt-4o-mini" {
+		t.Errorf("expected model gpt-4o-mini, got %v", loaded.Server)
 	}
-	if loaded.Options == nil || loaded.Options.Temperature == nil || *loaded.Options.Temperature != 0.6 {
-		t.Errorf("expected temperature 0.6, got %v", loaded.Options)
+	if loaded.Server.Options == nil || loaded.Server.Options.Temperature == nil || *loaded.Server.Options.Temperature != 0.6 {
+		t.Errorf("expected temperature 0.6, got %v", loaded.Server.Options)
 	}
 }
 
@@ -647,7 +651,7 @@ func TestConfig_WorkspaceDir(t *testing.T) {
 
 	// 2. Custom path returns absolute path
 	tmpDir := t.TempDir()
-	cfg := Config{WorkspaceDir: tmpDir}
+	cfg := Config{Server: &ServerConfig{WorkspaceDir: tmpDir}}
 	absTmp, _ := filepath.Abs(tmpDir)
 	if cfg.GetWorkspaceDir() != absTmp {
 		t.Errorf("expected %s, got %s", absTmp, cfg.GetWorkspaceDir())
@@ -655,24 +659,24 @@ func TestConfig_WorkspaceDir(t *testing.T) {
 
 	// 3. Tilde expansion & trailing slash handling
 	home, _ := os.UserHomeDir()
-	tildeCfg := Config{WorkspaceDir: "~/my-project"}
+	tildeCfg := Config{Server: &ServerConfig{WorkspaceDir: "~/my-project"}}
 	expectedTilde := filepath.Join(home, "my-project")
 	if tildeCfg.GetWorkspaceDir() != expectedTilde {
 		t.Errorf("expected %s, got %s", expectedTilde, tildeCfg.GetWorkspaceDir())
 	}
 
-	tildeSlashCfg := Config{WorkspaceDir: "~/my-project/"}
+	tildeSlashCfg := Config{Server: &ServerConfig{WorkspaceDir: "~/my-project/"}}
 	if tildeSlashCfg.GetWorkspaceDir() != expectedTilde {
 		t.Errorf("expected %s for trailing slash, got %s", expectedTilde, tildeSlashCfg.GetWorkspaceDir())
 	}
 
 	// 4. Environment variable expansion ($HOME)
-	envCfg := Config{WorkspaceDir: "$HOME/my-project"}
+	envCfg := Config{Server: &ServerConfig{WorkspaceDir: "$HOME/my-project"}}
 	if envCfg.GetWorkspaceDir() != expectedTilde {
-		t.Errorf("expected %s for $HOME, got %s", expectedTilde, envCfg.GetWorkspaceDir())
+		t.Errorf("expected %s for $HOME expansion, got %s", expectedTilde, envCfg.GetWorkspaceDir())
 	}
 
-	envBraceCfg := Config{WorkspaceDir: "${HOME}/my-project/"}
+	envBraceCfg := Config{Server: &ServerConfig{WorkspaceDir: "${HOME}/my-project/"}}
 	if envBraceCfg.GetWorkspaceDir() != expectedTilde {
 		t.Errorf("expected %s for ${HOME} with trailing slash, got %s", expectedTilde, envBraceCfg.GetWorkspaceDir())
 	}
@@ -686,8 +690,8 @@ func TestConfig_WorkspaceDir(t *testing.T) {
 	if err := json.Unmarshal(data, &loaded); err != nil {
 		t.Fatalf("failed to unmarshal config: %v", err)
 	}
-	if loaded.WorkspaceDir != tmpDir {
-		t.Errorf("expected WorkspaceDir %s, got %s", tmpDir, loaded.WorkspaceDir)
+	if loaded.Server == nil || loaded.Server.WorkspaceDir != tmpDir {
+		t.Errorf("expected WorkspaceDir %s, got %v", tmpDir, loaded.Server)
 	}
 }
 

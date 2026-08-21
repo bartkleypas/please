@@ -89,6 +89,19 @@ type Model struct {
 }
 
 func NewModel(cfg *engine.Config, g *engine.Graph, s engine.Storage, p engine.LLMProvider, currentID string) Model {
+	if cfg == nil {
+		cfg = engine.NewDefaultConfig()
+	} else {
+		if cfg.Server == nil {
+			defaultCfg := engine.NewDefaultConfig()
+			cfg.Server = defaultCfg.Server
+		}
+		if cfg.Client == nil {
+			defaultCfg := engine.NewDefaultConfig()
+			cfg.Client = defaultCfg.Client
+		}
+	}
+
 	ti := textarea.New()
 	ti.Placeholder = "Type a message or /command..."
 	ti.Focus()

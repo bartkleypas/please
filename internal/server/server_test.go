@@ -140,9 +140,13 @@ func TestRESTAPI_V1(t *testing.T) {
 	}
 	pacing := false
 	cfg := &engine.Config{
-		Provider:      "mock",
-		Model:         "mock-model",
-		NaturalPacing: &pacing,
+		Server: &engine.ServerConfig{
+			Provider: "mock",
+			Model:    "mock-model",
+		},
+		Client: &engine.ClientConfig{
+			NaturalPacing: &pacing,
+		},
 	}
 	srv := NewServerWithProvider(mgr, mockProvider, cfg)
 	handler := srv.Handler()
@@ -237,9 +241,13 @@ func TestChatStream_SSE(t *testing.T) {
 	}
 	pacing := false
 	cfg := &engine.Config{
-		Provider:      "mock",
-		Model:         "mock-model",
-		NaturalPacing: &pacing,
+		Server: &engine.ServerConfig{
+			Provider: "mock",
+			Model:    "mock-model",
+		},
+		Client: &engine.ClientConfig{
+			NaturalPacing: &pacing,
+		},
 	}
 	srv := NewServerWithProvider(mgr, mockProvider, cfg)
 	ts := httptest.NewServer(srv.Handler())

@@ -43,8 +43,8 @@ func NewServer(mgr *engine.Manager) *Server {
 // NewServerWithProvider creates a Server instance with provider and configuration
 func NewServerWithProvider(mgr *engine.Manager, provider engine.LLMProvider, cfg *engine.Config) *Server {
 	token := ""
-	if cfg != nil {
-		token = cfg.AuthToken
+	if cfg != nil && cfg.Server != nil {
+		token = cfg.Server.AuthToken
 	}
 	return &Server{
 		Manager:   mgr,
@@ -67,8 +67,8 @@ func (s *Server) SetConfig(cfg *engine.Config) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Config = cfg
-	if cfg != nil && cfg.AuthToken != "" {
-		s.AuthToken = cfg.AuthToken
+	if cfg != nil && cfg.Server != nil && cfg.Server.AuthToken != "" {
+		s.AuthToken = cfg.Server.AuthToken
 	}
 }
 
@@ -263,9 +263,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	provider := "unknown"
 	model := "unknown"
-	if s.Config != nil {
-		provider = s.Config.Provider
-		model = s.Config.Model
+	if s.Config != nil && s.Config.Server != nil {
+		provider = s.Config.Server.Provider
+		model = s.Config.Server.Model
 	}
 
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{

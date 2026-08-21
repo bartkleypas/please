@@ -168,38 +168,38 @@ func main() {
 	}
 
 	if *workspacePath != "" {
-		cfg.WorkspaceDir = *workspacePath
+		cfg.Server.WorkspaceDir = *workspacePath
 	}
 
-	// Apply CLI flag overrides to cfg.Options
+	// Apply CLI flag overrides to cfg.Server.Options
 	if *tempFlag >= 0 || *topPFlag >= 0 || *topKFlag >= 0 || *ctxFlag > 0 || *maxTokensFlag > 0 {
-		if cfg.Options == nil {
-			cfg.Options = &engine.ModelOptions{}
+		if cfg.Server.Options == nil {
+			cfg.Server.Options = &engine.ModelOptions{}
 		}
 		if *tempFlag >= 0 {
-			cfg.Options.Temperature = tempFlag
+			cfg.Server.Options.Temperature = tempFlag
 		}
 		if *topPFlag >= 0 {
-			cfg.Options.TopP = topPFlag
+			cfg.Server.Options.TopP = topPFlag
 		}
 		if *topKFlag >= 0 {
-			cfg.Options.TopK = topKFlag
+			cfg.Server.Options.TopK = topKFlag
 		}
 		if *ctxFlag > 0 {
-			cfg.Options.NumCtx = ctxFlag
+			cfg.Server.Options.NumCtx = ctxFlag
 		}
 		if *maxTokensFlag > 0 {
-			cfg.Options.MaxTokens = maxTokensFlag
+			cfg.Server.Options.MaxTokens = maxTokensFlag
 		}
 	}
 
 	// Initialize Storage
-	finalVaultPath := cfg.VaultPath
+	finalVaultPath := cfg.Server.VaultPath
 	if *vaultPath != "" {
 		finalVaultPath = *vaultPath
 	}
 
-	storageType := cfg.StorageType
+	storageType := cfg.Server.StorageType
 	if strings.HasSuffix(finalVaultPath, ".db") {
 		storageType = "sqlite"
 	} else if strings.HasSuffix(finalVaultPath, ".jsonl") {
@@ -208,13 +208,13 @@ func main() {
 
 	var storage engine.Storage
 	if storageType == "sqlite" {
-		storage, err = engine.NewSQLiteStorage(finalVaultPath, cfg.EncryptionKey)
+		storage, err = engine.NewSQLiteStorage(finalVaultPath, cfg.Server.EncryptionKey)
 		if err != nil {
 			fmt.Printf("Error initializing sqlite storage: %v\n", err)
 			os.Exit(1)
 		}
 	} else {
-		storage = engine.NewJSONLStorage(finalVaultPath, cfg.EncryptionKey)
+		storage = engine.NewJSONLStorage(finalVaultPath, cfg.Server.EncryptionKey)
 	}
 
 	graph, lastID, err := storage.LoadGraph()
@@ -224,10 +224,10 @@ func main() {
 	}
 
 	var provider engine.LLMProvider
-	if cfg.Provider == "openai" {
-		provider = engine.NewOpenAIProvider(cfg.Endpoint, cfg.Model, cfg.APIKey, cfg.Options)
+	if cfg.Server.Provider == "openai" {
+		provider = engine.NewOpenAIProvider(cfg.Server.Endpoint, cfg.Server.Model, cfg.Server.APIKey, cfg.Server.Options)
 	} else {
-		provider = engine.NewOllamaProvider(cfg.Endpoint, cfg.Model, cfg.Options)
+		provider = engine.NewOllamaProvider(cfg.Server.Endpoint, cfg.Server.Model, cfg.Server.Options)
 	}
 	mgr := engine.NewManager(graph, storage)
 	mgr.RegisterDefaultTools(cfg.GetWorkspaceDir())
@@ -367,18 +367,18 @@ func runServe(args []string) {
 	}
 
 	if *workspacePath != "" {
-		cfg.WorkspaceDir = *workspacePath
+		cfg.Server.WorkspaceDir = *workspacePath
 	}
 	if *tokenFlag != "" {
-		cfg.AuthToken = *tokenFlag
+		cfg.Server.AuthToken = *tokenFlag
 	}
 
-	finalVaultPath := cfg.VaultPath
+	finalVaultPath := cfg.Server.VaultPath
 	if *vaultPath != "" {
 		finalVaultPath = *vaultPath
 	}
 
-	storageType := cfg.StorageType
+	storageType := cfg.Server.StorageType
 	if strings.HasSuffix(finalVaultPath, ".db") {
 		storageType = "sqlite"
 	} else if strings.HasSuffix(finalVaultPath, ".jsonl") {
@@ -387,13 +387,13 @@ func runServe(args []string) {
 
 	var storage engine.Storage
 	if storageType == "sqlite" {
-		storage, err = engine.NewSQLiteStorage(finalVaultPath, cfg.EncryptionKey)
+		storage, err = engine.NewSQLiteStorage(finalVaultPath, cfg.Server.EncryptionKey)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error initializing sqlite storage: %v\n", err)
 			os.Exit(1)
 		}
 	} else {
-		storage = engine.NewJSONLStorage(finalVaultPath, cfg.EncryptionKey)
+		storage = engine.NewJSONLStorage(finalVaultPath, cfg.Server.EncryptionKey)
 	}
 
 	graph, _, err := storage.LoadGraph()
@@ -403,18 +403,18 @@ func runServe(args []string) {
 	}
 
 	var provider engine.LLMProvider
-	if cfg.Provider == "openai" {
-		provider = engine.NewOpenAIProvider(cfg.Endpoint, cfg.Model, cfg.APIKey, cfg.Options)
+	if cfg.Server.Provider == "openai" {
+		provider = engine.NewOpenAIProvider(cfg.Server.Endpoint, cfg.Server.Model, cfg.Server.APIKey, cfg.Server.Options)
 	} else {
-		provider = engine.NewOllamaProvider(cfg.Endpoint, cfg.Model, cfg.Options)
+		provider = engine.NewOllamaProvider(cfg.Server.Endpoint, cfg.Server.Model, cfg.Server.Options)
 	}
 
 	mgr := engine.NewManager(graph, storage)
 	mgr.RegisterDefaultTools(cfg.GetWorkspaceDir())
 
 	srv := server.NewServerWithProvider(mgr, provider, cfg)
-	if cfg.AuthToken != "" {
-		srv.SetAuthToken(cfg.AuthToken)
+	if cfg.Server.AuthToken != "" {
+		srv.SetAuthToken(cfg.Server.AuthToken)
 	}
 
 	protocol := "http"
@@ -423,9 +423,9 @@ func runServe(args []string) {
 		cFile := *certFile
 		kFile := *keyFile
 
-		if cFile == "" && cfg.TLSCertFile != "" {
-			cFile = cfg.TLSCertFile
-			kFile = cfg.TLSKeyFile
+		if cFile == "" && cfg.Server.TLSCertFile != "" {
+			cFile = cfg.Server.TLSCertFile
+			kFile = cfg.Server.TLSKeyFile
 		}
 
 		if cFile == "" || kFile == "" || *genCerts {
@@ -458,7 +458,7 @@ func runServe(args []string) {
 	}
 
 	authStatus := "disabled (open local)"
-	if cfg.AuthToken != "" {
+	if cfg.Server.AuthToken != "" {
 		authStatus = "enabled (Bearer token active)"
 	}
 
@@ -466,7 +466,7 @@ func runServe(args []string) {
 	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 	fmt.Printf("  • Endpoint:       %s://%s:%d\n", protocol, *host, *port)
 	fmt.Printf("  • Vault:          %s (%s)\n", finalVaultPath, storageType)
-	fmt.Printf("  • Provider:       %s (%s)\n", cfg.Provider, cfg.Model)
+	fmt.Printf("  • Provider:       %s (%s)\n", cfg.Server.Provider, cfg.Server.Model)
 	fmt.Printf("  • Authentication: %s\n", authStatus)
 	fmt.Printf("  • SSE Stream:     %s://%s:%d/api/v1/chat/stream\n", protocol, *host, *port)
 	fmt.Printf("  • Graph REST:     %s://%s:%d/api/v1/graph\n", protocol, *host, *port)
