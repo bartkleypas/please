@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -23,12 +24,36 @@ type RemoteDaemonProvider struct {
 	client     *http.Client
 }
 
+func resolveCACert(caCertPath string, baseURL string) string {
+	if caCertPath != "" {
+		if strings.HasPrefix(caCertPath, "~/") || caCertPath == "~" {
+			if home, err := os.UserHomeDir(); err == nil {
+				caCertPath = filepath.Join(home, strings.TrimPrefix(caCertPath, "~"))
+			}
+		}
+		return caCertPath
+	}
+
+	// Auto-discovery if connecting via HTTPS
+	if strings.HasPrefix(baseURL, "https://") {
+		if cfgDir, err := GetConfigDir(); err == nil {
+			defaultCA := filepath.Join(cfgDir, "certs", "ca.crt")
+			if _, err := os.Stat(defaultCA); err == nil {
+				return defaultCA
+			}
+		}
+	}
+	return ""
+}
+
 // NewRemoteDaemonProvider creates a new provider instance connected to the specified daemon base URL.
 func NewRemoteDaemonProvider(baseURL, authToken, caCertPath string) (*RemoteDaemonProvider, error) {
 	baseURL = strings.TrimRight(baseURL, "/")
 	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
 		baseURL = "http://" + baseURL
 	}
+
+	caCertPath = resolveCACert(caCertPath, baseURL)
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 
@@ -263,6 +288,8 @@ func NewRemoteDaemonStorage(baseURL, authToken, caCertPath string) (*RemoteDaemo
 	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
 		baseURL = "http://" + baseURL
 	}
+
+	caCertPath = resolveCACert(caCertPath, baseURL)
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 

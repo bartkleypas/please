@@ -485,7 +485,22 @@ func runConnect(args []string) {
 	jumpID := fs.String("jump", "", "Node ID to jump to in interactive mode")
 	fs.StringVar(jumpID, "j", "", "Node ID to jump to in interactive mode (shorthand)")
 
-	_ = fs.Parse(args)
+	var flagArgs []string
+	var posArgs []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if strings.HasPrefix(arg, "-") {
+			flagArgs = append(flagArgs, arg)
+			if !strings.Contains(arg, "=") && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				i++
+				flagArgs = append(flagArgs, args[i])
+			}
+		} else {
+			posArgs = append(posArgs, arg)
+		}
+	}
+
+	_ = fs.Parse(flagArgs)
 
 	cfg, err := engine.LoadConfig()
 	if err != nil {
@@ -497,8 +512,8 @@ func runConnect(args []string) {
 	if cfg.Client != nil && cfg.Client.RemoteURL != "" {
 		remoteURL = cfg.Client.RemoteURL
 	}
-	if fs.NArg() > 0 {
-		remoteURL = fs.Arg(0)
+	if len(posArgs) > 0 {
+		remoteURL = posArgs[0]
 	}
 
 	token := ""
