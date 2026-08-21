@@ -17,14 +17,46 @@ type ModelOptions struct {
 	MaxTokens   *int     `json:"max_tokens,omitempty"`
 }
 
-// Config holds the application settings
-type Config struct {
-	Provider      string        `json:"provider"`
+// ServerConfig holds settings for running the engine daemon
+type ServerConfig struct {
+	Host          string        `json:"host,omitempty"`
+	Port          int           `json:"port,omitempty"`
+	Provider      string        `json:"provider,omitempty"`
 	APIKey        string        `json:"api_key,omitempty"`
-	Model         string        `json:"model"`
-	Endpoint      string        `json:"endpoint"`
-	VaultPath     string        `json:"vault_path"`
-	StorageType   string        `json:"storage_type"` // "jsonl" or "sqlite"
+	Model         string        `json:"model,omitempty"`
+	Endpoint      string        `json:"endpoint,omitempty"`
+	VaultPath     string        `json:"vault_path,omitempty"`
+	StorageType   string        `json:"storage_type,omitempty"`
+	EncryptionKey string        `json:"encryption_key,omitempty"`
+	WorkspaceDir  string        `json:"workspace_dir,omitempty"`
+	AuthToken     string        `json:"auth_token,omitempty"`
+	TLSCertFile   string        `json:"tls_cert_file,omitempty"`
+	TLSKeyFile    string        `json:"tls_key_file,omitempty"`
+	Options       *ModelOptions `json:"options,omitempty"`
+}
+
+// ClientConfig holds settings for connecting the TUI to a remote daemon
+type ClientConfig struct {
+	RemoteURL     string `json:"remote_url,omitempty"`
+	AuthToken     string `json:"auth_token,omitempty"`
+	CACertPath    string `json:"ca_cert_path,omitempty"`
+	NaturalPacing *bool  `json:"natural_pacing,omitempty"`
+}
+
+// Config holds the application settings, supporting both namespaced and flat formats
+type Config struct {
+	Mode string `json:"mode,omitempty"` // "standalone", "server", "client"
+
+	Server *ServerConfig `json:"server,omitempty"`
+	Client *ClientConfig `json:"client,omitempty"`
+
+	// Flat fields for direct access and backwards compatibility
+	Provider      string        `json:"provider,omitempty"`
+	APIKey        string        `json:"api_key,omitempty"`
+	Model         string        `json:"model,omitempty"`
+	Endpoint      string        `json:"endpoint,omitempty"`
+	VaultPath     string        `json:"vault_path,omitempty"`
+	StorageType   string        `json:"storage_type,omitempty"` // "jsonl" or "sqlite"
 	EncryptionKey string        `json:"encryption_key,omitempty"`
 	NaturalPacing *bool         `json:"natural_pacing,omitempty"`
 	Options       *ModelOptions `json:"options,omitempty"`
@@ -34,10 +66,131 @@ type Config struct {
 	TLSKeyFile    string        `json:"tls_key_file,omitempty"`
 }
 
+// SyncOnLoad is called after unmarshaling JSON to populate namespaces or flat fields
+func (c *Config) SyncOnLoad() {
+	if c.Server == nil {
+		c.Server = &ServerConfig{}
+	}
+	if c.Client == nil {
+		c.Client = &ClientConfig{}
+	}
+
+	// If Server block was provided in JSON, copy Server -> flat
+	if c.Server.Provider != "" && c.Provider == "" {
+		c.Provider = c.Server.Provider
+	}
+	if c.Server.Model != "" && c.Model == "" {
+		c.Model = c.Server.Model
+	}
+	if c.Server.Endpoint != "" && c.Endpoint == "" {
+		c.Endpoint = c.Server.Endpoint
+	}
+	if c.Server.APIKey != "" && c.APIKey == "" {
+		c.APIKey = c.Server.APIKey
+	}
+	if c.Server.VaultPath != "" && c.VaultPath == "" {
+		c.VaultPath = c.Server.VaultPath
+	}
+	if c.Server.StorageType != "" && c.StorageType == "" {
+		c.StorageType = c.Server.StorageType
+	}
+	if c.Server.EncryptionKey != "" && c.EncryptionKey == "" {
+		c.EncryptionKey = c.Server.EncryptionKey
+	}
+	if c.Server.WorkspaceDir != "" && c.WorkspaceDir == "" {
+		c.WorkspaceDir = c.Server.WorkspaceDir
+	}
+	if c.Server.AuthToken != "" && c.AuthToken == "" {
+		c.AuthToken = c.Server.AuthToken
+	}
+	if c.Server.TLSCertFile != "" && c.TLSCertFile == "" {
+		c.TLSCertFile = c.Server.TLSCertFile
+	}
+	if c.Server.TLSKeyFile != "" && c.TLSKeyFile == "" {
+		c.TLSKeyFile = c.Server.TLSKeyFile
+	}
+	if c.Server.Options != nil && c.Options == nil {
+		c.Options = c.Server.Options
+	}
+
+	// If flat fields were provided in JSON, copy flat -> Server
+	if c.Provider != "" && c.Server.Provider == "" {
+		c.Server.Provider = c.Provider
+	}
+	if c.Model != "" && c.Server.Model == "" {
+		c.Server.Model = c.Model
+	}
+	if c.Endpoint != "" && c.Server.Endpoint == "" {
+		c.Server.Endpoint = c.Endpoint
+	}
+	if c.APIKey != "" && c.Server.APIKey == "" {
+		c.Server.APIKey = c.APIKey
+	}
+	if c.VaultPath != "" && c.Server.VaultPath == "" {
+		c.Server.VaultPath = c.VaultPath
+	}
+	if c.StorageType != "" && c.Server.StorageType == "" {
+		c.Server.StorageType = c.StorageType
+	}
+	if c.EncryptionKey != "" && c.Server.EncryptionKey == "" {
+		c.Server.EncryptionKey = c.EncryptionKey
+	}
+	if c.WorkspaceDir != "" && c.Server.WorkspaceDir == "" {
+		c.Server.WorkspaceDir = c.WorkspaceDir
+	}
+	if c.AuthToken != "" && c.Server.AuthToken == "" {
+		c.Server.AuthToken = c.AuthToken
+	}
+	if c.TLSCertFile != "" && c.Server.TLSCertFile == "" {
+		c.Server.TLSCertFile = c.TLSCertFile
+	}
+	if c.TLSKeyFile != "" && c.Server.TLSKeyFile == "" {
+		c.Server.TLSKeyFile = c.TLSKeyFile
+	}
+	if c.Options != nil && c.Server.Options == nil {
+		c.Server.Options = c.Options
+	}
+
+	if c.Client.NaturalPacing != nil && c.NaturalPacing == nil {
+		c.NaturalPacing = c.Client.NaturalPacing
+	}
+	if c.NaturalPacing != nil && c.Client.NaturalPacing == nil {
+		c.Client.NaturalPacing = c.NaturalPacing
+	}
+	if c.Client.AuthToken != "" && c.AuthToken == "" {
+		c.AuthToken = c.Client.AuthToken
+	}
+}
+
+// SyncNamespaces updates Server and Client sub-structs from flat fields prior to saving
+func (c *Config) SyncNamespaces() {
+	if c.Server == nil {
+		c.Server = &ServerConfig{}
+	}
+	if c.Client == nil {
+		c.Client = &ClientConfig{}
+	}
+
+	c.Server.Provider = c.Provider
+	c.Server.Model = c.Model
+	c.Server.Endpoint = c.Endpoint
+	c.Server.APIKey = c.APIKey
+	c.Server.VaultPath = c.VaultPath
+	c.Server.StorageType = c.StorageType
+	c.Server.EncryptionKey = c.EncryptionKey
+	c.Server.WorkspaceDir = c.WorkspaceDir
+	c.Server.AuthToken = c.AuthToken
+	c.Server.TLSCertFile = c.TLSCertFile
+	c.Server.TLSKeyFile = c.TLSKeyFile
+	c.Server.Options = c.Options
+
+	c.Client.NaturalPacing = c.NaturalPacing
+	if c.Client.AuthToken == "" && c.AuthToken != "" {
+		c.Client.AuthToken = c.AuthToken
+	}
+}
+
 // GetWorkspaceDir returns the resolved absolute workspace directory.
-// If WorkspaceDir is configured, it expands environment variables (e.g. $HOME),
-// expands ~, and returns its absolute path.
-// Otherwise, it returns "." (the current working directory).
 func (c *Config) GetWorkspaceDir() string {
 	if c == nil || c.WorkspaceDir == "" {
 		return "."
@@ -80,7 +233,6 @@ func (c *Config) IsPacingEnabled() bool {
 }
 
 // GetConfigDir returns the directory where the configuration file is stored.
-// If PLEASE_CONFIG_DIR is set, it overrides the system user config directory.
 func GetConfigDir() (string, error) {
 	if dir := os.Getenv("PLEASE_CONFIG_DIR"); dir != "" {
 		return dir, nil
@@ -93,7 +245,6 @@ func GetConfigDir() (string, error) {
 }
 
 // LoadConfig attempts to load the config from the user's config directory.
-// If it doesn't exist, it creates one with sensible defaults.
 func LoadConfig() (*Config, error) {
 	appDir, err := GetConfigDir()
 	if err != nil {
@@ -101,18 +252,14 @@ func LoadConfig() (*Config, error) {
 	}
 
 	configPath := filepath.Join(appDir, "config.json")
-	// fmt.Printf("DEBUG: Looking for config at: %s\n", configPath)
 
-	// Ensure the directory exists
 	if err := os.MkdirAll(appDir, 0755); err != nil {
 		return nil, fmt.Errorf("could not create config directory: %w", err)
 	}
 
-	// Try to read existing config
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// Create default config
 			cfg := defaultConfig()
 			if err := cfg.Save(); err != nil {
 				return nil, fmt.Errorf("could not save default config: %w", err)
@@ -127,9 +274,10 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config JSON: %w", err)
 	}
 
-	// Backward compatibility: default to jsonl if not specified
+	cfg.SyncOnLoad()
+
 	if cfg.StorageType == "" {
-		cfg.StorageType = "jsonl"
+		cfg.StorageType = "sqlite"
 	}
 	if cfg.Provider == "" {
 		cfg.Provider = "ollama"
@@ -149,8 +297,9 @@ func (c *Config) Save() error {
 		return err
 	}
 
-	configPath := filepath.Join(appDir, "config.json")
+	c.SyncNamespaces()
 
+	configPath := filepath.Join(appDir, "config.json")
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
@@ -160,21 +309,32 @@ func (c *Config) Save() error {
 }
 
 func defaultConfig() *Config {
-	// Default vault path: ~/.local/share/please/vault.jsonl (on Linux/macOS)
 	home, _ := os.UserHomeDir()
 	vaultDir := filepath.Join(home, ".local", "share", "please")
-	// fmt.Printf("DEBUG: Creating default vault at: %s\n", vaultDir)
-
-	// Ensure data directory exists
 	_ = os.MkdirAll(vaultDir, 0755)
 
 	pacing := true
-	return &Config{
+	cfg := &Config{
+		Mode:          "standalone",
 		Provider:      "ollama",
 		Model:         "gemma4:e4b",
 		Endpoint:      "http://localhost:11434/api/chat",
 		VaultPath:     filepath.Join(vaultDir, "vault.db"),
 		StorageType:   "sqlite",
 		NaturalPacing: &pacing,
+		Server: &ServerConfig{
+			Host:        "127.0.0.1",
+			Port:        8080,
+			Provider:    "ollama",
+			Model:       "gemma4:e4b",
+			Endpoint:    "http://localhost:11434/api/chat",
+			VaultPath:   filepath.Join(vaultDir, "vault.db"),
+			StorageType: "sqlite",
+		},
+		Client: &ClientConfig{
+			RemoteURL:     "http://127.0.0.1:8080",
+			NaturalPacing: &pacing,
+		},
 	}
+	return cfg
 }

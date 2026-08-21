@@ -2,14 +2,19 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/bartkleypas/please/internal/engine"
 	"github.com/bartkleypas/please/internal/server"
@@ -41,6 +46,9 @@ func main() {
 		case "serve":
 			runServe(os.Args[2:])
 			return
+		case "connect":
+			runConnect(os.Args[2:])
+			return
 		case "cert":
 			if len(os.Args) > 2 && os.Args[2] == "generate" {
 				runCertGenerate(os.Args[3:])
@@ -67,7 +75,7 @@ func main() {
 	jumpID := flag.String("jump", "", "Node ID to jump to in interactive mode")
 	flag.StringVar(jumpID, "j", "", "Node ID to jump to in interactive mode (shorthand)")
 
-	serverPort := flag.Int("server", 0, "Start visualization & API server on specified port")
+	serverPort := flag.Int("server", 0, "Start API & visualization server on specified port")
 	flag.IntVar(serverPort, "s", 0, "Start server on port (shorthand)")
 
 	noGen := flag.Bool("no-gen", false, "Disable automatic LLM generation when passing a message")
@@ -88,18 +96,18 @@ func main() {
 	infoFlag := flag.Bool("info", false, "Print image metadata info and exit")
 
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "🦉 Please: A DAG-based TUI and streaming daemon for branching LLM conversations.\n\n")
-		fmt.Fprintf(os.Stderr, "Usage: please [command] [options] [message...]\n\n")
-		fmt.Fprintf(os.Stderr, "Commands:\n")
-		fmt.Fprintf(os.Stderr, "  serve            Start the API & streaming engine daemon\n")
-		fmt.Fprintf(os.Stderr, "  cert generate    Generate 20-year internal Root CA and Server certificates\n\n")
+		fmt.Fprintf(os.Stderr, "🦉 Please: A DAG-based conversation harness, streaming daemon, and client.\n\n")
+		fmt.Fprintf(os.Stderr, "Usage:\n")
+		fmt.Fprintf(os.Stderr, "  please                    Start standalone interactive TUI (default)\n")
+		fmt.Fprintf(os.Stderr, "  please serve [options]    Start the API & streaming engine daemon\n")
+		fmt.Fprintf(os.Stderr, "  please connect [url]      Connect TUI to a remote Please daemon\n")
+		fmt.Fprintf(os.Stderr, "  please cert generate      Generate 20-year internal Root CA and Server certificates\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
-		fmt.Fprintf(os.Stderr, "  -c, --chat             Start the TUI chat interface\n")
 		fmt.Fprintf(os.Stderr, "  -v, --vault <path>     Path to a custom vault file\n")
 		fmt.Fprintf(os.Stderr, "  -w, --workspace <path> Path to project workspace directory\n")
 		fmt.Fprintf(os.Stderr, "  -p, --parent <id>      Parent node ID for new message\n")
 		fmt.Fprintf(os.Stderr, "  -j, --jump <id>        Node ID to jump to in interactive mode\n")
-		fmt.Fprintf(os.Stderr, "  -s, --server <port>    Start API & visualization server on port\n")
+		fmt.Fprintf(os.Stderr, "  -s, --server <port>    Start API & visualization server on port alongside TUI\n")
 		fmt.Fprintf(os.Stderr, "  -t, --temperature <f>  Sampling temperature (0.0 - 2.0)\n")
 		fmt.Fprintf(os.Stderr, "      --top-p <f>        Top-p nucleus sampling (0.0 - 1.0)\n")
 		fmt.Fprintf(os.Stderr, "      --top-k <i>        Top-k sampling\n")
@@ -320,7 +328,7 @@ func main() {
 		fmt.Printf("Web server started on http://localhost:%d\n", *serverPort)
 	}
 
-	// Start TUI
+	// Start Standalone TUI
 	startID := lastID
 	if *jumpID != "" {
 		startID = *jumpID
@@ -330,7 +338,7 @@ func main() {
 	m.Server = webServer
 	p := tea.NewProgram(&m)
 	if _, err := p.Run(); err != nil {
-		fmt.Printf("Alas, there was an error running the TUI: %v", err)
+		fmt.Printf("Alas, there was an error running the TUI: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -473,6 +481,137 @@ func runServe(args []string) {
 	fmt.Println("\nShutting down engine daemon gracefully...")
 	_ = srv.Stop()
 	fmt.Println("Server stopped.")
+}
+
+func runConnect(args []string) {
+	fs := flag.NewFlagSet("connect", flag.ExitOnError)
+	tokenFlag := fs.String("token", "", "Bearer token for daemon authentication")
+	caCertFlag := fs.String("ca-cert", "", "Path to root CA certificate for TLS verification")
+	jumpID := fs.String("jump", "", "Node ID to jump to in interactive mode")
+	fs.StringVar(jumpID, "j", "", "Node ID to jump to in interactive mode (shorthand)")
+
+	_ = fs.Parse(args)
+
+	cfg, err := engine.LoadConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Configuration error: %v\n", err)
+		os.Exit(1)
+	}
+
+	remoteURL := "http://127.0.0.1:8080"
+	if cfg.Client != nil && cfg.Client.RemoteURL != "" {
+		remoteURL = cfg.Client.RemoteURL
+	}
+	if fs.NArg() > 0 {
+		remoteURL = fs.Arg(0)
+	}
+
+	token := ""
+	if cfg.Client != nil && cfg.Client.AuthToken != "" {
+		token = cfg.Client.AuthToken
+	}
+	if *tokenFlag != "" {
+		token = *tokenFlag
+	}
+
+	caCert := ""
+	if cfg.Client != nil && cfg.Client.CACertPath != "" {
+		caCert = cfg.Client.CACertPath
+	}
+	if *caCertFlag != "" {
+		caCert = *caCertFlag
+	}
+
+	// 1. Create RemoteDaemonProvider
+	provider, err := engine.NewRemoteDaemonProvider(remoteURL, token, caCert)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to initialize remote provider: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 2. Pull initial graph from daemon
+	graph, lastID, err := fetchRemoteGraph(remoteURL, token, caCert)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to connect to daemon at %s: %v\n", remoteURL, err)
+		fmt.Fprintf(os.Stderr, "Ensure the daemon is running with: please serve\n")
+		os.Exit(1)
+	}
+
+	// 3. Setup lightweight in-memory storage for local TUI caching
+	storage := engine.NewJSONLStorage("", "")
+
+	startID := lastID
+	if *jumpID != "" {
+		startID = *jumpID
+	}
+
+	m := tui.NewModel(cfg, graph, storage, provider, startID)
+	m.RemoteURL = remoteURL
+	p := tea.NewProgram(&m)
+	if _, err := p.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error running TUI: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func fetchRemoteGraph(baseURL, token, caCertPath string) (*engine.Graph, string, error) {
+	baseURL = strings.TrimRight(baseURL, "/")
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "http://" + baseURL
+	}
+
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	if caCertPath != "" {
+		caPEM, err := os.ReadFile(caCertPath)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to read CA certificate: %w", err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caPEM) {
+			return nil, "", fmt.Errorf("failed to parse CA certificate")
+		}
+		client.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{RootCAs: pool},
+		}
+	}
+
+	req, err := http.NewRequest(http.MethodGet, baseURL+"/api/v1/graph", nil)
+	if err != nil {
+		return nil, "", err
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("server returned HTTP %d", resp.StatusCode)
+	}
+
+	var graph engine.Graph
+	if err := json.NewDecoder(resp.Body).Decode(&graph); err != nil {
+		return nil, "", fmt.Errorf("failed to decode graph JSON: %w", err)
+	}
+
+	// Find active leaf (latest timestamp)
+	var latestID string
+	var latestTime time.Time
+	for id, node := range graph.Nodes {
+		if node.Timestamp.After(latestTime) {
+			latestTime = node.Timestamp
+			latestID = id
+		}
+	}
+
+	return &graph, latestID, nil
 }
 
 func runCertGenerate(args []string) {

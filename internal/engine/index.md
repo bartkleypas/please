@@ -28,9 +28,10 @@ The `internal/engine` package contains the core logic of the `Please` applicatio
 ### 3. Database Persistence
 *   [storage.go](storage.go) - Connects to the local SQLite database (`vault.db`), manages schemas, indexes parent paths, and executes structural queries.
 
-### 4. LLM Providers
+### 4. LLM Providers & Remote Client
 *   [llm.go](llm.go) - Interfaces for LLM endpoints, options payload building, and the default local Ollama client driver.
 *   [openai.go](openai.go) - Client integration for the OpenAI API and OpenAI-compatible endpoints with streaming reasoning token extraction.
+*   [remote.go](remote.go) - `RemoteDaemonProvider` consuming the `/api/v1/chat/stream` SSE protocol to power `please connect` client mode.
 
 ### 5. Function Calling & Tools
 *   [tool.go](tool.go) - Declares tool definition schemas.

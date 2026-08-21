@@ -24,6 +24,7 @@ type Model struct {
 	Provider  engine.LLMProvider
 	Server    *server.Server
 	CurrentID string
+	RemoteURL string
 
 	TextInput        textarea.Model
 	IsThinking       bool

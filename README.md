@@ -112,6 +112,11 @@ Start the headless API and streaming engine daemon:
 ./please serve --port 8080
 ```
 
+Connect the TUI to a remote Please daemon:
+```bash
+./please connect http://localhost:8080
+```
+
 Generate 20-year internal Root CA and Server certificates for TLS:
 ```bash
 ./please cert generate

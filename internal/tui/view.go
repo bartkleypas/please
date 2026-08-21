@@ -27,7 +27,11 @@ func (m Model) View() string {
 		return s
 	}
 
-	s := titleStyle.Render(" PLEASE - Narrative Graph ") + "\n\n"
+	titleText := " PLEASE - Narrative Graph "
+	if m.RemoteURL != "" {
+		titleText = fmt.Sprintf(" PLEASE - Connected (%s) 🟢 ", m.RemoteURL)
+	}
+	s := titleStyle.Render(titleText) + "\n\n"
 
 	if m.Notification != "" {
 		s += markStyle.Render("! "+m.Notification+" !") + "\n\n"
