@@ -240,74 +240,114 @@ func (m *Model) syncProviderOptions() {
 
 func (m *Model) renderConfigString() string {
 	var s strings.Builder
-	s.WriteString("--- ⚙️  Current Configuration ---\n\n")
+	s.WriteString("--- ⚙️  Configuration & Engine State ---\n\n")
 
 	srv := m.Config.Server
 	if srv == nil {
 		srv = &engine.ServerConfig{}
 	}
+	cli := m.Config.Client
+	if cli == nil {
+		cli = &engine.ClientConfig{}
+	}
 
-	fmt.Fprintf(&s, "  Model:       %s\n", srv.Model)
-	fmt.Fprintf(&s, "  Endpoint:    %s\n", srv.Endpoint)
-	fmt.Fprintf(&s, "  Vault:       %s\n", srv.VaultPath)
+	// Active Session
+	sessionStr := "Standalone (Local Embedded Engine)"
+	if m.RemoteURL != "" {
+		sessionStr = fmt.Sprintf("Connected (%s 🟢)", m.RemoteURL)
+	}
+	fmt.Fprintf(&s, "  • Active Session:  %s\n\n", sessionStr)
+
+	// [ Server / Engine Backend ]
+	s.WriteString("  [ Server / Engine Backend ]\n")
+	providerStr := srv.Provider
+	if providerStr == "" {
+		providerStr = "ollama"
+	}
+	fmt.Fprintf(&s, "    Provider:        %s (%s)\n", providerStr, srv.Model)
+	fmt.Fprintf(&s, "    Endpoint:        %s\n", srv.Endpoint)
+	storageType := srv.StorageType
+	if storageType == "" {
+		storageType = "sqlite"
+	}
+	fmt.Fprintf(&s, "    Vault:           %s (%s)\n", srv.VaultPath, storageType)
 	wsStr := srv.WorkspaceDir
 	if wsStr == "" {
 		wsStr = "(current directory)"
 	}
-	fmt.Fprintf(&s, "  Workspace:   %s\n", wsStr)
+	fmt.Fprintf(&s, "    Workspace:       %s\n", wsStr)
 	encStr := "(disabled)"
 	if srv.EncryptionKey != "" {
 		encStr = "•••••••• (configured)"
 	}
-	fmt.Fprintf(&s, "  Encryption:  %s\n", encStr)
-	pacingStr := "disabled"
-	if m.Config.IsPacingEnabled() {
-		pacingStr = "enabled"
+	fmt.Fprintf(&s, "    Encryption:      %s\n", encStr)
+	authStr := "disabled (open local)"
+	if srv.AuthToken != "" {
+		authStr = "enabled (Bearer token active)"
 	}
-	fmt.Fprintf(&s, "  Pacing:      %s\n", pacingStr)
+	fmt.Fprintf(&s, "    Authentication:  %s\n", authStr)
 
-	s.WriteString("\n  Inference / Runner Options:\n")
+	s.WriteString("\n    Inference Parameters:\n")
 	if srv.Options != nil {
 		if srv.Options.Temperature != nil {
-			fmt.Fprintf(&s, "    Temperature:  %.2f\n", *srv.Options.Temperature)
+			fmt.Fprintf(&s, "      Temperature:   %.2f\n", *srv.Options.Temperature)
 		} else {
-			s.WriteString("    Temperature:  (default)\n")
+			s.WriteString("      Temperature:   (default)\n")
 		}
 		if srv.Options.TopP != nil {
-			fmt.Fprintf(&s, "    Top P:        %.2f\n", *srv.Options.TopP)
+			fmt.Fprintf(&s, "      Top P:         %.2f\n", *srv.Options.TopP)
 		} else {
-			s.WriteString("    Top P:        (default)\n")
+			s.WriteString("      Top P:         (default)\n")
 		}
 		if srv.Options.TopK != nil {
-			fmt.Fprintf(&s, "    Top K:        %d\n", *srv.Options.TopK)
+			fmt.Fprintf(&s, "      Top K:         %d\n", *srv.Options.TopK)
 		} else {
-			s.WriteString("    Top K:        (default)\n")
+			s.WriteString("      Top K:         (default)\n")
 		}
 		if srv.Options.NumCtx != nil {
-			fmt.Fprintf(&s, "    Context Size: %d tokens\n", *srv.Options.NumCtx)
+			fmt.Fprintf(&s, "      Context Size:  %d tokens\n", *srv.Options.NumCtx)
 		} else {
-			s.WriteString("    Context Size: (default)\n")
+			s.WriteString("      Context Size:  (default)\n")
 		}
 		if srv.Options.MaxTokens != nil {
-			fmt.Fprintf(&s, "    Max Tokens:   %d tokens\n", *srv.Options.MaxTokens)
+			fmt.Fprintf(&s, "      Max Tokens:    %d tokens\n", *srv.Options.MaxTokens)
 		} else {
-			s.WriteString("    Max Tokens:   (default)\n")
+			s.WriteString("      Max Tokens:    (default)\n")
 		}
 	} else {
-		s.WriteString("    (All provider defaults)\n")
+		s.WriteString("      (All provider defaults)\n")
 	}
 
+	// [ Client / TUI Preferences ]
+	s.WriteString("\n  [ Client / TUI Preferences ]\n")
+	pacingStr := "disabled"
+	if m.Config.IsPacingEnabled() {
+		pacingStr = "enabled (natural reading pace)"
+	}
+	fmt.Fprintf(&s, "    Pacing:          %s\n", pacingStr)
+	remoteURL := cli.RemoteURL
+	if remoteURL == "" {
+		remoteURL = "http://127.0.0.1:8080 (default)"
+	}
+	fmt.Fprintf(&s, "    Remote Daemon:   %s\n", remoteURL)
+	cliTokenStr := "(none)"
+	if cli.AuthToken != "" {
+		cliTokenStr = "•••••••• (configured)"
+	}
+	fmt.Fprintf(&s, "    Client Token:    %s\n", cliTokenStr)
+
 	s.WriteString("\nUsage:\n")
-	s.WriteString("  /config model <name>          Change the LLM model\n")
-	s.WriteString("  /config endpoint <url>        Change the API endpoint\n")
-	s.WriteString("  /config workspace <path|def>  Set workspace directory root\n")
+	s.WriteString("  /config model <name>          Change LLM model\n")
+	s.WriteString("  /config endpoint <url>        Change API endpoint\n")
+	s.WriteString("  /config workspace <path|def>  Set workspace root directory\n")
 	s.WriteString("  /config key <val|default>     Set or clear vault encryption key\n")
 	s.WriteString("  /config pacing <on|off>       Toggle natural reading pace\n")
-	s.WriteString("  /config temp <val|default>    Set sampling temperature (e.g. 0.7)\n")
-	s.WriteString("  /config top_p <val|default>   Set top-p sampling (e.g. 0.9)\n")
-	s.WriteString("  /config top_k <val|default>   Set top-k sampling (e.g. 40)\n")
-	s.WriteString("  /config ctx <val|default>     Set context size in tokens (e.g. 16384)\n")
-	s.WriteString("  /config max_tokens <val|def>  Set max generation tokens (e.g. 2048)\n")
+	s.WriteString("  /config remote <url>          Set default remote daemon URL\n")
+	s.WriteString("  /config temp <val|default>    Set sampling temperature\n")
+	s.WriteString("  /config top_p <val|default>   Set top-p sampling\n")
+	s.WriteString("  /config top_k <val|default>   Set top-k sampling\n")
+	s.WriteString("  /config ctx <val|default>     Set context window tokens\n")
+	s.WriteString("  /config max_tokens <val|def>  Set maximum generation tokens\n")
 
 	return s.String()
 }
@@ -323,7 +363,7 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	}
 
 	if len(args) < 2 {
-		m.Notification = "Usage: /config <model|endpoint|pacing|workspace|key|temp|top_p|top_k|ctx|max_tokens> <value>"
+		m.Notification = "Usage: /config <model|endpoint|workspace|key|pacing|remote|temp|top_p|top_k|ctx|max_tokens> <value>"
 		return m, nil
 	}
 
@@ -385,6 +425,14 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		default:
 			m.Notification = "Usage: /config pacing <on|off>"
 			return m, nil
+		}
+	case "remote", "daemon", "server_url", "url":
+		if strings.ToLower(value) == "default" || strings.ToLower(value) == "reset" {
+			m.Config.Client.RemoteURL = "http://127.0.0.1:8080"
+			m.Notification = "Default remote daemon URL reset to http://127.0.0.1:8080"
+		} else {
+			m.Config.Client.RemoteURL = value
+			m.Notification = "Default remote daemon URL set to " + value
 		}
 	case "temp", "temperature":
 		if m.Config.Server.Options == nil {
@@ -480,7 +528,7 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		m.Notification = fmt.Sprintf("Error saving config: %v", err)
 	}
 
-	if m.ViewportOverride != "" && strings.Contains(m.ViewportOverride, "Current Configuration") {
+	if m.ViewportOverride != "" && strings.Contains(m.ViewportOverride, "Configuration") {
 		m.ViewportOverride = m.renderConfigString()
 		m.Viewport.SetContent(m.ViewportOverride)
 	}

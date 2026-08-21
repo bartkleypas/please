@@ -482,7 +482,7 @@ func TestConfigCommand_Workspace(t *testing.T) {
 
 	// 1. Initial workspace display
 	m.HandleCommand("/config")
-	if !strings.Contains(m.ViewportOverride, "Workspace:   (current directory)") {
+	if !strings.Contains(m.ViewportOverride, "Workspace:       (current directory)") {
 		t.Errorf("expected initial workspace to be (current directory), got:\n%s", m.ViewportOverride)
 	}
 
@@ -503,7 +503,7 @@ func TestConfigCommand_Workspace(t *testing.T) {
 	if m.Config.Server.WorkspaceDir != "" {
 		t.Errorf("expected WorkspaceDir to be empty after reset, got %s", m.Config.Server.WorkspaceDir)
 	}
-	if !strings.Contains(m.ViewportOverride, "(current directory)") {
+	if !strings.Contains(m.ViewportOverride, "Workspace:       (current directory)") {
 		t.Errorf("expected ViewportOverride to show (current directory), got:\n%s", m.ViewportOverride)
 	}
 }
@@ -522,7 +522,7 @@ func TestConfigCommand_EncryptionKey(t *testing.T) {
 
 	// 1. Initial display shows disabled
 	m.HandleCommand("/config")
-	if !strings.Contains(m.ViewportOverride, "Encryption:  (disabled)") {
+	if !strings.Contains(m.ViewportOverride, "Encryption:      (disabled)") {
 		t.Errorf("expected initial encryption to be (disabled), got:\n%s", m.ViewportOverride)
 	}
 
@@ -537,7 +537,7 @@ func TestConfigCommand_EncryptionKey(t *testing.T) {
 	if strings.Contains(m.ViewportOverride, secretKey) {
 		t.Fatalf("security violation: plaintext encryption key leaked in /config sheet display")
 	}
-	if !strings.Contains(m.ViewportOverride, "Encryption:  •••••••• (configured)") {
+	if !strings.Contains(m.ViewportOverride, "Encryption:      •••••••• (configured)") {
 		t.Errorf("expected redacted encryption display, got:\n%s", m.ViewportOverride)
 	}
 
@@ -546,7 +546,7 @@ func TestConfigCommand_EncryptionKey(t *testing.T) {
 	if m.Config.Server.EncryptionKey != "" {
 		t.Errorf("expected EncryptionKey to be empty after reset, got %s", m.Config.Server.EncryptionKey)
 	}
-	if !strings.Contains(m.ViewportOverride, "Encryption:  (disabled)") {
+	if !strings.Contains(m.ViewportOverride, "Encryption:      (disabled)") {
 		t.Errorf("expected disabled encryption display after reset, got:\n%s", m.ViewportOverride)
 	}
 }

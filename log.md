@@ -53,9 +53,11 @@ All updates and modifications to this knowledge bundle are tracked chronological
 *   **REST API v1 Suite & Bearer Auth**: Implemented complete DAG and node CRUD handlers (`/api/v1/graph`, `/api/v1/nodes`, `/api/v1/branches/{id}`, `/api/v1/supernodes`, `/api/v1/gc`, `/api/v1/tools`, `/api/v1/health`), CORS, and Bearer token auth middleware in [server.go](internal/server/server.go).
 *   **20-Year Internal PKI Certificate Generator**: Added `Generate20YearCerts` in [cert.go](internal/server/cert.go) to generate self-signed ECDSA Root CA and Server Leaf certificates valid for 7,300 days with SANs (`localhost`, `127.0.0.1`, `please.local`), eliminating SSL cert expiration friction for local and home network setups.
 *   **Engine Daemon & Cert CLI Subcommands**: Added `please serve` and `please cert generate` subcommands in [main.go](cmd/please/main.go) with flags for port, host, TLS, auto-certificate generation, and authentication tokens.
-*   **Namespaced Configuration Architecture**: Restructured `Config` into distinct `ServerConfig` and `ClientConfig` blocks in [config.go](internal/engine/config.go) with bidirectional `SyncOnLoad()` and `SyncNamespaces()`, eliminating endpoint/token collisions between daemon and client modes while preserving backwards compatibility.
+*   **Schema Version Migration (v1 ➔ v2)**: Replaced fragile manual sync loops with a clean schema migration in [config.go](internal/engine/config.go) that auto-upgrades legacy flat configs on disk to namespaced `ServerConfig` and `ClientConfig` blocks on first load.
 *   **Remote Daemon SSE Provider**: Implemented `RemoteDaemonProvider` in [remote.go](internal/engine/remote.go) conforming to `LLMProvider`, consuming the `/api/v1/chat/stream` SSE protocol and demuxing thinking tokens, content chunks, and host tool calls over HTTP/TLS.
 *   **Conversational CLI Ergonomics (`please connect`)**: Added `please connect [url]` subcommand in [main.go](cmd/please/main.go) to launch the TUI in connected client mode with dynamic `[Connected: <url> 🟢]` title bar badges in [view.go](internal/tui/view.go), while preserving bare `please` as the default standalone TUI.
+*   **Segmented TUI Configuration Sheet & `/config remote`**: Updated `/config` in [commands.go](internal/tui/commands.go) to display a clean segmented view showing Active Session mode (`Standalone` vs `Connected`), `[ Server / Engine Backend ]`, and `[ Client / TUI Preferences ]`, along with `/config remote <url>` to adjust remote daemon endpoints on the fly.
+
 
 
 
