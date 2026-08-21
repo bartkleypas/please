@@ -277,10 +277,6 @@ func (m *Model) navigateToNode(node *engine.Node) {
 	m.updateViewportContent()
 }
 
-func (m *Model) updateViewportWithJump() {
-	m.updateViewportContent()
-}
-
 func (m *Model) updateViewportContent() {
 	m.ViewportOverride = "" // Clear override when refreshing chat history
 	var s strings.Builder
