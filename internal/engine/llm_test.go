@@ -742,8 +742,8 @@ func TestToolDefaults_WorkspaceScoping(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read_file failed: %v", err)
 	}
-	if content != "Hello Workspace" {
-		t.Errorf("expected 'Hello Workspace', got '%s'", content)
+	if !strings.Contains(content, "Hello Workspace") {
+		t.Errorf("expected content to contain 'Hello Workspace', got '%s'", content)
 	}
 
 	// 3. Test security sandbox: Path traversal rejected

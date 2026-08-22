@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -152,7 +153,7 @@ func GetDefaultTools(workspaceDir ...string) []Tool {
 		},
 		{
 			Name:        "read_file",
-			Description: "Read the contents of a file from the local filesystem",
+			Description: "Read the contents of a file from the local filesystem with optional line slicing and byte windowing. Supports pagination for large files.",
 			Interactive: false,
 			Parameters: map[string]interface{}{
 				"type": "object",
@@ -160,6 +161,18 @@ func GetDefaultTools(workspaceDir ...string) []Tool {
 					"path": map[string]interface{}{
 						"type":        "string",
 						"description": "The path to the file to read",
+					},
+					"offset": map[string]interface{}{
+						"type":        "integer",
+						"description": "Optional line number to start reading from (1-indexed, default: 1)",
+					},
+					"limit": map[string]interface{}{
+						"type":        "integer",
+						"description": "Optional maximum number of lines to read (default: 150)",
+					},
+					"max_bytes": map[string]interface{}{
+						"type":        "integer",
+						"description": "Optional maximum byte budget for output (default: 8192)",
 					},
 				},
 				"required": []string{"path"},
@@ -173,11 +186,128 @@ func GetDefaultTools(workspaceDir ...string) []Tool {
 				if err != nil {
 					return "", err
 				}
-				content, err := os.ReadFile(safePath)
-				if err != nil {
-					return "", fmt.Errorf("failed to read file: %w", err)
+
+				offset := 1
+				if o, ok := args["offset"]; ok {
+					switch v := o.(type) {
+					case float64:
+						if int(v) > 0 {
+							offset = int(v)
+						}
+					case int:
+						if v > 0 {
+							offset = v
+						}
+					case string:
+						if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
+							offset = parsed
+						}
+					}
 				}
-				return string(content), nil
+
+				limit := 150
+				if l, ok := args["limit"]; ok {
+					switch v := l.(type) {
+					case float64:
+						if int(v) > 0 {
+							limit = int(v)
+						}
+					case int:
+						if v > 0 {
+							limit = v
+						}
+					case string:
+						if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
+							limit = parsed
+						}
+					}
+				}
+
+				maxBytes := 8192
+				if mb, ok := args["max_bytes"]; ok {
+					switch v := mb.(type) {
+					case float64:
+						if int(v) > 0 {
+							maxBytes = int(v)
+						}
+					case int:
+						if v > 0 {
+							maxBytes = v
+						}
+					case string:
+						if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
+							maxBytes = parsed
+						}
+					}
+				}
+
+				file, err := os.Open(safePath)
+				if err != nil {
+					return "", fmt.Errorf("failed to open file: %w", err)
+				}
+				defer file.Close()
+
+				var lines []string
+				scanner := bufio.NewScanner(file)
+				buf := make([]byte, 64*1024)
+				scanner.Buffer(buf, 1024*1024)
+
+				lineNum := 0
+				totalBytes := 0
+				hitByteLimit := false
+				endLine := 0
+
+				for scanner.Scan() {
+					lineNum++
+					if lineNum < offset {
+						continue
+					}
+					if len(lines) >= limit {
+						break
+					}
+
+					line := scanner.Text()
+					// Check per-line length limit (2000 chars) for minified/giant lines
+					const maxSingleLineChars = 2000
+					if len(line) > maxSingleLineChars {
+						line = line[:maxSingleLineChars] + fmt.Sprintf(" ... [line truncated, %d chars remaining]", len(line)-maxSingleLineChars)
+					}
+
+					lineBytes := len(line) + 1
+					if totalBytes+lineBytes > maxBytes && len(lines) > 0 {
+						hitByteLimit = true
+						break
+					}
+
+					lines = append(lines, line)
+					totalBytes += lineBytes
+					endLine = lineNum
+				}
+
+				// Count total lines in file
+				totalLines := lineNum
+				for scanner.Scan() {
+					totalLines++
+				}
+
+				if endLine == 0 && totalLines > 0 && offset > totalLines {
+					return fmt.Sprintf("[Offset %d exceeds total file lines (%d)]", offset, totalLines), nil
+				}
+
+				var sb strings.Builder
+				var paginationHint string
+				if endLine < totalLines {
+					if hitByteLimit {
+						paginationHint = fmt.Sprintf(" (Byte budget reached. To continue, call read_file with offset=%d)", endLine+1)
+					} else {
+						paginationHint = fmt.Sprintf(" (To continue, call read_file with offset=%d)", endLine+1)
+					}
+				}
+
+				fmt.Fprintf(&sb, "[Lines %d-%d of %d (Showing %.1f KB)%s]\n\n", offset, endLine, totalLines, float64(totalBytes)/1024.0, paginationHint)
+				sb.WriteString(strings.Join(lines, "\n"))
+
+				return sb.String(), nil
 			},
 		},
 		{

@@ -362,8 +362,16 @@ func mapToOpenAIMessages(messages []Message) []openAIMessage {
 			openAIContent = parts
 		}
 
+		roleStr := string(m.Role)
+		if m.Role == RoleSummary {
+			roleStr = "system"
+			if strContent, ok := openAIContent.(string); ok {
+				openAIContent = "[Conversation Milestone & Summary Context]:\n" + strContent
+			}
+		}
+
 		msg := openAIMessage{
-			Role:       string(m.Role),
+			Role:       roleStr,
 			Content:    openAIContent,
 			ToolCalls:  tCalls,
 			ToolCallID: m.ToolCallID,

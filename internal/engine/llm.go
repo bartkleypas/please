@@ -344,9 +344,16 @@ func mapToOllamaMessages(messages []Message) []ollamaMessage {
 			}
 		}
 
+		roleStr := string(m.Role)
+		contentStr := m.Content
+		if m.Role == RoleSummary {
+			roleStr = "system"
+			contentStr = "[Conversation Milestone & Summary Context]:\n" + m.Content
+		}
+
 		out = append(out, ollamaMessage{
-			Role:       string(m.Role),
-			Content:    m.Content,
+			Role:       roleStr,
+			Content:    contentStr,
 			Thinking:   m.Thought,
 			Reasoning:  m.Thought,
 			ToolCalls:  tCalls,

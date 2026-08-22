@@ -59,6 +59,12 @@ All updates and modifications to this knowledge bundle are tracked chronological
 *   **Segmented TUI Configuration Sheet & `/config remote`**: Updated `/config` in [commands.go](internal/tui/commands.go) to display a clean segmented view showing Active Session mode (`Standalone` vs `Connected`), `[ Server / Engine Backend ]`, and `[ Client / TUI Preferences ]`, along with `/config remote <url>` to adjust remote daemon endpoints on the fly.
 *   **Remote Daemon Storage Layer (`RemoteDaemonStorage`)**: Implemented `RemoteDaemonStorage` in [remote.go](internal/engine/remote.go) and enhanced `POST /api/v1/nodes` in [server.go](internal/server/server.go) to proxy node mutations and graph fetches over HTTP, enabling connected TUI clients to persist conversation nodes directly into the daemon's vault without local storage file dependencies.
 
+## 2026-08-22
+
+*   **Supernode Platform Safety & System Mapping**: Updated `mapToOllamaMessages` in [llm.go](internal/engine/llm.go) and `mapToOpenAIMessages` in [openai.go](internal/engine/openai.go) to safely map compacted `RoleSummary` Supernodes to authoritative `role: "system"` instructions with a context header prefix, preventing platform rejection or loss during inference.
+*   **Hybrid Line & Byte Windowing File Reader**: Upgraded `read_file` tool in [tool_defaults.go](internal/engine/tool_defaults.go) with support for line slicing (`offset`, `limit`), byte budgets (`max_bytes`), per-line 2,000-character truncation protection against minified/single-line files, and dynamic navigation header envelopes.
+
+
 
 
 
