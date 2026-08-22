@@ -291,6 +291,87 @@ func TestChatStream_SSE(t *testing.T) {
 	}
 }
 
+func TestChatStream_ReusesExistingUserNode(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+	storage, _ := engine.NewSQLiteStorage(dbPath, "")
+	mgr := engine.NewManager(engine.NewGraph(), storage)
+
+	mockProvider := &engine.MockLLMProvider{
+		ResponseContent: "Assistant response",
+	}
+	pacing := false
+	cfg := &engine.Config{
+		Server: &engine.ServerConfig{
+			Provider: "mock",
+			Model:    "mock-model",
+		},
+		Client: &engine.ClientConfig{
+			NaturalPacing: &pacing,
+		},
+	}
+	srv := NewServerWithProvider(mgr, mockProvider, cfg)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// 1. Client creates system node and user node first
+	sysNode, err := mgr.CreateNode("", engine.RoleSystem, "System prompt", false)
+	if err != nil {
+		t.Fatalf("failed to create system node: %v", err)
+	}
+
+	userNode, err := mgr.CreateNode(sysNode.ID, engine.RoleUser, "Client created message", false)
+	if err != nil {
+		t.Fatalf("failed to create user node: %v", err)
+	}
+
+	// 2. Client initiates stream passing node_id
+	clientProvider, err := engine.NewRemoteDaemonProvider(ts.URL, "", "")
+	if err != nil {
+		t.Fatalf("failed to create client provider: %v", err)
+	}
+
+	messages := []engine.Message{
+		{ID: sysNode.ID, Role: engine.RoleSystem, Content: "System prompt"},
+		{ID: userNode.ID, ParentID: sysNode.ID, Role: engine.RoleUser, Content: "Client created message"},
+	}
+
+	contentChan, _, _, errChan := clientProvider.GenerateResponseStream(context.Background(), messages, nil)
+	for contentChan != nil || errChan != nil {
+		select {
+		case _, ok := <-contentChan:
+			if !ok {
+				contentChan = nil
+			}
+		case err, ok := <-errChan:
+			if !ok {
+				errChan = nil
+			}
+			if err != nil {
+				t.Fatalf("unexpected stream error: %v", err)
+			}
+		}
+	}
+
+	// 3. Verify exactly 3 nodes exist in total: 1 System, 1 User, 1 Assistant
+	nodes := mgr.Graph.Nodes
+	if len(nodes) != 3 {
+		t.Fatalf("expected exactly 3 nodes in DAG, got %d", len(nodes))
+	}
+
+	// Verify the children of the system node is only the original userNode
+	sysChildren := mgr.GetChildren(sysNode.ID)
+	if len(sysChildren) != 1 || sysChildren[0].ID != userNode.ID {
+		t.Errorf("expected system node to have only 1 child (%s), got %+v", userNode.ID, sysChildren)
+	}
+
+	// Verify assistant node's parent is the original userNode
+	userChildren := mgr.GetChildren(userNode.ID)
+	if len(userChildren) != 1 || userChildren[0].Role != engine.RoleAssistant {
+		t.Errorf("expected user node to have 1 assistant child, got %+v", userChildren)
+	}
+}
+
 func TestServerAutoSync(t *testing.T) {
 	tmpFile, err := os.CreateTemp("", "vault-*.db")
 	if err != nil {

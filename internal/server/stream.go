@@ -13,6 +13,7 @@ import (
 
 // ChatStreamRequest defines the JSON payload sent by clients to initiate a generation turn.
 type ChatStreamRequest struct {
+	NodeID       string   `json:"node_id,omitempty"`
 	ParentID     string   `json:"parent_id,omitempty"`
 	Message      string   `json:"message"`
 	Role         string   `json:"role,omitempty"` // default "user"
@@ -77,6 +78,7 @@ func sendSSE(w io.Writer, flusher http.Flusher, event string, data interface{}) 
 	return nil
 }
 
+// handleChatStream processes POST /api/v1/chat/stream requests
 func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -89,14 +91,22 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Read and decode request body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
 	var req ChatStreamRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON payload: "+err.Error(), http.StatusBadRequest)
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	if strings.TrimSpace(req.Message) == "" && len(req.Images) == 0 {
-		http.Error(w, "Message content or image attachment is required", http.StatusBadRequest)
+		http.Error(w, "Message or images are required", http.StatusBadRequest)
 		return
 	}
 
@@ -112,9 +122,24 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 	flusher.Flush()
 
-	// 1. Resolve parent ID
+	// 1. Resolve existing user node if specified (e.g. created by client beforehand)
+	var userNode *engine.Node
+	if req.NodeID != "" {
+		if existing, err := s.Manager.GetNode(req.NodeID); err == nil && existing != nil {
+			userNode = existing
+		} else {
+			// Sync graph in case node was just written by client via POST /api/v1/nodes
+			if _, _, syncErr := s.Manager.Sync(); syncErr == nil {
+				if syncedNode, err := s.Manager.GetNode(req.NodeID); err == nil && syncedNode != nil {
+					userNode = syncedNode
+				}
+			}
+		}
+	}
+
+	// 2. Resolve parent ID if a new user node must be created
 	parentID := req.ParentID
-	if parentID == "" {
+	if userNode == nil && parentID == "" {
 		// Sync graph to get latest active leaf
 		_, lastID, err := s.Manager.Sync()
 		if err == nil && lastID != "" {
@@ -122,14 +147,7 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 2. Resolve or create User Node
-	var userNode *engine.Node
-	if parentID != "" {
-		if existing, err := s.Manager.GetNode(parentID); err == nil && existing.Role == engine.RoleUser && existing.Content == req.Message {
-			userNode = existing
-		}
-	}
-
+	// 3. Create User Node if not already existing
 	if userNode == nil {
 		role := engine.RoleUser
 		if req.Role != "" {

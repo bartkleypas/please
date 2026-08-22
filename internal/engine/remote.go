@@ -139,13 +139,15 @@ func (p *RemoteDaemonProvider) GenerateResponseStream(ctx context.Context, messa
 		defer close(toolCallChan)
 		defer close(errChan)
 
-		// Extract the latest user message and history
+		// Extract the latest user message, node ID, and history
+		var userNodeID string
 		var lastUserMessage string
 		var parentID string
 		var images []string
 
 		for i := len(messages) - 1; i >= 0; i-- {
 			if messages[i].Role == RoleUser {
+				userNodeID = messages[i].ID
 				lastUserMessage = messages[i].Content
 				images = messages[i].Images
 				parentID = messages[i].ParentID
@@ -154,6 +156,7 @@ func (p *RemoteDaemonProvider) GenerateResponseStream(ctx context.Context, messa
 		}
 
 		payload := map[string]interface{}{
+			"node_id":   userNodeID,
 			"message":   lastUserMessage,
 			"role":      "user",
 			"parent_id": parentID,
