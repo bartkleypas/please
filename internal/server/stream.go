@@ -200,9 +200,7 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 			case thought, ok := <-thoughtChan:
 				if !ok {
 					thoughtChan = nil
-					continue
-				}
-				if thought != "" {
+				} else if thought != "" {
 					fullThought.WriteString(thought)
 					_ = sendSSE(w, flusher, EventThought, ThoughtPayload{Chunk: thought})
 				}
@@ -210,9 +208,7 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 			case chunk, ok := <-contentChan:
 				if !ok {
 					contentChan = nil
-					continue
-				}
-				if chunk != "" {
+				} else if chunk != "" {
 					fullContent.WriteString(chunk)
 					_ = sendSSE(w, flusher, EventToken, TokenPayload{Chunk: chunk})
 				}
@@ -220,18 +216,14 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 			case toolCalls, ok := <-toolCallsChan:
 				if !ok {
 					toolCallsChan = nil
-					continue
-				}
-				if len(toolCalls) > 0 {
+				} else if len(toolCalls) > 0 {
 					accumulatedToolCalls = append(accumulatedToolCalls, toolCalls...)
 				}
 
 			case streamErr, ok := <-errChan:
 				if !ok {
 					errChan = nil
-					continue
-				}
-				if streamErr != nil {
+				} else if streamErr != nil {
 					_ = sendSSE(w, flusher, EventError, ErrorPayload{Error: streamErr.Error()})
 					return
 				}
