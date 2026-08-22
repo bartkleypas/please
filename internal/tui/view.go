@@ -4,7 +4,34 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"github.com/charmbracelet/lipgloss"
 )
+
+func (m Model) renderFooterHelp(leftHelp string) string {
+	used, limit, pct, color := m.ContextStats()
+	usedStr := fmt.Sprintf("%.1fk", float64(used)/1000.0)
+	if used < 1000 {
+		usedStr = fmt.Sprintf("%d", used)
+	}
+	limitStr := fmt.Sprintf("%.0fk", float64(limit)/1000.0)
+	if limit < 1000 {
+		limitStr = fmt.Sprintf("%d", limit)
+	}
+
+	badge := lipgloss.NewStyle().Foreground(color).Render(fmt.Sprintf("[Ctx: %s/%s %d%%]", usedStr, limitStr, pct))
+	left := helpStyle.Render(leftHelp)
+
+	if m.Width <= 0 {
+		return left + "  " + badge
+	}
+
+	gap := m.Width - lipgloss.Width(left) - lipgloss.Width(badge) - 2
+	if gap < 2 {
+		gap = 2
+	}
+	return left + strings.Repeat(" ", gap) + badge
+}
 
 func (m Model) View() string {
 	if m.PersonaSetupMode {
@@ -77,12 +104,16 @@ func (m Model) View() string {
 		s += "\n" + botStyle.Render(fmt.Sprintf("%s %s", spinner, msg)) + "\n"
 	}
 
+	// Update dynamic color on the prompt block based on active context stats
+	_, _, _, color := m.ContextStats()
+	m.TextInput.FocusedStyle.Prompt = lipgloss.NewStyle().Foreground(color)
+
 	// Footer Rendering
 	if m.ViewMode == ModeMap {
 		if m.Searching {
 			s += "\n\n" + inputBoxStyle.Render(m.SearchInput.View())
 		} else if !m.AwaitingPruneConfirmation && !m.AwaitingCompactConfirmation && !m.IsCompressing {
-			s += "\n\n" + helpStyle.Render("h/l: fold/unfold • j/k: move • g/G: top/end • /: search • c: compact • d: prune • esc: chat")
+			s += "\n\n" + m.renderFooterHelp("h/l: fold/unfold • j/k: move • g/G: top/end • /: search • c: compact • d: prune • esc: chat")
 		}
 	} else {
 		if len(m.PendingImages) > 0 {
@@ -94,11 +125,11 @@ func (m Model) View() string {
 		}
 		s += "\n\n" + inputBoxStyle.Render(m.TextInput.View())
 		if m.AwaitingToolConfirmation {
-			s += "\n\n" + helpStyle.Render("(Press y/n to confirm/deny, or type a message/command to cancel & bypass them)")
+			s += "\n\n" + m.renderFooterHelp("(Press y/n to confirm/deny, or type a message to bypass)")
 		} else if m.ViewportOverride != "" {
-			s += "\n\n" + helpStyle.Render("(ESC: return to chat • ↑/↓ or PgUp/PgDn to scroll • /q to exit)")
+			s += "\n\n" + m.renderFooterHelp("(ESC: return to chat • ↑/↓ or PgUp/PgDn to scroll • /q to exit)")
 		} else {
-			s += "\n\n" + helpStyle.Render("(/q to exit • /map for graph • /help for more)")
+			s += "\n\n" + m.renderFooterHelp("(/q to exit • /map for graph • /help for more)")
 		}
 	}
 

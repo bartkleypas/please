@@ -12,6 +12,7 @@ import (
 	"github.com/bartkleypas/please/internal/engine"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func TestUpdateStateTransitions(t *testing.T) {
@@ -660,5 +661,56 @@ func TestNavigateToNode_AssistantAndUserTurns(t *testing.T) {
 	}
 	if m.TextInput.Value() != "First question from user" {
 		t.Errorf("expected TextInput to contain user1 content, got %q", m.TextInput.Value())
+	}
+}
+
+func TestContextStats_DynamicColoring(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
+	dbPath := filepath.Join(tmpDir, "vault.db")
+
+	storage, _ := engine.NewSQLiteStorage(dbPath, "")
+	graph := engine.NewGraph()
+	mockProvider := &engine.MockLLMProvider{}
+	pacing := false
+	numCtx := 1000 // Small context limit for testing thresholds
+	cfg := &engine.Config{
+		Client: &engine.ClientConfig{NaturalPacing: &pacing},
+		Server: &engine.ServerConfig{
+			Options: &engine.ModelOptions{NumCtx: &numCtx},
+		},
+	}
+	m := NewModel(cfg, graph, storage, mockProvider, "")
+
+	// 1. Initial empty state: < 60% -> Emerald green
+	used, limit, pct, color := m.ContextStats()
+	if limit != 1000 {
+		t.Errorf("expected limit 1000, got %d", limit)
+	}
+	if pct >= 60 {
+		t.Errorf("expected low initial pct, got %d", pct)
+	}
+	if color != lipgloss.Color("#4ade80") {
+		t.Errorf("expected emerald green color, got %v", color)
+	}
+
+	// 2. Medium state: ~70% -> Amber gold
+	m.TextInput.SetValue(strings.Repeat("a", 2600)) // ~684 tokens -> 68%
+	used, _, pct, color = m.ContextStats()
+	if pct < 60 || pct >= 85 {
+		t.Errorf("expected amber pct (60-85), got %d (used: %d)", pct, used)
+	}
+	if color != lipgloss.Color("#facc15") {
+		t.Errorf("expected amber color, got %v", color)
+	}
+
+	// 3. High state: > 85% -> Rose coral
+	m.TextInput.SetValue(strings.Repeat("a", 3600)) // ~947 tokens -> 94%
+	_, _, pct, color = m.ContextStats()
+	if pct < 85 {
+		t.Errorf("expected coral pct (>85), got %d", pct)
+	}
+	if color != lipgloss.Color("#fb7185") {
+		t.Errorf("expected coral color, got %v", color)
 	}
 }
