@@ -190,13 +190,18 @@ func (s *SQLiteStorage) SaveNode(node *Node) error {
 	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
+	tsVal := node.Timestamp
+	if tsVal.IsZero() {
+		tsVal = time.Now()
+	}
+
 	_, err = s.db.Exec(query,
 		node.ID,
 		node.ParentID,
 		string(node.Role),
 		encContent,
 		encThought,
-		node.Timestamp,
+		tsVal.Format(time.RFC3339Nano),
 		encToolCalls,
 		node.ToolCallID,
 		encObservations,
@@ -229,32 +234,32 @@ func (s *SQLiteStorage) UpdateNodeMetadata(node *Node) error {
 
 // GarbageCollect permanently removes deleted nodes and vacuums the database
 func (s *SQLiteStorage) GarbageCollect() (int64, error) {
-	res, err := s.db.Exec("DELETE FROM nodes WHERE deleted = 1")
+	query := `DELETE FROM nodes WHERE deleted = 1`
+	res, err := s.db.Exec(query)
 	if err != nil {
 		return 0, fmt.Errorf("failed to delete nodes: %w", err)
 	}
 
-	rows, _ := res.RowsAffected()
+	count, _ := res.RowsAffected()
 
-	_, err = s.db.Exec("VACUUM")
-	if err != nil {
-		return rows, fmt.Errorf("vacuum failed: %w", err)
+	if _, err := s.db.Exec("VACUUM;"); err != nil {
+		return count, fmt.Errorf("failed to vacuum sqlite: %w", err)
 	}
 
-	return rows, nil
+	return count, nil
 }
 
-// UpdateNodeParentID updates the parent reference of a node in the database
+// UpdateNodeParentID updates the parent ID of a node in the database
 func (s *SQLiteStorage) UpdateNodeParentID(nodeID, newParentID string) error {
 	query := `UPDATE nodes SET parent_id = ? WHERE id = ?`
 	_, err := s.db.Exec(query, newParentID, nodeID)
 	if err != nil {
-		return fmt.Errorf("failed to update node parent in sqlite: %w", err)
+		return fmt.Errorf("failed to update parent_id in sqlite: %w", err)
 	}
 	return nil
 }
 
-// UpdateNodeObservations updates the side-channel results of a node in the database
+// UpdateNodeObservations updates the observations of an existing node in the database
 func (s *SQLiteStorage) UpdateNodeObservations(nodeID string, obs []ToolObservation) error {
 	obsJSON, err := json.Marshal(obs)
 	if err != nil {
@@ -292,6 +297,7 @@ func (s *SQLiteStorage) LoadGraph() (*Graph, string, error) {
 		var imagesJSON sql.NullString
 		var thought sql.NullString
 		var deleted bool
+		var rawTimestamp interface{}
 
 		err := rows.Scan(
 			&node.ID,
@@ -299,7 +305,7 @@ func (s *SQLiteStorage) LoadGraph() (*Graph, string, error) {
 			&roleStr,
 			&node.Content,
 			&thought,
-			&node.Timestamp,
+			&rawTimestamp,
 			&toolCallsJSON,
 			&node.ToolCallID,
 			&obsJSON,
@@ -310,6 +316,42 @@ func (s *SQLiteStorage) LoadGraph() (*Graph, string, error) {
 		)
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to scan node from sqlite: %w", err)
+		}
+
+		switch ts := rawTimestamp.(type) {
+		case time.Time:
+			node.Timestamp = ts
+		case string:
+			if parsed, err := time.Parse(time.RFC3339Nano, ts); err == nil {
+				node.Timestamp = parsed
+			} else if parsed, err := time.Parse(time.RFC3339, ts); err == nil {
+				node.Timestamp = parsed
+			} else if parsed, err := time.Parse("2006-01-02 15:04:05.999999999-07:00", ts); err == nil {
+				node.Timestamp = parsed
+			} else if parsed, err := time.Parse("2006-01-02 15:04:05.999999999", ts); err == nil {
+				node.Timestamp = parsed
+			} else if parsed, err := time.Parse("2006-01-02 15:04:05", ts); err == nil {
+				node.Timestamp = parsed
+			} else {
+				node.Timestamp = time.Now()
+			}
+		case []byte:
+			str := string(ts)
+			if parsed, err := time.Parse(time.RFC3339Nano, str); err == nil {
+				node.Timestamp = parsed
+			} else if parsed, err := time.Parse(time.RFC3339, str); err == nil {
+				node.Timestamp = parsed
+			} else if parsed, err := time.Parse("2006-01-02 15:04:05.999999999-07:00", str); err == nil {
+				node.Timestamp = parsed
+			} else if parsed, err := time.Parse("2006-01-02 15:04:05", str); err == nil {
+				node.Timestamp = parsed
+			} else {
+				node.Timestamp = time.Now()
+			}
+		case int64:
+			node.Timestamp = time.Unix(ts, 0)
+		default:
+			node.Timestamp = time.Now()
 		}
 
 		if deleted {
