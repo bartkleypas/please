@@ -139,6 +139,14 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 		_ = s.Manager.Storage.SaveNode(userNode)
 	}
 
+	if s.EventBus != nil {
+		s.EventBus.Publish(EventNodeSaved, map[string]interface{}{
+			"node_id":   userNode.ID,
+			"parent_id": userNode.ParentID,
+			"role":      userNode.Role,
+		})
+	}
+
 	maxDepth := req.MaxToolDepth
 	if maxDepth <= 0 {
 		maxDepth = 10
@@ -221,6 +229,14 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 		}
 
 		currentParentID = asstNode.ID
+
+		if s.EventBus != nil {
+			s.EventBus.Publish(EventNodeSaved, map[string]interface{}{
+				"node_id":   asstNode.ID,
+				"parent_id": asstNode.ParentID,
+				"role":      asstNode.Role,
+			})
+		}
 
 		// If no tools were called, generation turn is complete!
 		if len(accumulatedToolCalls) == 0 {

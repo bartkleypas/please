@@ -25,6 +25,7 @@ type Server struct {
 	Provider  engine.LLMProvider
 	Config    *engine.Config
 	AuthToken string
+	EventBus  *EventBus
 	server    *http.Server
 	host      string
 	port      int
@@ -36,8 +37,9 @@ type Server struct {
 // NewServer creates a new Server instance
 func NewServer(mgr *engine.Manager) *Server {
 	return &Server{
-		Manager: mgr,
-		host:    "127.0.0.1",
+		Manager:  mgr,
+		EventBus: NewEventBus(),
+		host:     "127.0.0.1",
 	}
 }
 
@@ -52,6 +54,7 @@ func NewServerWithProvider(mgr *engine.Manager, provider engine.LLMProvider, cfg
 		Provider:  provider,
 		Config:    cfg,
 		AuthToken: token,
+		EventBus:  NewEventBus(),
 		host:      "127.0.0.1",
 	}
 }
@@ -87,6 +90,7 @@ func (s *Server) Handler() http.Handler {
 	// REST API v1
 	mux.HandleFunc("/api/v1/health", s.handleHealth)
 	mux.HandleFunc("/api/v1/graph", s.handleGraph)
+	mux.HandleFunc("/api/v1/events", s.handleEventsStream)
 	mux.HandleFunc("/api/v1/nodes", s.handleNodes)
 	mux.HandleFunc("/api/v1/nodes/", s.handleNodeByID)
 	mux.HandleFunc("/api/v1/branches/", s.handleBranchByID)
@@ -291,6 +295,64 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	flusher.Flush()
+
+	if s.EventBus == nil {
+		s.mu.Lock()
+		if s.EventBus == nil {
+			s.EventBus = NewEventBus()
+		}
+		s.mu.Unlock()
+	}
+
+	sub := s.EventBus.Subscribe()
+	defer sub.Close()
+
+	ctx := r.Context()
+	ticker := time.NewTicker(20 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if _, err := fmt.Fprintf(w, ": keepalive\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
+		case ev, ok := <-sub.Events:
+			if !ok {
+				return
+			}
+			data, err := json.Marshal(ev)
+			if err != nil {
+				continue
+			}
+			if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Type, string(data)); err != nil {
+				return
+			}
+			flusher.Flush()
+		}
+	}
+}
+
 func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -310,6 +372,15 @@ func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			s.Manager.Graph.AddNode(&node)
+
+			if s.EventBus != nil {
+				s.EventBus.Publish(EventNodeSaved, map[string]interface{}{
+					"node_id":   node.ID,
+					"parent_id": node.ParentID,
+					"role":      node.Role,
+				})
+			}
+
 			w.WriteHeader(http.StatusOK)
 			_ = json.NewEncoder(w).Encode(node)
 			return
@@ -337,6 +408,14 @@ func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		if s.EventBus != nil {
+			s.EventBus.Publish(EventNodeSaved, map[string]interface{}{
+				"node_id":   createdNode.ID,
+				"parent_id": createdNode.ParentID,
+				"role":      createdNode.Role,
+			})
+		}
+
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(createdNode)
 
@@ -361,6 +440,9 @@ func (s *Server) handleNodeByID(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to prune branch: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
+		if s.EventBus != nil {
+			s.EventBus.Publish(EventBranchPruned, map[string]interface{}{"root_id": id})
+		}
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "pruned", "node_id": id})
 		return
 	}
@@ -378,6 +460,9 @@ func (s *Server) handleNodeByID(w http.ResponseWriter, r *http.Request) {
 		if err := s.Manager.PruneBranch(id); err != nil {
 			http.Error(w, "Failed to prune branch: "+err.Error(), http.StatusInternalServerError)
 			return
+		}
+		if s.EventBus != nil {
+			s.EventBus.Publish(EventBranchPruned, map[string]interface{}{"root_id": id})
 		}
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "pruned", "node_id": id})
 
@@ -399,6 +484,9 @@ func (s *Server) handleBranchByID(w http.ResponseWriter, r *http.Request) {
 		if err := s.Manager.PruneBranch(id); err != nil {
 			http.Error(w, "Failed to prune branch: "+err.Error(), http.StatusInternalServerError)
 			return
+		}
+		if s.EventBus != nil {
+			s.EventBus.Publish(EventBranchPruned, map[string]interface{}{"root_id": id})
 		}
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "pruned", "branch_id": id})
 		return
@@ -437,6 +525,13 @@ func (s *Server) handleSupernodes(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "Failed to create supernode: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	if s.EventBus != nil {
+		s.EventBus.Publish(EventBranchCompacted, map[string]interface{}{
+			"supernode_id": superNode.ID,
+			"parent_id":    superNode.ParentID,
+		})
 	}
 
 	w.WriteHeader(http.StatusCreated)

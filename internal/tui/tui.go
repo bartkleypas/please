@@ -5,6 +5,15 @@ import (
 )
 
 func (m *Model) Init() tea.Cmd {
+	if m.RemoteURL != "" {
+		token := ""
+		caCert := ""
+		if m.Config != nil && m.Config.Client != nil {
+			token = m.Config.Client.AuthToken
+			caCert = m.Config.Client.CACertPath
+		}
+		return listenRemoteEventsCmd(m.RemoteURL, token, caCert)
+	}
 	return nil
 }
 
@@ -28,6 +37,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleLLMStreamFinished(msg)
 	case streamResponseMsg:
 		return m.handleStreamResponse(msg)
+
+	case remoteDaemonStreamConnMsg:
+		m.RemoteEventsChan = msg.EventChan
+		m.RemoteEventsCancel = msg.Cancel
+		return m, waitForRemoteEventCmd(m.RemoteEventsChan)
+
+	case remoteDaemonEventMsg:
+		return m.handleRemoteDaemonEvent(msg)
 
 	case syncResultMsg:
 		return m.handleSyncResult(msg)

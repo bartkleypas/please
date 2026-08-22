@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/bartkleypas/please/internal/engine"
+	"github.com/bartkleypas/please/internal/server"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -712,5 +713,47 @@ func TestContextStats_DynamicColoring(t *testing.T) {
 	}
 	if color != lipgloss.Color("#fb7185") {
 		t.Errorf("expected coral color, got %v", color)
+	}
+}
+
+func TestRemoteDaemonEvents_LiveSync(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	storage, _ := engine.NewSQLiteStorage(dbPath, "")
+	graph := engine.NewGraph()
+	mgr := engine.NewManager(graph, storage)
+
+	// Create root node in storage
+	rootNode, err := mgr.CreateNode("", engine.RoleSystem, "You are a helpful assistant.", false)
+	if err != nil {
+		t.Fatalf("failed to create root node: %v", err)
+	}
+
+	cfg := engine.NewDefaultConfig()
+	m := NewModel(cfg, graph, storage, nil, rootNode.ID)
+	m.RemoteURL = "http://127.0.0.1:8443"
+
+	// Simulate receiving a node_saved event from Terminal 1
+	newNode, err := mgr.CreateNode(rootNode.ID, engine.RoleUser, "Message from Terminal 1", false)
+	if err != nil {
+		t.Fatalf("failed to create new node: %v", err)
+	}
+
+	eventMsg := remoteDaemonEventMsg{
+		Event: server.DaemonEvent{
+			Type: server.EventNodeSaved,
+			Payload: map[string]interface{}{
+				"node_id":   newNode.ID,
+				"parent_id": rootNode.ID,
+				"role":      "user",
+			},
+		},
+	}
+
+	updatedModel, _ := m.handleRemoteDaemonEvent(eventMsg)
+	updatedM := updatedModel.(*Model)
+
+	if updatedM.CurrentID != newNode.ID {
+		t.Errorf("expected CurrentID to advance to %s, got %s", newNode.ID, updatedM.CurrentID)
 	}
 }

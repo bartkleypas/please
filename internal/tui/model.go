@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"time"
 
 	"github.com/bartkleypas/please/internal/engine"
@@ -90,6 +91,10 @@ type Model struct {
 
 	// Pending attached images
 	PendingImages []string
+
+	// Remote Event Bus state
+	RemoteEventsChan   <-chan server.DaemonEvent
+	RemoteEventsCancel context.CancelFunc
 }
 
 func NewModel(cfg *engine.Config, g *engine.Graph, s engine.Storage, p engine.LLMProvider, currentID string) Model {
