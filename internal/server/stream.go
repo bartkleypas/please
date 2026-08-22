@@ -122,29 +122,39 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 2. Insert User / Caller Node
-	role := engine.RoleUser
-	if req.Role != "" {
-		role = engine.Role(req.Role)
+	// 2. Resolve or create User Node
+	var userNode *engine.Node
+	if parentID != "" {
+		if existing, err := s.Manager.GetNode(parentID); err == nil && existing.Role == engine.RoleUser && existing.Content == req.Message {
+			userNode = existing
+		}
 	}
 
-	userNode, err := s.Manager.CreateNode(parentID, role, req.Message, false)
-	if err != nil {
-		_ = sendSSE(w, flusher, EventError, ErrorPayload{Error: "Failed to create node: " + err.Error()})
-		return
-	}
+	if userNode == nil {
+		role := engine.RoleUser
+		if req.Role != "" {
+			role = engine.Role(req.Role)
+		}
 
-	if len(req.Images) > 0 {
-		s.Manager.AttachImages(userNode, req.Images)
-		_ = s.Manager.Storage.SaveNode(userNode)
-	}
+		var err error
+		userNode, err = s.Manager.CreateNode(parentID, role, req.Message, false)
+		if err != nil {
+			_ = sendSSE(w, flusher, EventError, ErrorPayload{Error: "Failed to create node: " + err.Error()})
+			return
+		}
 
-	if s.EventBus != nil {
-		s.EventBus.Publish(EventNodeSaved, map[string]interface{}{
-			"node_id":   userNode.ID,
-			"parent_id": userNode.ParentID,
-			"role":      userNode.Role,
-		})
+		if len(req.Images) > 0 {
+			s.Manager.AttachImages(userNode, req.Images)
+			_ = s.Manager.Storage.SaveNode(userNode)
+		}
+
+		if s.EventBus != nil {
+			s.EventBus.Publish(EventNodeSaved, map[string]interface{}{
+				"node_id":   userNode.ID,
+				"parent_id": userNode.ParentID,
+				"role":      userNode.Role,
+			})
+		}
 	}
 
 	maxDepth := req.MaxToolDepth

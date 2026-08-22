@@ -386,6 +386,8 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 		}
 
 		msg := Message{
+			ID:         node.ID,
+			ParentID:   node.ParentID,
 			Role:       node.Role,
 			Content:    node.Content + metadataText,
 			ToolCallID: node.ToolCallID,

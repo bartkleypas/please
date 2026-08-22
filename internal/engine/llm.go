@@ -13,6 +13,8 @@ import (
 
 // Message represents a simplified message for LLM providers
 type Message struct {
+	ID           string            `json:"id,omitempty"`
+	ParentID     string            `json:"parent_id,omitempty"`
 	Role         Role              `json:"role"`
 	Content      string            `json:"content"`
 	Thought      string            `json:"thought,omitempty"`

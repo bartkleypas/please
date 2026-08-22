@@ -147,6 +147,7 @@ func (p *RemoteDaemonProvider) GenerateResponseStream(ctx context.Context, messa
 			if messages[i].Role == RoleUser {
 				lastUserMessage = messages[i].Content
 				images = messages[i].Images
+				parentID = messages[i].ParentID
 				break
 			}
 		}
