@@ -2,9 +2,11 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -337,5 +339,134 @@ func TestServerAutoSync(t *testing.T) {
 
 	if _, ok := respGraph.Nodes["external-node"]; !ok {
 		t.Error("Auto-Sync failed: external-node not found in server response")
+	}
+}
+
+func TestChatStream_MultiTurnToolCascading(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+	storage, _ := engine.NewSQLiteStorage(dbPath, "")
+	mgr := engine.NewManager(engine.NewGraph(), storage)
+
+	// Register a test tool in manager
+	mgr.Registry = engine.NewToolRegistry()
+	mgr.Registry.Register(engine.Tool{
+		Name:        "test_reader",
+		Description: "Reads test files",
+		Parameters: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"path": map[string]interface{}{"type": "string"},
+			},
+		},
+		Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
+			return "[Lines 1-64 of test content]", nil
+		},
+	})
+
+	turnCounter := 0
+	mockProvider := &engine.MockLLMProvider{
+		StreamHandler: func(messages []engine.Message, tools []engine.Tool) (string, string, []engine.ToolCall, error) {
+			turnCounter++
+			if turnCounter == 1 {
+				// Turn 1: Emit tool call
+				tCall := engine.ToolCall{
+					ID:   "call_123",
+					Type: "function",
+					Function: struct {
+						Name      string          `json:"name"`
+						Arguments json.RawMessage `json:"arguments"`
+					}{
+						Name:      "test_reader",
+						Arguments: json.RawMessage(`{"path":"test.txt"}`),
+					},
+				}
+				return "", "I will read the test file first.", []engine.ToolCall{tCall}, nil
+			}
+
+			// Turn 2: Verify tool result was delivered in messages context
+			hasToolResult := false
+			for _, m := range messages {
+				if m.Role == engine.RoleTool && strings.Contains(m.Content, "[Lines 1-64 of test content]") {
+					hasToolResult = true
+					break
+				}
+			}
+			if !hasToolResult {
+				return "", "", nil, fmt.Errorf("Turn 2 did not receive RoleTool observation in context: %+v", messages)
+			}
+
+			// Turn 2: Emit final response summary
+			return "Here is the summary of the test file: All looks great!", "Finished reading observation.", nil, nil
+		},
+	}
+
+	pacing := false
+	cfg := &engine.Config{
+		Server: &engine.ServerConfig{
+			Provider: "mock",
+			Model:    "mock-model",
+		},
+		Client: &engine.ClientConfig{
+			NaturalPacing: &pacing,
+		},
+	}
+	srv := NewServerWithProvider(mgr, mockProvider, cfg)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Connect client to daemon
+	clientProvider, err := engine.NewRemoteDaemonProvider(ts.URL, "", "")
+	if err != nil {
+		t.Fatalf("failed to create client provider: %v", err)
+	}
+
+	messages := []engine.Message{
+		{Role: engine.RoleUser, Content: "Please summarize test.txt"},
+	}
+
+	contentChan, thoughtChan, toolCallChan, errChan := clientProvider.GenerateResponseStream(context.Background(), messages, nil)
+
+	var allContent string
+	var allThought string
+
+	for contentChan != nil || thoughtChan != nil || toolCallChan != nil || errChan != nil {
+		select {
+		case chunk, ok := <-contentChan:
+			if !ok {
+				contentChan = nil
+				continue
+			}
+			allContent += chunk
+		case thought, ok := <-thoughtChan:
+			if !ok {
+				thoughtChan = nil
+				continue
+			}
+			allThought += thought
+		case _, ok := <-toolCallChan:
+			if !ok {
+				toolCallChan = nil
+				continue
+			}
+		case err, ok := <-errChan:
+			if !ok {
+				errChan = nil
+				continue
+			}
+			if err != nil {
+				t.Fatalf("unexpected stream error: %v", err)
+			}
+		}
+	}
+
+	if !strings.Contains(allContent, "Here is the summary of the test file") {
+		t.Errorf("expected final content to contain summary, got: %s", allContent)
+	}
+	if !strings.Contains(allThought, "test_reader") {
+		t.Errorf("expected thought to contain tool execution progress, got: %s", allThought)
+	}
+	if turnCounter != 2 {
+		t.Errorf("expected 2 turns executed on server, got %d", turnCounter)
 	}
 }

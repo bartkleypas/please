@@ -7,10 +7,12 @@ import (
 
 // MockLLMProvider allows us to control the LLM response in tests
 type MockLLMProvider struct {
-	ResponseContent string
-	ResponseThought string
-	ResponseErr     error
-	Delay           time.Duration
+	ResponseContent   string
+	ResponseThought   string
+	ResponseToolCalls []ToolCall
+	ResponseErr       error
+	Delay             time.Duration
+	StreamHandler     func(messages []Message, tools []Tool) (string, string, []ToolCall, error)
 }
 
 // GenerateResponse implements the LLMProvider interface for testing purposes
@@ -23,14 +25,28 @@ func (m *MockLLMProvider) GenerateResponse(ctx context.Context, messages []Messa
 		}
 	}
 
+	if m.StreamHandler != nil {
+		content, thought, tCalls, err := m.StreamHandler(messages, tools)
+		if err != nil {
+			return nil, err
+		}
+		return &Message{
+			Role:      RoleAssistant,
+			Content:   content,
+			Thought:   thought,
+			ToolCalls: tCalls,
+		}, nil
+	}
+
 	if m.ResponseErr != nil {
 		return nil, m.ResponseErr
 	}
 
 	return &Message{
-		Role:    RoleAssistant,
-		Content: m.ResponseContent,
-		Thought: m.ResponseThought,
+		Role:      RoleAssistant,
+		Content:   m.ResponseContent,
+		Thought:   m.ResponseThought,
+		ToolCalls: m.ResponseToolCalls,
 	}, nil
 }
 
@@ -56,16 +72,38 @@ func (m *MockLLMProvider) GenerateResponseStream(ctx context.Context, messages [
 			}
 		}
 
+		if m.StreamHandler != nil {
+			content, thought, tCalls, err := m.StreamHandler(messages, tools)
+			if err != nil {
+				errChan <- err
+				return
+			}
+			if thought != "" {
+				thoughtChan <- thought
+			}
+			if len(tCalls) > 0 {
+				toolCallChan <- tCalls
+			}
+			if content != "" {
+				contentChan <- content
+			}
+			return
+		}
+
 		if m.ResponseErr != nil {
 			errChan <- m.ResponseErr
 			return
 		}
 
-		// Send content in a single chunk for simplicity in mock
 		if m.ResponseThought != "" {
 			thoughtChan <- m.ResponseThought
 		}
-		contentChan <- m.ResponseContent
+		if len(m.ResponseToolCalls) > 0 {
+			toolCallChan <- m.ResponseToolCalls
+		}
+		if m.ResponseContent != "" {
+			contentChan <- m.ResponseContent
+		}
 	}()
 
 	return contentChan, thoughtChan, toolCallChan, errChan

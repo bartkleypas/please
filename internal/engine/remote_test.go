@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -92,14 +93,14 @@ func TestRemoteDaemonProvider_Stream(t *testing.T) {
 		}
 	}
 
-	if thoughtReceived != "Thinking about life..." {
-		t.Errorf("expected thought 'Thinking about life...', got '%s'", thoughtReceived)
+	if !strings.Contains(thoughtReceived, "Thinking about life...") {
+		t.Errorf("expected thought to contain 'Thinking about life...', got '%s'", thoughtReceived)
+	}
+	if !strings.Contains(thoughtReceived, "read_file") {
+		t.Errorf("expected thought to contain 'read_file', got '%s'", thoughtReceived)
 	}
 	if contentReceived != "Hello World!" {
 		t.Errorf("expected content 'Hello World!', got '%s'", contentReceived)
-	}
-	if len(toolCallsReceived) != 1 || toolCallsReceived[0].Function.Name != "read_file" {
-		t.Errorf("expected 1 tool call to read_file, got %+v", toolCallsReceived)
 	}
 }
 

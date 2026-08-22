@@ -239,18 +239,7 @@ func (p *RemoteDaemonProvider) GenerateResponseStream(ctx context.Context, messa
 					}
 					if err := json.Unmarshal([]byte(dataStr), &tcPayload); err == nil {
 						argsBytes, _ := json.Marshal(tcPayload.Arguments)
-						call := ToolCall{
-							ID:   tcPayload.ID,
-							Type: "function",
-							Function: struct {
-								Name      string          `json:"name"`
-								Arguments json.RawMessage `json:"arguments"`
-							}{
-								Name:      tcPayload.Tool,
-								Arguments: argsBytes,
-							},
-						}
-						toolCallChan <- []ToolCall{call}
+						thoughtChan <- fmt.Sprintf("\n🛠️  Executing %s(%s)...\n", tcPayload.Tool, string(argsBytes))
 					}
 
 				case "tool_result":
@@ -264,7 +253,11 @@ func (p *RemoteDaemonProvider) GenerateResponseStream(ctx context.Context, messa
 						if trPayload.Error != "" {
 							thoughtChan <- fmt.Sprintf("⚠️  Tool error: %s\n", trPayload.Error)
 						} else {
-							thoughtChan <- "✅ Observation received.\n"
+							preview := trPayload.Output
+							if len(preview) > 160 {
+								preview = preview[:160] + "... (truncated)"
+							}
+							thoughtChan <- fmt.Sprintf("✅ Result: %s\n\n", preview)
 						}
 					}
 
