@@ -259,12 +259,34 @@ func (m *Model) updateViewportWithStreaming() {
 }
 
 func (m *Model) syncMapSelection() {
+	var selectedID string
+	if m.MapSelectionIndex >= 0 && m.MapSelectionIndex < len(m.MapNodeIDs) {
+		selectedID = m.MapNodeIDs[m.MapSelectionIndex]
+	}
+
 	m.ViewportOverride = m.generateMapString()
 	m.Viewport.SetContent(m.ViewportOverride)
 
-	// Ensure selection is within bounds (important after pruning)
-	if m.MapSelectionIndex >= len(m.MapNodeIDs) {
-		m.MapSelectionIndex = len(m.MapNodeIDs) - 1
+	// Re-locate selected node in updated map slice to prevent cursor jumping
+	if selectedID != "" {
+		found := false
+		for i, id := range m.MapNodeIDs {
+			if id == selectedID {
+				m.MapSelectionIndex = i
+				found = true
+				break
+			}
+		}
+		if !found {
+			// If node was pruned or removed, clamp gracefully
+			if m.MapSelectionIndex >= len(m.MapNodeIDs) {
+				m.MapSelectionIndex = len(m.MapNodeIDs) - 1
+			}
+		}
+	} else {
+		if m.MapSelectionIndex >= len(m.MapNodeIDs) {
+			m.MapSelectionIndex = len(m.MapNodeIDs) - 1
+		}
 	}
 	if m.MapSelectionIndex < 0 {
 		m.MapSelectionIndex = 0

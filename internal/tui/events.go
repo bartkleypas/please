@@ -132,14 +132,26 @@ func (m *Model) handleRemoteDaemonEvent(msg remoteDaemonEventMsg) (tea.Model, te
 			if lastID != "" && (m.CurrentID == "" || m.TextInput.Value() == "") {
 				m.CurrentID = lastID
 			}
-			m.updateViewportContent()
 			if m.ViewMode == ModeMap {
 				m.syncMapSelection()
+			} else {
+				m.updateViewportContent()
 			}
+
 		case server.EventBranchPruned, server.EventBranchCompacted:
-			m.updateViewportContent()
+			// If active CurrentID was deleted in graph, fallback to root or valid lastID
+			if activeNode, getErr := m.Manager.GetNode(m.CurrentID); getErr != nil || (activeNode != nil && activeNode.Deleted) {
+				if lastID != "" {
+					m.CurrentID = lastID
+				} else if root, rootErr := m.Manager.Graph.GetSystemRoot(); rootErr == nil && root != nil {
+					m.CurrentID = root.ID
+				}
+			}
+
 			if m.ViewMode == ModeMap {
 				m.syncMapSelection()
+			} else {
+				m.updateViewportContent()
 			}
 		}
 	}

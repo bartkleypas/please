@@ -821,3 +821,103 @@ func TestThoughtFolding_TabAndShiftTab(t *testing.T) {
 		t.Errorf("expected /fold all to collapse when all were expanded")
 	}
 }
+
+func TestMapMode_LiveSync_SelectionPreserved(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	storage, _ := engine.NewSQLiteStorage(dbPath, "")
+	graph := engine.NewGraph()
+	mgr := engine.NewManager(graph, storage)
+
+	rootNode, _ := mgr.CreateNode("", engine.RoleSystem, "System prompt", false)
+	user1, _ := mgr.CreateNode(rootNode.ID, engine.RoleUser, "Turn 1", false)
+	_, _ = mgr.CreateNode(rootNode.ID, engine.RoleUser, "Turn 2", false)
+
+	cfg := engine.NewDefaultConfig()
+	m := NewModel(cfg, graph, storage, nil, rootNode.ID)
+	m.ViewMode = ModeMap
+	m.syncMapSelection()
+
+	// Select user1 in the map
+	var user1Index int = -1
+	for i, id := range m.MapNodeIDs {
+		if id == user1.ID {
+			user1Index = i
+			break
+		}
+	}
+	if user1Index == -1 {
+		t.Fatalf("expected user1 to be in MapNodeIDs")
+	}
+	m.MapSelectionIndex = user1Index
+
+	// Simulate receiving EventNodeSaved from remote daemon for a new turn under root
+	newNode, _ := mgr.CreateNode(rootNode.ID, engine.RoleUser, "Turn 3 (New)", false)
+	eventMsg := remoteDaemonEventMsg{
+		Event: server.DaemonEvent{
+			Type: server.EventNodeSaved,
+			Payload: map[string]interface{}{
+				"node_id":   newNode.ID,
+				"parent_id": rootNode.ID,
+				"role":      "user",
+			},
+		},
+	}
+
+	updatedModel, _ := m.handleRemoteDaemonEvent(eventMsg)
+	updatedM := updatedModel.(*Model)
+
+	// Verify that the currently highlighted node remains user1.ID
+	selectedNodeID := updatedM.MapNodeIDs[updatedM.MapSelectionIndex]
+	if selectedNodeID != user1.ID {
+		t.Errorf("expected selected node to remain user1 (%s), but got %s (index: %d)", user1.ID, selectedNodeID, updatedM.MapSelectionIndex)
+	}
+}
+
+func TestMapMode_LiveSync_PrunedSelectionFallback(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	storage, _ := engine.NewSQLiteStorage(dbPath, "")
+	graph := engine.NewGraph()
+	mgr := engine.NewManager(graph, storage)
+
+	rootNode, _ := mgr.CreateNode("", engine.RoleSystem, "System prompt", false)
+	userNode, _ := mgr.CreateNode(rootNode.ID, engine.RoleUser, "To be pruned", false)
+
+	cfg := engine.NewDefaultConfig()
+	m := NewModel(cfg, graph, storage, nil, userNode.ID)
+	m.ViewMode = ModeMap
+	m.syncMapSelection()
+
+	// Highlight userNode
+	for i, id := range m.MapNodeIDs {
+		if id == userNode.ID {
+			m.MapSelectionIndex = i
+			break
+		}
+	}
+
+	// Prune userNode
+	_ = mgr.PruneBranch(userNode.ID)
+
+	eventMsg := remoteDaemonEventMsg{
+		Event: server.DaemonEvent{
+			Type: server.EventBranchPruned,
+			Payload: map[string]interface{}{
+				"root_id": userNode.ID,
+			},
+		},
+	}
+
+	updatedModel, _ := m.handleRemoteDaemonEvent(eventMsg)
+	updatedM := updatedModel.(*Model)
+
+	// Verify MapSelectionIndex clamped safely to rootNode
+	if len(updatedM.MapNodeIDs) == 0 {
+		t.Fatalf("expected at least rootNode to remain in MapNodeIDs")
+	}
+	selectedNodeID := updatedM.MapNodeIDs[updatedM.MapSelectionIndex]
+	if selectedNodeID != rootNode.ID {
+		t.Errorf("expected selection to fall back to rootNode (%s), got %s", rootNode.ID, selectedNodeID)
+	}
+}
