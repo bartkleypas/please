@@ -95,6 +95,10 @@ type Model struct {
 	// Remote Event Bus state
 	RemoteEventsChan   <-chan server.DaemonEvent
 	RemoteEventsCancel context.CancelFunc
+
+	// Thought folding state
+	ExpandedThoughts    map[string]bool
+	DefaultFoldThoughts bool
 }
 
 func NewModel(cfg *engine.Config, g *engine.Graph, s engine.Storage, p engine.LLMProvider, currentID string) Model {
@@ -132,18 +136,20 @@ func NewModel(cfg *engine.Config, g *engine.Graph, s engine.Storage, p engine.LL
 	si.Prompt = " / "
 
 	m := Model{
-		Config:         cfg,
-		Manager:        mgr,
-		Provider:       p,
-		CurrentID:      currentID,
-		TextInput:      ti,
-		SearchInput:    si,
-		Ready:          true,
-		Width:          0, // Initialize to 0; wait for WindowSizeMsg
-		Viewport:       viewport.New(80, 80),
-		SetupMode:      setupMode,
-		CollapsedNodes: make(map[string]bool),
-		AuditMode:      false,
+		Config:              cfg,
+		Manager:             mgr,
+		Provider:            p,
+		CurrentID:           currentID,
+		TextInput:           ti,
+		SearchInput:         si,
+		Ready:               true,
+		Width:               0, // Initialize to 0; wait for WindowSizeMsg
+		Viewport:            viewport.New(80, 80),
+		SetupMode:           setupMode,
+		CollapsedNodes:      make(map[string]bool),
+		AuditMode:           false,
+		ExpandedThoughts:    make(map[string]bool),
+		DefaultFoldThoughts: true,
 	}
 
 	return m

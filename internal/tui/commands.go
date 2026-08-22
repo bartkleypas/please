@@ -44,6 +44,7 @@ func init() {
 	commandRegistry["/image"] = &AttachCommand{}
 	commandRegistry["/parameters"] = &ParametersCommand{}
 	commandRegistry["/info"] = &ParametersCommand{}
+	commandRegistry["/fold"] = &FoldCommand{}
 
 	// Tool confirmation commands
 	commandRegistry["/yes"] = &ConfirmToolCommand{}
@@ -736,5 +737,62 @@ func (c *ParametersCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd
 	m.ViewportOverride = s.String()
 	m.Viewport.SetContent(m.ViewportOverride)
 	m.Viewport.GotoTop()
+	return m, nil
+}
+
+type FoldCommand struct{}
+
+func (c *FoldCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
+	if m.ExpandedThoughts == nil {
+		m.ExpandedThoughts = make(map[string]bool)
+	}
+
+	if len(args) > 0 && args[0] == "all" {
+		hasExpanded := false
+		if path, err := m.Manager.GetPath(m.CurrentID); err == nil {
+			for _, node := range path {
+				if node.Role == engine.RoleAssistant && m.isThoughtExpanded(node.ID) {
+					hasExpanded = true
+					break
+				}
+			}
+		}
+		newState := !hasExpanded
+		if path, err := m.Manager.GetPath(m.CurrentID); err == nil {
+			for _, node := range path {
+				if node.Role == engine.RoleAssistant {
+					m.ExpandedThoughts[node.ID] = newState
+				}
+			}
+		}
+		m.updateViewportContentPreservingOffset(m.Viewport.YOffset)
+		if newState {
+			m.Notification = "Expanded all reasoning thoughts."
+		} else {
+			m.Notification = "Collapsed all reasoning thoughts."
+		}
+		return m, nil
+	}
+
+	// Toggle active turn
+	targetID := m.CurrentID
+	if path, err := m.Manager.GetPath(m.CurrentID); err == nil && len(path) > 0 {
+		for i := len(path) - 1; i >= 0; i-- {
+			if path[i].Role == engine.RoleAssistant && (path[i].Thought != "" || (path[i].Metadata != nil && path[i].Metadata["segments"] != "")) {
+				targetID = path[i].ID
+				break
+			}
+		}
+	}
+
+	if targetID != "" {
+		m.ExpandedThoughts[targetID] = !m.isThoughtExpanded(targetID)
+		m.updateViewportContentPreservingOffset(m.Viewport.YOffset)
+		if m.ExpandedThoughts[targetID] {
+			m.Notification = fmt.Sprintf("Expanded thought process for %s", targetID)
+		} else {
+			m.Notification = fmt.Sprintf("Collapsed thought process for %s", targetID)
+		}
+	}
 	return m, nil
 }

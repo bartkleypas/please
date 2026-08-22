@@ -44,7 +44,11 @@ func (m *Model) handleKeyEvent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.ViewMode {
 	case ModeChat:
 		var cCmd tea.Cmd
-		m, cCmd = m.handleChatKeys(msg)
+		var handled bool
+		m, cCmd, handled = m.handleChatKeys(msg)
+		if handled {
+			return m, cCmd
+		}
 		cmd = tea.Batch(cmd, cCmd)
 	case ModeMap:
 		return m.handleMapKeys(msg)
@@ -159,15 +163,65 @@ func (m *Model) handleToolConfirmKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 	return m, nil, false
 }
 
-func (m *Model) handleChatKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
+func (m *Model) handleChatKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 	var cmd tea.Cmd
+
+	switch msg.String() {
+	case "tab":
+		if m.ExpandedThoughts == nil {
+			m.ExpandedThoughts = make(map[string]bool)
+		}
+
+		targetID := m.CurrentID
+		if path, err := m.Manager.GetPath(m.CurrentID); err == nil && len(path) > 0 {
+			for i := len(path) - 1; i >= 0; i-- {
+				if path[i].Role == engine.RoleAssistant && (path[i].Thought != "" || (path[i].Metadata != nil && path[i].Metadata["segments"] != "")) {
+					targetID = path[i].ID
+					break
+				}
+			}
+		}
+
+		if targetID != "" {
+			m.ExpandedThoughts[targetID] = !m.isThoughtExpanded(targetID)
+			m.updateViewportContentPreservingOffset(m.Viewport.YOffset)
+		}
+		return m, nil, true
+
+	case "shift+tab":
+		if m.ExpandedThoughts == nil {
+			m.ExpandedThoughts = make(map[string]bool)
+		}
+
+		hasExpanded := false
+		if path, err := m.Manager.GetPath(m.CurrentID); err == nil {
+			for _, node := range path {
+				if node.Role == engine.RoleAssistant && m.isThoughtExpanded(node.ID) {
+					hasExpanded = true
+					break
+				}
+			}
+		}
+
+		newState := !hasExpanded
+		if path, err := m.Manager.GetPath(m.CurrentID); err == nil {
+			for _, node := range path {
+				if node.Role == engine.RoleAssistant {
+					m.ExpandedThoughts[node.ID] = newState
+				}
+			}
+		}
+		m.updateViewportContentPreservingOffset(m.Viewport.YOffset)
+		return m, nil, true
+	}
+
 	// Only send specific scrolling keys to the viewport
 	if msg.String() == "pgup" || msg.String() == "pgdown" || msg.String() == "up" || msg.String() == "down" {
 		var vCmd tea.Cmd
 		m.Viewport, vCmd = m.Viewport.Update(msg)
 		cmd = tea.Batch(cmd, vCmd)
 	}
-	return m, cmd
+	return m, cmd, false
 }
 
 func (m *Model) handleSearchKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {

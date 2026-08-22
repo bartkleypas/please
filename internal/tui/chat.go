@@ -79,9 +79,26 @@ func (m *Model) renderNode(node *engine.Node) string {
 		_ = json.Unmarshal([]byte(node.Metadata["segments"]), &segments)
 	}
 
+	expanded := m.isThoughtExpanded(node.ID)
+
 	if len(segments) > 0 {
+		var totalThoughtChars int
+		for _, seg := range segments {
+			totalThoughtChars += len(seg.Thought)
+		}
+
+		if totalThoughtChars > 0 {
+			if !expanded {
+				s.WriteString(thoughtBadgeStyle.Render(fmt.Sprintf("▶ Thought Process (%d chars) • [Tab to expand]", totalThoughtChars)))
+				s.WriteString("\n")
+			} else {
+				s.WriteString(thoughtBadgeStyle.Render(fmt.Sprintf("▼ Thought Process (%d chars) • [Tab to collapse]", totalThoughtChars)))
+				s.WriteString("\n")
+			}
+		}
+
 		for j, seg := range segments {
-			if seg.Thought != "" {
+			if seg.Thought != "" && expanded {
 				s.WriteString(thoughtStyle.Render(wrapText(seg.Thought, wrapWidth)))
 				s.WriteString("\n")
 			}
@@ -109,8 +126,15 @@ func (m *Model) renderNode(node *engine.Node) string {
 		// Fallback to non-segmented rendering
 		// 1. Render Thought (Lane A)
 		if node.Thought != "" {
-			s.WriteString(thoughtStyle.Render(wrapText(node.Thought, wrapWidth)))
-			s.WriteString("\n")
+			if !expanded {
+				s.WriteString(thoughtBadgeStyle.Render(fmt.Sprintf("▶ Thought Process (%d chars) • [Tab to expand]", len(node.Thought))))
+				s.WriteString("\n")
+			} else {
+				s.WriteString(thoughtBadgeStyle.Render(fmt.Sprintf("▼ Thought Process (%d chars) • [Tab to collapse]", len(node.Thought))))
+				s.WriteString("\n")
+				s.WriteString(thoughtStyle.Render(wrapText(node.Thought, wrapWidth)))
+				s.WriteString("\n")
+			}
 		}
 
 		// 2. Render Tool Interleaving (Lanes B & C)
@@ -139,6 +163,16 @@ func (m *Model) renderNode(node *engine.Node) string {
 	}
 
 	return s.String()
+}
+
+func (m *Model) isThoughtExpanded(nodeID string) bool {
+	if m.ExpandedThoughts == nil {
+		return !m.DefaultFoldThoughts
+	}
+	if expanded, ok := m.ExpandedThoughts[nodeID]; ok {
+		return expanded
+	}
+	return !m.DefaultFoldThoughts
 }
 
 func (m *Model) updateViewportWithNode(node *engine.Node) {
@@ -278,6 +312,10 @@ func (m *Model) navigateToNode(node *engine.Node) {
 }
 
 func (m *Model) updateViewportContent() {
+	m.updateViewportContentPreservingOffset(-1)
+}
+
+func (m *Model) updateViewportContentPreservingOffset(savedOffset int) {
 	m.ViewportOverride = "" // Clear override when refreshing chat history
 	var s strings.Builder
 
@@ -295,5 +333,9 @@ func (m *Model) updateViewportContent() {
 
 	m.ChatHistoryBuffer = s.String()
 	m.Viewport.SetContent(m.ChatHistoryBuffer)
-	m.Viewport.GotoBottom()
+	if savedOffset >= 0 {
+		m.Viewport.SetYOffset(savedOffset)
+	} else {
+		m.Viewport.GotoBottom()
+	}
 }

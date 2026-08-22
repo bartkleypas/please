@@ -757,3 +757,67 @@ func TestRemoteDaemonEvents_LiveSync(t *testing.T) {
 		t.Errorf("expected CurrentID to advance to %s, got %s", newNode.ID, updatedM.CurrentID)
 	}
 }
+
+func TestThoughtFolding_TabAndShiftTab(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	storage, _ := engine.NewSQLiteStorage(dbPath, "")
+	graph := engine.NewGraph()
+	mgr := engine.NewManager(graph, storage)
+
+	rootNode, _ := mgr.CreateNode("", engine.RoleSystem, "System prompt", false)
+	userNode, _ := mgr.CreateNode(rootNode.ID, engine.RoleUser, "User prompt", false)
+	asstNode, _ := mgr.CreateAssistantNode(userNode.ID, "Assistant response", "This is an internal reasoning thought process.", nil, false)
+
+	cfg := engine.NewDefaultConfig()
+	m := NewModel(cfg, graph, storage, nil, asstNode.ID)
+	m.Width = 80
+
+	// 1. Initial State: Folded by default (DefaultFoldThoughts = true)
+	rendered := m.renderNode(asstNode)
+	if !strings.Contains(rendered, "▶ Thought Process") {
+		t.Errorf("expected folded badge '▶ Thought Process', got:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "This is an internal reasoning thought process.") {
+		t.Errorf("expected thought text to be hidden when folded, got:\n%s", rendered)
+	}
+
+	// 2. Press Tab: Expands the active node
+	tabMsg := tea.KeyMsg{Type: tea.KeyTab}
+	resM, _, handled := m.handleChatKeys(tabMsg)
+	if !handled {
+		t.Errorf("expected Tab to be handled in ModeChat")
+	}
+	m = *resM
+
+	renderedExpanded := m.renderNode(asstNode)
+	if !strings.Contains(renderedExpanded, "▼ Thought Process") {
+		t.Errorf("expected expanded badge '▼ Thought Process', got:\n%s", renderedExpanded)
+	}
+	if !strings.Contains(renderedExpanded, "This is an internal reasoning thought process.") {
+		t.Errorf("expected thought text to be visible when expanded, got:\n%s", renderedExpanded)
+	}
+
+	// 3. Press Tab again: Folds back
+	resM, _, _ = m.handleChatKeys(tabMsg)
+	m = *resM
+	renderedFoldedAgain := m.renderNode(asstNode)
+	if !strings.Contains(renderedFoldedAgain, "▶ Thought Process") {
+		t.Errorf("expected folded badge after 2nd Tab, got:\n%s", renderedFoldedAgain)
+	}
+
+	// 4. Test /fold command
+	foldCmd := &FoldCommand{}
+	foldModel, _ := foldCmd.Execute(&m, nil)
+	m = *foldModel.(*Model)
+	if !m.isThoughtExpanded(asstNode.ID) {
+		t.Errorf("expected /fold to expand thought")
+	}
+
+	// 5. Test /fold all
+	foldAllModel, _ := foldCmd.Execute(&m, []string{"all"})
+	m = *foldAllModel.(*Model)
+	if m.isThoughtExpanded(asstNode.ID) {
+		t.Errorf("expected /fold all to collapse when all were expanded")
+	}
+}
