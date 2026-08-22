@@ -101,6 +101,9 @@ func TestEventsEndpoint_SSE(t *testing.T) {
 			break
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("scanner error: %v", err)
+	}
 
 	if !receivedEvent {
 		t.Errorf("did not receive node_saved SSE event")
