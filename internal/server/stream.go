@@ -192,36 +192,49 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 		var fullThought strings.Builder
 		var accumulatedToolCalls []engine.ToolCall
 
-		streamActive := true
-		for streamActive {
+		for contentChan != nil || thoughtChan != nil || toolCallsChan != nil || errChan != nil {
 			select {
 			case <-ctx.Done():
 				return
 
 			case thought, ok := <-thoughtChan:
-				if ok && thought != "" {
+				if !ok {
+					thoughtChan = nil
+					continue
+				}
+				if thought != "" {
 					fullThought.WriteString(thought)
 					_ = sendSSE(w, flusher, EventThought, ThoughtPayload{Chunk: thought})
 				}
 
 			case chunk, ok := <-contentChan:
-				if ok && chunk != "" {
+				if !ok {
+					contentChan = nil
+					continue
+				}
+				if chunk != "" {
 					fullContent.WriteString(chunk)
 					_ = sendSSE(w, flusher, EventToken, TokenPayload{Chunk: chunk})
 				}
 
 			case toolCalls, ok := <-toolCallsChan:
-				if ok && len(toolCalls) > 0 {
+				if !ok {
+					toolCallsChan = nil
+					continue
+				}
+				if len(toolCalls) > 0 {
 					accumulatedToolCalls = append(accumulatedToolCalls, toolCalls...)
 				}
 
 			case streamErr, ok := <-errChan:
-				if ok && streamErr != nil {
+				if !ok {
+					errChan = nil
+					continue
+				}
+				if streamErr != nil {
 					_ = sendSSE(w, flusher, EventError, ErrorPayload{Error: streamErr.Error()})
 					return
 				}
-				// All channels closed, finish turn
-				streamActive = false
 			}
 		}
 

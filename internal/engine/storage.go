@@ -279,6 +279,34 @@ func (s *SQLiteStorage) UpdateNodeObservations(nodeID string, obs []ToolObservat
 	return nil
 }
 
+var timeFormats = []string{
+	time.RFC3339Nano,
+	time.RFC3339,
+	"2006-01-02 15:04:05.999999999-07:00",
+	"2006-01-02 15:04:05.999999999",
+	"2006-01-02 15:04:05",
+}
+
+func parseFlexibleTimestamp(raw interface{}) time.Time {
+	switch ts := raw.(type) {
+	case time.Time:
+		return ts
+	case int64:
+		return time.Unix(ts, 0)
+	case []byte:
+		raw = string(ts)
+	}
+
+	if str, ok := raw.(string); ok {
+		for _, layout := range timeFormats {
+			if t, err := time.Parse(layout, str); err == nil {
+				return t
+			}
+		}
+	}
+	return time.Now()
+}
+
 // LoadGraph reads all nodes from the SQLite database and reconstructs the Graph.
 func (s *SQLiteStorage) LoadGraph() (*Graph, string, error) {
 	query := `SELECT id, parent_id, role, content, thought, timestamp, tool_calls, tool_call_id, observations, metadata, deleted, internal, images FROM nodes ORDER BY timestamp ASC`
@@ -318,41 +346,7 @@ func (s *SQLiteStorage) LoadGraph() (*Graph, string, error) {
 			return nil, "", fmt.Errorf("failed to scan node from sqlite: %w", err)
 		}
 
-		switch ts := rawTimestamp.(type) {
-		case time.Time:
-			node.Timestamp = ts
-		case string:
-			if parsed, err := time.Parse(time.RFC3339Nano, ts); err == nil {
-				node.Timestamp = parsed
-			} else if parsed, err := time.Parse(time.RFC3339, ts); err == nil {
-				node.Timestamp = parsed
-			} else if parsed, err := time.Parse("2006-01-02 15:04:05.999999999-07:00", ts); err == nil {
-				node.Timestamp = parsed
-			} else if parsed, err := time.Parse("2006-01-02 15:04:05.999999999", ts); err == nil {
-				node.Timestamp = parsed
-			} else if parsed, err := time.Parse("2006-01-02 15:04:05", ts); err == nil {
-				node.Timestamp = parsed
-			} else {
-				node.Timestamp = time.Now()
-			}
-		case []byte:
-			str := string(ts)
-			if parsed, err := time.Parse(time.RFC3339Nano, str); err == nil {
-				node.Timestamp = parsed
-			} else if parsed, err := time.Parse(time.RFC3339, str); err == nil {
-				node.Timestamp = parsed
-			} else if parsed, err := time.Parse("2006-01-02 15:04:05.999999999-07:00", str); err == nil {
-				node.Timestamp = parsed
-			} else if parsed, err := time.Parse("2006-01-02 15:04:05", str); err == nil {
-				node.Timestamp = parsed
-			} else {
-				node.Timestamp = time.Now()
-			}
-		case int64:
-			node.Timestamp = time.Unix(ts, 0)
-		default:
-			node.Timestamp = time.Now()
-		}
+		node.Timestamp = parseFlexibleTimestamp(rawTimestamp)
 
 		if deleted {
 			continue // Skip soft-deleted nodes
