@@ -93,6 +93,7 @@ func listenRemoteEventsCmd(remoteURL, authToken, caCertPath string) tea.Cmd {
 						}
 					}
 				}
+				_ = scanner.Err()
 				resp.Body.Close()
 				time.Sleep(1 * time.Second)
 			}
