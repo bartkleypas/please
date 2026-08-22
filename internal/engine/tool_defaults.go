@@ -289,6 +289,9 @@ func GetDefaultTools(workspaceDir ...string) []Tool {
 				for scanner.Scan() {
 					totalLines++
 				}
+				if err := scanner.Err(); err != nil {
+					return "", fmt.Errorf("error reading file: %w", err)
+				}
 
 				if endLine == 0 && totalLines > 0 && offset > totalLines {
 					return fmt.Sprintf("[Offset %d exceeds total file lines (%d)]", offset, totalLines), nil

@@ -71,7 +71,8 @@ func TestReadFile_PaginationAndWindowing(t *testing.T) {
 	for i := 1; i <= 20; i++ {
 		if i == 10 {
 			// Super long line (3000 chars)
-			content.WriteString(strings.Repeat("longline-", 300) + "\n")
+			content.WriteString(strings.Repeat("longline-", 300))
+			content.WriteString("\n")
 		} else {
 			fmt.Fprintf(&content, "Line %d content\n", i)
 		}
