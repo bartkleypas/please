@@ -445,6 +445,18 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 		}
 
 		messages = append(messages, msg)
+
+		// Unpack assistant observations as subsequent RoleTool messages for standard provider compliance
+		if node.Role == RoleAssistant {
+			for _, obs := range msg.Observations {
+				messages = append(messages, Message{
+					Role:       RoleTool,
+					Content:    obs.Result,
+					ToolCallID: obs.ToolCallID,
+					Internal:   node.Internal,
+				})
+			}
+		}
 	}
 
 	return messages, nil
@@ -476,7 +488,14 @@ func (m *Manager) GetRoots() []*Node {
 func (m *Manager) PruneBranch(nodeID string) error {
 	node, err := m.Graph.GetNode(nodeID)
 	if err != nil {
-		return err
+		// Attempt sync from storage first
+		if _, _, syncErr := m.Sync(); syncErr == nil {
+			node, err = m.Graph.GetNode(nodeID)
+		}
+	}
+	if err != nil {
+		// If the node does not exist in graph or storage, treat as already pruned
+		return nil
 	}
 
 	// Recursive helper to flag and persist
