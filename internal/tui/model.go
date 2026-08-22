@@ -115,7 +115,7 @@ func NewModel(cfg *engine.Config, g *engine.Graph, s engine.Storage, p engine.LL
 	ti.Placeholder = "Type a message or /command..."
 	ti.Focus()
 	ti.ShowLineNumbers = false
-	ti.Prompt = "▌ "
+	ti.Prompt = "┃ "
 	ti.FocusedStyle.Prompt = lipgloss.NewStyle().Foreground(lipgloss.Color("#4ade80"))
 	ti.BlurredStyle.Prompt = lipgloss.NewStyle().Foreground(lipgloss.Color("#2d5a45"))
 

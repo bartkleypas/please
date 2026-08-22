@@ -106,7 +106,7 @@ func (m Model) View() string {
 
 	// Update dynamic color on the prompt block based on active context stats
 	_, _, _, color := m.ContextStats()
-	m.TextInput.Prompt = lipgloss.NewStyle().Foreground(color).Render("▌ ")
+	m.TextInput.Prompt = lipgloss.NewStyle().Foreground(color).Render("┃ ")
 	m.TextInput.FocusedStyle.Prompt = lipgloss.NewStyle()
 
 	// Footer Rendering
