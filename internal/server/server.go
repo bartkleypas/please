@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -129,8 +130,9 @@ func (s *Server) StartWithHost(port int, host string) error {
 	s.isTLS = false
 
 	s.server = &http.Server{
-		Addr:    fmt.Sprintf("%s:%d", host, port),
-		Handler: s.Handler(),
+		Addr:     fmt.Sprintf("%s:%d", host, port),
+		Handler:  s.Handler(),
+		ErrorLog: log.New(io.Discard, "", 0),
 	}
 
 	go func() {
@@ -160,8 +162,9 @@ func (s *Server) StartTLS(port int, host string, certFile, keyFile string) error
 	s.isTLS = true
 
 	s.server = &http.Server{
-		Addr:    fmt.Sprintf("%s:%d", host, port),
-		Handler: s.Handler(),
+		Addr:     fmt.Sprintf("%s:%d", host, port),
+		Handler:  s.Handler(),
+		ErrorLog: log.New(io.Discard, "", 0),
 	}
 
 	go func() {

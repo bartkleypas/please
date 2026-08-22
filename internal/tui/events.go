@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bartkleypas/please/internal/engine"
 	"github.com/bartkleypas/please/internal/server"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -35,6 +36,8 @@ func listenRemoteEventsCmd(remoteURL, authToken, caCertPath string) tea.Cmd {
 		if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
 			baseURL = "http://" + baseURL
 		}
+
+		caCertPath = engine.ResolveCACert(caCertPath, baseURL)
 
 		transport := http.DefaultTransport.(*http.Transport).Clone()
 		if caCertPath != "" {

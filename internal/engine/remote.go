@@ -24,7 +24,8 @@ type RemoteDaemonProvider struct {
 	client     *http.Client
 }
 
-func resolveCACert(caCertPath string, baseURL string) string {
+// ResolveCACert determines the effective CA certificate path with auto-discovery
+func ResolveCACert(caCertPath string, baseURL string) string {
 	if caCertPath != "" {
 		if strings.HasPrefix(caCertPath, "~/") || caCertPath == "~" {
 			if home, err := os.UserHomeDir(); err == nil {
@@ -53,7 +54,7 @@ func NewRemoteDaemonProvider(baseURL, authToken, caCertPath string) (*RemoteDaem
 		baseURL = "http://" + baseURL
 	}
 
-	caCertPath = resolveCACert(caCertPath, baseURL)
+	caCertPath = ResolveCACert(caCertPath, baseURL)
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 
@@ -305,7 +306,7 @@ func NewRemoteDaemonStorage(baseURL, authToken, caCertPath string) (*RemoteDaemo
 		baseURL = "http://" + baseURL
 	}
 
-	caCertPath = resolveCACert(caCertPath, baseURL)
+	caCertPath = ResolveCACert(caCertPath, baseURL)
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 
