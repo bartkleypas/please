@@ -64,6 +64,8 @@ All updates and modifications to this knowledge bundle are tracked chronological
 *   **Supernode Platform Safety & System Mapping**: Updated `mapToOllamaMessages` in [llm.go](internal/engine/llm.go) and `mapToOpenAIMessages` in [openai.go](internal/engine/openai.go) to safely map compacted `RoleSummary` Supernodes to authoritative `role: "system"` instructions with a context header prefix, preventing platform rejection or loss during inference.
 *   **Hybrid Line & Byte Windowing File Reader**: Upgraded `read_file` tool in [tool_defaults.go](internal/engine/tool_defaults.go) with support for line slicing (`offset`, `limit`), byte budgets (`max_bytes`), per-line 2,000-character truncation protection against minified/single-line files, and dynamic navigation header envelopes.
 *   **Dynamic Context Headroom Charm & Prompt Bar Styling**: Added `ContextStats()` in [model.go](internal/tui/model.go) and integrated sleek `▌ ` prompt bar indicators and footer status charms (`[Ctx: 3.2k/32k 10%]`) in [view.go](internal/tui/view.go) that dynamically shift between Forest Emerald (`#4ade80`), Warm Amber (`#facc15`), and Rose Coral (`#fb7185`) based on active conversation context load.
+*   **Tool Observation Deduplication & Connected Client Execution Fix**: Removed redundant observation serialization loops in `mapToOllamaMessages` ([llm.go](internal/engine/llm.go)) and `mapToOpenAIMessages` ([openai.go](internal/engine/openai.go)) which duplicated tool result messages into the prompt context. Streamlined `handleLLMStreamFinished` in [streaming.go](internal/tui/streaming.go) to avoid double-executing tools and re-saving duplicate assistant turns on the client when connected to a remote daemon.
+
 
 
 

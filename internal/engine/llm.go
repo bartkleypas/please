@@ -360,15 +360,6 @@ func mapToOllamaMessages(messages []Message) []ollamaMessage {
 			ToolCallID: m.ToolCallID,
 			Images:     base64Images,
 		})
-
-		// Append side-channel observations as native "tool" responses
-		for _, obs := range m.Observations {
-			out = append(out, ollamaMessage{
-				Role:       "tool",
-				Content:    obs.Result,
-				ToolCallID: obs.ToolCallID,
-			})
-		}
 	}
 
 	return out

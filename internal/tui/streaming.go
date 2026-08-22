@@ -77,6 +77,22 @@ func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, te
 		return m, nil
 	}
 
+	if m.RemoteURL != "" {
+		// In connected mode, the remote daemon autonomously manages tool execution
+		// and persists assistant/tool turns directly in the vault.
+		_, lastID, _ := m.Manager.Sync()
+		if lastID != "" {
+			m.CurrentID = lastID
+		}
+		m.LastActivity = time.Now()
+		m.CurrentStreamingContent = ""
+		m.CurrentStreamingThought = ""
+		m.InterleavingNodeID = ""
+		m.PendingToolCalls = nil
+		m.updateViewportContent()
+		return m, tea.Batch(tick())
+	}
+
 	var activeID string
 	if msg.activeNodeID != "" {
 		// Update existing node

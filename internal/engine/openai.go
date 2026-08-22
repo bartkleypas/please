@@ -377,15 +377,6 @@ func mapToOpenAIMessages(messages []Message) []openAIMessage {
 			ToolCallID: m.ToolCallID,
 		}
 		out = append(out, msg)
-
-		// Append side-channel observations as native "tool" responses
-		for _, obs := range m.Observations {
-			out = append(out, openAIMessage{
-				Role:       "tool",
-				Content:    obs.Result,
-				ToolCallID: obs.ToolCallID,
-			})
-		}
 	}
 
 	return out

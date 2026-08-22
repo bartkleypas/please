@@ -251,6 +251,21 @@ func (p *RemoteDaemonProvider) GenerateResponseStream(ctx context.Context, messa
 						toolCallChan <- []ToolCall{call}
 					}
 
+				case "tool_result":
+					var trPayload struct {
+						ID     string `json:"id"`
+						Tool   string `json:"tool"`
+						Output string `json:"output"`
+						Error  string `json:"error,omitempty"`
+					}
+					if err := json.Unmarshal([]byte(dataStr), &trPayload); err == nil {
+						if trPayload.Error != "" {
+							thoughtChan <- fmt.Sprintf("⚠️  Tool error: %s\n", trPayload.Error)
+						} else {
+							thoughtChan <- "✅ Observation received.\n"
+						}
+					}
+
 				case "error":
 					var ePayload struct {
 						Error string `json:"error"`
