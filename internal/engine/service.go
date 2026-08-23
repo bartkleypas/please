@@ -360,9 +360,14 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 						tCalls = []ToolCall{node.ToolCalls[j]}
 					}
 
+					content := seg.Content
+					if j == len(segments)-1 && node.Metadata != nil && node.Metadata["signat"] != "" {
+						content = content + " " + node.Metadata["signat"]
+					}
+
 					msg := Message{
 						Role:     RoleAssistant,
-						Content:  seg.Content,
+						Content:  content,
 						Internal: node.Internal,
 					}
 
@@ -435,11 +440,16 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 			}
 		}
 
+		signatSuffix := ""
+		if node.Metadata != nil && node.Metadata["signat"] != "" && (node.Role == RoleAssistant || node.Role == RoleSystem) {
+			signatSuffix = " " + node.Metadata["signat"]
+		}
+
 		msg := Message{
 			ID:         node.ID,
 			ParentID:   node.ParentID,
 			Role:       node.Role,
-			Content:    node.Content + metadataText,
+			Content:    node.Content + signatSuffix + metadataText,
 			ToolCallID: node.ToolCallID,
 			Internal:   node.Internal,
 			Images:     nodeImages,
@@ -597,7 +607,11 @@ func (m *Manager) CompactRange(ctx context.Context, provider LLMProvider, nodeID
 		if err != nil {
 			continue
 		}
-		fmt.Fprintf(&contentToSummarize, "[%s]: %s\n", node.Role, node.Content)
+		signatStr := ""
+		if node.Metadata != nil && node.Metadata["signat"] != "" {
+			signatStr = " " + node.Metadata["signat"]
+		}
+		fmt.Fprintf(&contentToSummarize, "[%s%s]: %s\n", node.Role, signatStr, node.Content)
 	}
 
 	// 1. Generate Summary

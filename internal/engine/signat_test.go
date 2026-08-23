@@ -61,3 +61,30 @@ func TestExtractSignat(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildLLMContext_SignatRetention(t *testing.T) {
+	mgr := NewManager(NewGraph(), &MockStorage{})
+
+	root, _ := mgr.CreateNode("", RoleSystem, "You are George 🦉📚", false)
+	user, _ := mgr.CreateNode(root.ID, RoleUser, "Hello George!", false)
+	asst, _ := mgr.CreateAssistantNode(user.ID, "Greetings! 🦉📜", "Thinking...", nil, false)
+
+	messages, err := mgr.BuildLLMContext(asst.ID, false)
+	if err != nil {
+		t.Fatalf("failed to build context: %v", err)
+	}
+
+	if len(messages) != 3 {
+		t.Fatalf("expected 3 messages, got %d", len(messages))
+	}
+
+	// Verify root system message retains signat
+	if messages[0].Content != "You are George 🦉📚" {
+		t.Errorf("expected root message to retain signat, got: %q", messages[0].Content)
+	}
+
+	// Verify assistant message retains signat
+	if messages[2].Content != "Greetings! 🦉📜" {
+		t.Errorf("expected assistant message to retain signat, got: %q", messages[2].Content)
+	}
+}
