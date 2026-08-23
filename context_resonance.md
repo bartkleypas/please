@@ -12,7 +12,7 @@ timestamp: '2026-07-05T14:31:00-07:00'
 
 # Context Resonance Scoring
 
-To combat context window bloat during long conversational sessions—especially when executing verbose terminal commands or file edits—`Please` implements a dynamic **Context Resonance Scoring** algorithm.
+To combat context window bloat during long conversational sessions—especially when executing verbose terminal commands or file edits—`Please` implements a dynamic **Context Resonance Scoring** algorithm that automatically scales to the model's configured context window (`num_ctx`).
 
 ---
 
@@ -25,18 +25,24 @@ $$V = (W \cdot C) \cdot e^{-k \cdot \Delta t}$$
 Where:
 *   **$V$ (Resonance Value)**: The computed score indicating the relevance of a node to the current context.
 *   **$W$ (Weight)**: Custom multipliers based on node significance (e.g. system commands, bookmarks, or manual user overrides have higher baseline weights).
-*   **$C$ (Context Size)**: The character/token size of the raw message.
-*   **$e^{-k \cdot \Delta t}$ (Temporal Decay)**: An exponential decay factor where $\Delta t$ is the age of the node in the conversation (number of turns since creation) and $k$ is a damping coefficient.
+*   **$C$ (Context Cost)**: The character/token size of the raw message and its observations.
+*   **$e^{-k \cdot \Delta t}$ (Temporal Decay)**: An exponential decay factor where $\Delta t$ is the age of the node (turns and minutes since creation) and $k$ is a damping coefficient.
 
 ---
 
-## Surgical Pruning of Tool Outputs
+## Dynamic Budget-Aware Capacity Zones
 
-As nodes age ($\Delta t$ increases), their resonance score $V$ drops. 
+Rather than applying rigid constant cutoffs, `Please` computes the active path's token load relative to the model's configured context window (`fillRatio = estimatedTokens / numCtx`):
 
-When the score falls below a set threshold, the engine prunes the node content prior to sending the context history to the LLM:
-1.  **Reasoning Blocks**: Strips internal `<thought>` or chain-of-thought blocks.
-2.  **Tool Output Payload**: Truncates massive stdout logs or file diffs, replacing them with a concise, high-level summary (e.g. *"[Tool executed: git diff - 45 lines pruned]"*).
-3.  **Core Dialogue Retention**: Retains the core user request and model responses, ensuring the narrative flow remains intact.
+1. **Healthy Capacity (`fillRatio < 60%`)**:
+   * **100% Full Fidelity**: All historical nodes retain their complete chain-of-thought reasoning (`<thought>`) and full tool observation payloads (up to 8,000 characters).
+   * Prevents premature "reasoning collapse" and memory loss on large-window models (such as Gemma 4 with 128k context).
 
-This prevents the LLM from paying high token costs for old command outputs while preserving the overall conversational history.
+2. **Moderate Load (`60% <= fillRatio < 85%`)**:
+   * **Proportional Grace Window**: Automatically expands `graceTurns` to at least 50% of the active conversational path (`max(5, int(0.5 * pathLength))`).
+   * Distant tool observations are gently trimmed to 2,000 characters while recent turns stay in full fidelity.
+
+3. **High Pressure (`fillRatio >= 85%`)**:
+   * Engages protective decay to prevent context exhaustion before the user triggers `/compact`.
+   * Distant tool observations are crushed to 1-line summary skeletons (*"[Tool 'read_file' execution completed. Detailed results omitted. Total size: 4500 bytes.]"*), while the most recent 3 turns stay in full fidelity.
+
