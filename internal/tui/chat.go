@@ -23,6 +23,9 @@ func (m *Model) renderNode(node *engine.Node) string {
 	if node.Internal {
 		prefix = "INTERNAL " + prefix
 	}
+	if node.Metadata != nil && node.Metadata["signat"] != "" {
+		prefix = prefix + " " + node.Metadata["signat"]
+	}
 	if m.AuditMode {
 		prefix = fmt.Sprintf("%s (%s)", prefix, node.ID)
 	}

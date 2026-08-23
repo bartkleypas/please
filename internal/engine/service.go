@@ -52,6 +52,8 @@ func NewManager(g *Graph, s Storage) *Manager {
 // ID generation, graph insertion, and persistence.
 func (m *Manager) CreateNode(parentID string, role Role, content string, internal bool) (*Node, error) {
 	id, _ := uuid.NewV7()
+	cleanContent, signat := ExtractSignat(content)
+
 	node := &Node{
 		ID:        id.String(),
 		ParentID:  parentID,
@@ -59,6 +61,12 @@ func (m *Manager) CreateNode(parentID string, role Role, content string, interna
 		Content:   content,
 		Timestamp: time.Now(),
 		Internal:  internal,
+		Metadata:  make(map[string]string),
+	}
+
+	if signat != "" && (role == RoleSystem || role == RoleSummary) {
+		node.Metadata["signat"] = signat
+		node.Content = cleanContent
 	}
 
 	if role == RoleTool && node.ToolCallID == "" {
@@ -80,11 +88,13 @@ func (m *Manager) CreateNode(parentID string, role Role, content string, interna
 // CreateAssistantNode creates a node for the assistant, potentially containing tool calls and reasoning
 func (m *Manager) CreateAssistantNode(parentID string, content string, thought string, toolCalls []ToolCall, internal bool) (*Node, error) {
 	id, _ := uuid.NewV7()
+	cleanContent, signat := ExtractSignat(content)
+
 	node := &Node{
 		ID:        id.String(),
 		ParentID:  parentID,
 		Role:      RoleAssistant,
-		Content:   content,
+		Content:   cleanContent,
 		Thought:   thought,
 		Timestamp: time.Now(),
 		ToolCalls: toolCalls,
@@ -92,9 +102,13 @@ func (m *Manager) CreateAssistantNode(parentID string, content string, thought s
 		Metadata:  make(map[string]string),
 	}
 
+	if signat != "" {
+		node.Metadata["signat"] = signat
+	}
+
 	segments := []AssistantSegment{
 		{
-			Content: content,
+			Content: cleanContent,
 			Thought: thought,
 		},
 	}

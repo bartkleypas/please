@@ -921,3 +921,42 @@ func TestMapMode_LiveSync_PrunedSelectionFallback(t *testing.T) {
 		t.Errorf("expected selection to fall back to rootNode (%s), got %s", rootNode.ID, selectedNodeID)
 	}
 }
+
+func TestSignat_MapAndChatRendering(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	storage, _ := engine.NewSQLiteStorage(dbPath, "")
+	graph := engine.NewGraph()
+	mgr := engine.NewManager(graph, storage)
+
+	rootNode, _ := mgr.CreateNode("", engine.RoleSystem, "You are a code assistant 🤖💻", false)
+	userNode, _ := mgr.CreateNode(rootNode.ID, engine.RoleUser, "Write a sorting function", false)
+	asstNode, _ := mgr.CreateAssistantNode(userNode.ID, "Here is the quicksort implementation:\n```go\nfunc sort() {}\n```\n\n🛠️⚡", "", nil, false)
+
+	cfg := engine.NewDefaultConfig()
+	m := NewModel(cfg, graph, storage, nil, asstNode.ID)
+	m.Width = 80
+
+	// 1. Verify signat extracted into metadata
+	if asstNode.Metadata["signat"] != "🛠️⚡" {
+		t.Errorf("expected assistant signat to be '🛠️⚡', got %q", asstNode.Metadata["signat"])
+	}
+	if rootNode.Metadata["signat"] != "🤖💻" {
+		t.Errorf("expected root signat to be '🤖💻', got %q", rootNode.Metadata["signat"])
+	}
+
+	// 2. Verify Map View renders signats
+	mapStr := m.generateMapString()
+	if !strings.Contains(mapStr, "🛠️⚡") {
+		t.Errorf("expected map string to contain assistant signat '🛠️⚡', got:\n%s", mapStr)
+	}
+	if !strings.Contains(mapStr, "🤖💻") {
+		t.Errorf("expected map string to contain root signat '🤖💻', got:\n%s", mapStr)
+	}
+
+	// 3. Verify Chat View renders signats in role header
+	renderedNode := m.renderNode(asstNode)
+	if !strings.Contains(renderedNode, "assistant 🛠️⚡:") {
+		t.Errorf("expected chat rendering to contain 'assistant 🛠️⚡:', got:\n%s", renderedNode)
+	}
+}

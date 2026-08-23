@@ -84,5 +84,9 @@ func (m *Model) generateSystemSupplement() string {
 		sb.WriteString(strings.Join(lines[:limit], "\n"))
 	}
 
+	// 3. Turn Signatures (Signats)
+	sb.WriteString("\n\n### TURN SIGNATURES (SIGNATS)\n")
+	sb.WriteString("Conclude your final response with a 1-3 emoji signature (signat) summarizing the domain and mood of your turn (e.g. 🛠️💻 for code/impl, 🧠📐 for logic/math, 🔍📁 for research/inspection, 🎨✨ for design/styling, 📝💡 for ideation).\n")
+
 	return sb.String()
 }

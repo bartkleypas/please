@@ -178,7 +178,12 @@ func (m *Model) renderMap(s *strings.Builder, nodeID string, indent string, isLa
 		}
 		preview = strings.ReplaceAll(preview, "\n", " ")
 
-		fmt.Fprintf(s, " %s%s%s%s%s%s%s %s:%s%s\n", indent, treePrefix, idStr, encIndicator, bookmark, toolIndicator, locationMarker, roleStyle.Render(string(node.Role)), preview, foldedIndicator)
+		signatStr := ""
+		if node.Metadata != nil && node.Metadata["signat"] != "" {
+			signatStr = " " + node.Metadata["signat"]
+		}
+
+		fmt.Fprintf(s, " %s%s%s%s%s%s%s%s %s:%s%s\n", indent, treePrefix, idStr, signatStr, encIndicator, bookmark, toolIndicator, locationMarker, roleStyle.Render(string(node.Role)), preview, foldedIndicator)
 	}
 
 	// If collapsed, don't render children
