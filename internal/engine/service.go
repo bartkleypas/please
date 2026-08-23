@@ -34,6 +34,7 @@ type Manager struct {
 	Storage      Storage
 	Registry     *ToolRegistry
 	WorkspaceDir string
+	NumCtx       int
 }
 
 // NewManager creates a new Manager instance
@@ -43,6 +44,7 @@ func NewManager(g *Graph, s Storage) *Manager {
 		Storage:      s,
 		Registry:     NewToolRegistry(),
 		WorkspaceDir: ".",
+		NumCtx:       32768,
 	}
 }
 
@@ -224,9 +226,14 @@ func (m *Manager) SetBookmark(nodeID string, bookmarked bool) error {
 }
 
 // calculateResonanceScore determines the context value of a node based on topological weight, compute cost, conversational distance, and temporal decay.
-func (m *Manager) calculateResonanceScore(node *Node, distance int) float64 {
+func (m *Manager) calculateResonanceScore(node *Node, distance int, fillRatio float64, totalPathLen int) float64 {
 	if node.Role == RoleSystem || node.Role == RoleSummary {
 		return math.MaxFloat64
+	}
+
+	// Under 60% context capacity, keep 100% full fidelity across all public historical nodes
+	if fillRatio < 0.60 && !node.Internal {
+		return 100.0
 	}
 
 	weight := 0.7
@@ -238,10 +245,10 @@ func (m *Manager) calculateResonanceScore(node *Node, distance int) float64 {
 	}
 
 	if node.Internal {
-		weight = 0.3
+		weight = 0.05
 	}
 	if node.Metadata != nil && node.Metadata["bookmarked"] == "true" {
-		weight = 1.0
+		weight = 2.0
 	}
 
 	cost := len(node.Content) + len(node.Thought)
@@ -252,11 +259,27 @@ func (m *Manager) calculateResonanceScore(node *Node, distance int) float64 {
 		cost = 1
 	}
 
-	baseScore := weight * 10000.0 / float64(cost)
+	baseScore := weight * 1000.0 / float64(cost)
+	if baseScore > 20.0 {
+		baseScore = 20.0
+	}
 
-	// Grace Window: last 3 turns are exempt from time/turn decay
-	const GraceTurns = 3
-	if distance < GraceTurns {
+	// Dynamic Grace Window based on capacity pressure
+	graceTurns := 3
+	kt := 0.02
+	kd := 0.3
+
+	if fillRatio < 0.85 {
+		// Moderate load (60% - 85%): expand grace turns and slow decay rate
+		graceTurns = int(float64(totalPathLen) * 0.5)
+		if graceTurns < 5 {
+			graceTurns = 5
+		}
+		kt = 0.01
+		kd = 0.1
+	}
+
+	if distance < graceTurns {
 		return baseScore
 	}
 
@@ -265,13 +288,7 @@ func (m *Manager) calculateResonanceScore(node *Node, distance int) float64 {
 		deltaMinutes = 0
 	}
 
-	// Hybrid Decay Model:
-	// - Slower temporal decay (half-life of ~35 minutes, k_t = 0.02)
-	// - Conversational turn decay (k_d = 0.1 per turn beyond the grace window)
-	kt := 0.02
-	kd := 0.1
-	turnsPastGrace := float64(distance - GraceTurns + 1)
-
+	turnsPastGrace := float64(distance - graceTurns + 1)
 	decayFactor := math.Exp(-kt*deltaMinutes) * math.Exp(-kd*turnsPastGrace)
 	return baseScore * decayFactor
 }
@@ -283,10 +300,29 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 		return nil, err
 	}
 
+	// Calculate total path cost to determine fill ratio
+	var totalChars int
+	for _, node := range path {
+		totalChars += len(node.Content) + len(node.Thought)
+		for _, obs := range node.Observations {
+			totalChars += len(obs.Result)
+		}
+	}
+
+	limit := m.NumCtx
+	if limit <= 0 {
+		limit = 32768
+	}
+	estimatedTokens := int(float64(totalChars) / 3.8)
+	if estimatedTokens < 1 {
+		estimatedTokens = 1
+	}
+	fillRatio := float64(estimatedTokens) / float64(limit)
+
 	var messages []Message
 	for i, node := range path {
 		distance := len(path) - 1 - i
-		v := m.calculateResonanceScore(node, distance)
+		v := m.calculateResonanceScore(node, distance, fillRatio, len(path))
 
 		// The active/latest node should always be kept in high fidelity regardless of score
 		if distance == 0 {
@@ -331,12 +367,12 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 						obs := node.Observations[j]
 						truncatedResult := obs.Result
 						if v > 5.0 {
-							if len(truncatedResult) > 4000 {
-								truncatedResult = truncatedResult[:4000] + "... [truncated]"
+							if fillRatio >= 0.60 && len(truncatedResult) > 8000 {
+								truncatedResult = truncatedResult[:8000] + "... [truncated]"
 							}
 						} else if v > 0.5 {
-							if len(truncatedResult) > 500 {
-								truncatedResult = truncatedResult[:500] + "... [truncated]"
+							if len(truncatedResult) > 2000 {
+								truncatedResult = truncatedResult[:2000] + "... [truncated]"
 							}
 						} else {
 							toolName := node.ToolCalls[j].Function.Name
@@ -402,8 +438,8 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 			msg.Observations = make([]ToolObservation, len(node.Observations))
 			for j, obs := range node.Observations {
 				truncatedResult := obs.Result
-				if len(truncatedResult) > 4000 {
-					truncatedResult = truncatedResult[:4000] + "... [truncated]"
+				if fillRatio >= 0.60 && len(truncatedResult) > 8000 {
+					truncatedResult = truncatedResult[:8000] + "... [truncated]"
 				}
 				msg.Observations[j] = ToolObservation{
 					ToolCallID: obs.ToolCallID,
@@ -411,13 +447,13 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 				}
 			}
 		} else if v > 0.5 {
-			// Medium fidelity: strip thought, truncate observations more aggressively
+			// Medium fidelity: strip thought, truncate observations to 2000 chars
 			msg.ToolCalls = node.ToolCalls
 			msg.Observations = make([]ToolObservation, len(node.Observations))
 			for j, obs := range node.Observations {
 				truncatedResult := obs.Result
-				if len(truncatedResult) > 500 {
-					truncatedResult = truncatedResult[:500] + "... [truncated]"
+				if len(truncatedResult) > 2000 {
+					truncatedResult = truncatedResult[:2000] + "... [truncated]"
 				}
 				msg.Observations[j] = ToolObservation{
 					ToolCallID: obs.ToolCallID,

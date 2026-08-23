@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"math"
 	"os"
 	"strings"
@@ -87,7 +88,7 @@ func TestManager_ResonanceScoring(t *testing.T) {
 	systemNode, _ := mgr.CreateNode("", RoleSystem, "System prompt", false)
 
 	// 2. Test MaxFloat64 for RoleSystem and RoleSummary
-	score := mgr.calculateResonanceScore(systemNode, 10)
+	score := mgr.calculateResonanceScore(systemNode, 10, 0.90, 10)
 	if score != math.MaxFloat64 {
 		t.Errorf("expected MaxFloat64 for system node, got %f", score)
 	}
@@ -97,7 +98,7 @@ func TestManager_ResonanceScoring(t *testing.T) {
 		Role:    RoleSummary,
 		Content: "Compacted discussion",
 	}
-	score = mgr.calculateResonanceScore(summaryNode, 10)
+	score = mgr.calculateResonanceScore(summaryNode, 10, 0.90, 10)
 	if score != math.MaxFloat64 {
 		t.Errorf("expected MaxFloat64 for summary node, got %f", score)
 	}
@@ -113,19 +114,18 @@ func TestManager_ResonanceScoring(t *testing.T) {
 	}
 
 	// At distance = 1 (inside grace window), it should have no decay.
-	// Base score should be weight (1.0) * 10000.0 / cost (5) = 2000.0
-	scoreGrace := mgr.calculateResonanceScore(oldUserNode, 1)
-	if math.Abs(scoreGrace-2000.0) > 1e-9 {
-		t.Errorf("expected base score of 2000.0 (no decay in grace window), got %f", scoreGrace)
+	// Base score should be 20.0 (capped max base score)
+	scoreGrace := mgr.calculateResonanceScore(oldUserNode, 1, 0.90, 10)
+	if math.Abs(scoreGrace-20.0) > 1e-9 {
+		t.Errorf("expected base score of 20.0 (no decay in grace window), got %f", scoreGrace)
 	}
 
 	// At distance = 3 (outside grace window), it should experience both time and turn decay.
 	// turnsPastGrace = 3 - 3 + 1 = 1.
 	// deltaMinutes = 120.
-	// decay = e^(-0.02 * 120) * e^(-0.1 * 1) = e^(-2.4) * e^(-0.1) = e^(-2.5) ≈ 0.082085
-	// expected = 2000.0 * e^(-2.5) ≈ 164.17
-	scoreDecayed := mgr.calculateResonanceScore(oldUserNode, 3)
-	expectedScore := 2000.0 * math.Exp(-0.02*120.0) * math.Exp(-0.1*1.0)
+	// decay = e^(-0.02 * 120) * e^(-0.3 * 1) = e^(-2.4) * e^(-0.3) = e^(-2.7)
+	scoreDecayed := mgr.calculateResonanceScore(oldUserNode, 3, 0.90, 10)
+	expectedScore := 20.0 * math.Exp(-0.02*120.0) * math.Exp(-0.3*1.0)
 	if math.Abs(scoreDecayed-expectedScore) > 1e-2 {
 		t.Errorf("expected decayed score around %f, got %f", expectedScore, scoreDecayed)
 	}
@@ -133,6 +133,7 @@ func TestManager_ResonanceScoring(t *testing.T) {
 
 func TestManager_BuildLLMContext_FidelityAndToolSummaries(t *testing.T) {
 	mgr := NewManager(NewGraph(), &MockStorage{})
+	mgr.NumCtx = 4000 // Force high pressure to test observation crushing
 
 	// Construct a path of nodes standardly
 	// 1. Root system node
@@ -427,4 +428,72 @@ func createTestPNG(t *testing.T, params string) string {
 		t.Fatalf("failed to write mock PNG bytes: %v", err)
 	}
 	return f.Name()
+}
+
+func TestBuildLLMContext_BudgetAwareRetention(t *testing.T) {
+	mgr := NewManager(NewGraph(), &MockStorage{})
+	mgr.NumCtx = 131072 // 128k context window (e.g. Gemma 4)
+
+	// Create 8 deep conversational turns with thoughts
+	root, _ := mgr.CreateNode("", RoleSystem, "System prompt", false)
+	currID := root.ID
+
+	for i := 1; i <= 8; i++ {
+		user, _ := mgr.CreateNode(currID, RoleUser, fmt.Sprintf("User question %d", i), false)
+		asst, _ := mgr.CreateAssistantNode(user.ID, fmt.Sprintf("Answer %d", i), fmt.Sprintf("Reasoning thought for turn %d", i), nil, false)
+		currID = asst.ID
+	}
+
+	// 1. With 128k context, fillRatio < 60% -> All 8 assistant turns MUST retain their thoughts
+	messages, err := mgr.BuildLLMContext(currID, false)
+	if err != nil {
+		t.Fatalf("failed to build LLM context: %v", err)
+	}
+
+	asstCount := 0
+	thoughtsRetained := 0
+	for _, msg := range messages {
+		if msg.Role == RoleAssistant {
+			asstCount++
+			if msg.Thought != "" {
+				thoughtsRetained++
+			}
+		}
+	}
+
+	if asstCount != 8 {
+		t.Errorf("expected 8 assistant messages, got %d", asstCount)
+	}
+	if thoughtsRetained != 8 {
+		t.Errorf("expected all 8 assistant turns to retain thoughts under 128k headroom, got %d", thoughtsRetained)
+	}
+
+	// 2. Test tight context capacity (e.g. NumCtx = 50 tokens) -> High pressure triggers pruning
+	mgrTight := NewManager(NewGraph(), &MockStorage{})
+	mgrTight.NumCtx = 50 // Extremely tight context
+
+	rootTight, _ := mgrTight.CreateNode("", RoleSystem, "System prompt", false)
+	currTightID := rootTight.ID
+	for i := 1; i <= 8; i++ {
+		user, _ := mgrTight.CreateNode(currTightID, RoleUser, fmt.Sprintf("User question %d with long rambling text to consume tokens", i), false)
+		asst, _ := mgrTight.CreateAssistantNode(user.ID, fmt.Sprintf("Answer %d", i), fmt.Sprintf("Reasoning thought for turn %d with long text", i), nil, false)
+		currTightID = asst.ID
+	}
+
+	messagesTight, err := mgrTight.BuildLLMContext(currTightID, false)
+	if err != nil {
+		t.Fatalf("failed to build tight LLM context: %v", err)
+	}
+
+	tightThoughtsRetained := 0
+	for _, msg := range messagesTight {
+		if msg.Role == RoleAssistant && msg.Thought != "" {
+			tightThoughtsRetained++
+		}
+	}
+
+	// Under extreme pressure, distant thoughts must be pruned, keeping only the active/recent grace turns
+	if tightThoughtsRetained >= 8 {
+		t.Errorf("expected distant thoughts to be pruned under tight context pressure, but got %d", tightThoughtsRetained)
+	}
 }

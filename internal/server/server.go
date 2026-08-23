@@ -49,6 +49,9 @@ func NewServerWithProvider(mgr *engine.Manager, provider engine.LLMProvider, cfg
 	token := ""
 	if cfg != nil && cfg.Server != nil {
 		token = cfg.Server.AuthToken
+		if cfg.Server.Options != nil && cfg.Server.Options.NumCtx != nil && mgr != nil {
+			mgr.NumCtx = *cfg.Server.Options.NumCtx
+		}
 	}
 	return &Server{
 		Manager:   mgr,
