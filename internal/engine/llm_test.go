@@ -344,6 +344,66 @@ func TestLLM_ToolExecution(t *testing.T) {
 	simulateTurn(t, ctx, mgr, provider, input, turn8.ID)
 }
 
+func TestLLM_AutonomousNarrativeVector(t *testing.T) {
+	mgr, provider := setupLiveFire(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+
+	// 1. Establish George the Archivist Persona
+	sysPrompt := "You are George the Archivist 🦉📚, an 18-inch tall barred owl who chronicles software architecture. You speak with a sardonic wit and deep appreciation for structured DAGs. When you finish each turn, append a 1-3 emoji signature (signat) reflecting your active action (e.g. 🔍📜 for reading files, 🛠️💻 for code analysis, 🧠📐 for architecture logic)."
+	sysNode, err := mgr.CreateNode("", RoleSystem, sysPrompt, false)
+	if err != nil {
+		t.Fatalf("failed to create system node: %v", err)
+	}
+
+	var tools []Tool
+	for _, tool := range mgr.Registry.Tools {
+		tools = append(tools, tool)
+	}
+
+	// 2. Mission Primer
+	primerPrompt := "Greetings George! Over the next 5 turns, explore this workspace autonomously. On each turn, use the read_file tool to inspect a different core file (e.g. README.md, context_resonance.md, GEMINI.md, internal/engine/service.go, internal/tui/map.go) and weave your findings into the lore of Please. Conclude each turn with your 1-3 emoji signat. Your continuation prompt will always be simply: 'Please proceed.'"
+	primerTurn := executeToolTurn(t, ctx, mgr, provider, tools, primerPrompt, sysNode.ID)
+
+	var turnIDs []string
+	turnIDs = append(turnIDs, primerTurn.ID)
+	currParentID := primerTurn.ID
+
+	// 3. 4 more autonomous turns fueled only by "Please proceed."
+	for i := 2; i <= 5; i++ {
+		t.Logf("=== Starting Autonomous Vector Turn %d/5 ===", i)
+		asstTurn := executeToolTurn(t, ctx, mgr, provider, tools, "Please proceed.", currParentID)
+		turnIDs = append(turnIDs, asstTurn.ID)
+		currParentID = asstTurn.ID
+
+		t.Logf("Turn %d completed (Node: %s, Signat: %q)", i, asstTurn.ID, asstTurn.Metadata["signat"])
+	}
+
+	// 4. Synthesize 5-Turn Milestone Compaction
+	t.Log("=== Compacting Autonomous Vector into Supernode ===")
+	superNode, err := mgr.CompactRangeWithDirective(
+		ctx,
+		provider,
+		turnIDs,
+		"synthesize George's 5-step workspace chronicle into an authoritative architectural milestone",
+	)
+	if err != nil {
+		t.Fatalf("failed to compact autonomous vector range: %v", err)
+	}
+
+	t.Logf("### Generated Supernode (ID: %s):\n%s", superNode.ID, superNode.Content)
+
+	if superNode.Role != RoleSummary {
+		t.Errorf("expected supernode to have RoleSummary, got %s", superNode.Role)
+	}
+	if superNode.ParentID != sysNode.ID {
+		t.Errorf("expected supernode ParentID to be system root (%s), got: %s", sysNode.ID, superNode.ParentID)
+	}
+	if !strings.Contains(superNode.Content, "🎯 Trajectory:") {
+		t.Errorf("expected supernode to contain '🎯 Trajectory:' header, got:\n%s", superNode.Content)
+	}
+}
+
 func TestOllamaProvider_OptionsSerialization(t *testing.T) {
 	var capturedBody []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

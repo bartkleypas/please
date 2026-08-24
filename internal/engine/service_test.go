@@ -535,3 +535,102 @@ func TestCompactRangeWithDirective_TrajectoryAndSteering(t *testing.T) {
 		t.Errorf("expected supernode ParentID to be root (%s), got: %s", root.ID, superNode.ParentID)
 	}
 }
+
+func TestManager_AutonomousVectorLoop_Mock(t *testing.T) {
+	mgr := NewManager(NewGraph(), &MockStorage{})
+	mgr.NumCtx = 131072
+
+	// 1. Establish George the Archivist Persona
+	root, _ := mgr.CreateNode("", RoleSystem, "You are George the Archivist 🦉📚. Chronicle the workspace.", false)
+
+	// 2. Mission Primer
+	primer, _ := mgr.CreateNode(root.ID, RoleUser, "Explore the workspace in 5 turns. Your continuation impulse is 'Please proceed.'", false)
+	currID := primer.ID
+
+	// 3. Autonomous 5-turn Vector Loop
+	steps := []struct {
+		file    string
+		signat  string
+		thought string
+	}{
+		{"README.md", "🔍📜", "Analyzing project architecture overview..."},
+		{"storage.go", "🛠️💻", "Inspecting SQLite WAL schema and timestamp parsing..."},
+		{"server.go", "🔒🛡️", "Verifying PKI certificate generation and SSE event bus..."},
+		{"service.go", "🧠📐", "Deducing dynamic context resonance capacity zones..."},
+		{"map.go", "🎨✨", "Synthesizing full visual telemetry and TUI tree map..."},
+	}
+
+	var turnIDs []string
+	turnIDs = append(turnIDs, primer.ID)
+
+	for i, step := range steps {
+		userTurn, _ := mgr.CreateNode(currID, RoleUser, "Please proceed.", false)
+		turnIDs = append(turnIDs, userTurn.ID)
+
+		tcs := []ToolCall{
+			{
+				ID:   fmt.Sprintf("call_%d", i+1),
+				Type: "function",
+				Function: struct {
+					Name      string          `json:"name"`
+					Arguments json.RawMessage `json:"arguments"`
+				}{
+					Name:      "read_file",
+					Arguments: json.RawMessage(fmt.Sprintf(`{"path": "%s"}`, step.file)),
+				},
+			},
+		}
+
+		asstContent := fmt.Sprintf("Inspected %s and recorded observations. %s", step.file, step.signat)
+		asstTurn, err := mgr.CreateAssistantNode(userTurn.ID, asstContent, step.thought, tcs, false)
+		if err != nil {
+			t.Fatalf("failed to create assistant node on step %d: %v", i+1, err)
+		}
+		_ = mgr.UpdateAssistantObservations(asstTurn.ID, fmt.Sprintf("call_%d", i+1), fmt.Sprintf("Content of %s file...", step.file))
+
+		turnIDs = append(turnIDs, asstTurn.ID)
+		currID = asstTurn.ID
+	}
+
+	// 4. Verify Context Retention Under 128k Headroom
+	messages, err := mgr.BuildLLMContext(currID, false)
+	if err != nil {
+		t.Fatalf("failed to build LLM context: %v", err)
+	}
+
+	asstCount := 0
+	thoughtsRetained := 0
+	for _, msg := range messages {
+		if msg.Role == RoleAssistant {
+			asstCount++
+			if msg.Thought != "" {
+				thoughtsRetained++
+			}
+		}
+	}
+
+	if asstCount != 5 {
+		t.Errorf("expected 5 assistant turns, got %d", asstCount)
+	}
+	if thoughtsRetained != 5 {
+		t.Errorf("expected all 5 assistant turns to retain thoughts, got %d", thoughtsRetained)
+	}
+
+	// 5. Synthesize 5-turn Milestone Compaction
+	mockProvider := &MockLLMProvider{
+		ResponseContent: "Milestone: George completed a 5-step exploration of README, storage, server, service, and map.",
+	}
+
+	superNode, err := mgr.CompactRangeWithDirective(context.Background(), mockProvider, turnIDs, "synthesize architectural chronicles")
+	if err != nil {
+		t.Fatalf("failed to compact 5-turn vector: %v", err)
+	}
+
+	expectedTrajectory := "🎯 Trajectory: 🔍📜 ➔ 🛠️💻 ➔ 🔒🛡️ ➔ 🧠📐 ➔ 🎨✨"
+	if !strings.Contains(superNode.Content, expectedTrajectory) {
+		t.Errorf("expected supernode to contain trajectory header %q, got:\n%s", expectedTrajectory, superNode.Content)
+	}
+	if superNode.ParentID != root.ID {
+		t.Errorf("expected supernode to attach to root (%s), got %s", root.ID, superNode.ParentID)
+	}
+}
