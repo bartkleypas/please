@@ -475,14 +475,14 @@ func TestLLM_AutonomousNarrativeVector(t *testing.T) {
 	primerTurn := executeAutonomousTurn(t, ctx, mgr, provider, tools, primerPrompt, sysNode.ID)
 
 	var turnIDs []string
-	turnIDs = append(turnIDs, primerTurn.ID)
+	turnIDs = append(turnIDs, primerTurn.ParentID, primerTurn.ID)
 	currParentID := primerTurn.ID
 
 	// 3. 4 more autonomous turns fueled only by "Please proceed."
 	for i := 2; i <= 5; i++ {
 		t.Logf("=== Starting Autonomous Vector Turn %d/5 ===", i)
 		asstTurn := executeAutonomousTurn(t, ctx, mgr, provider, tools, "Please proceed.", currParentID)
-		turnIDs = append(turnIDs, asstTurn.ID)
+		turnIDs = append(turnIDs, asstTurn.ParentID, asstTurn.ID)
 		currParentID = asstTurn.ID
 
 		t.Logf("Turn %d completed (Node: %s, Signat: %q)", i, asstTurn.ID, asstTurn.Metadata["signat"])
