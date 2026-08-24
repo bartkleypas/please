@@ -47,6 +47,18 @@ func TestExtractSignat(t *testing.T) {
 			wantClean:  "You are a grumpy librarian",
 			wantSignat: "📚☕",
 		},
+		{
+			name:       "Trailing emoji followed by markdown prompt echo",
+			input:      "The mathematical model is sound.\n\n🧠📐\n\n***Please proceed.***",
+			wantClean:  "The mathematical model is sound.\n\n***Please proceed.***",
+			wantSignat: "🧠📐",
+		},
+		{
+			name:       "Trailing emoji with surrounding asterisks",
+			input:      "Exploration complete.\n\n*🛠️💻*",
+			wantClean:  "Exploration complete.",
+			wantSignat: "🛠️💻",
+		},
 	}
 
 	for _, tt := range tests {
