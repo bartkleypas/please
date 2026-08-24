@@ -207,14 +207,19 @@ func executeToolTurn(t *testing.T, ctx context.Context, mgr *Manager, provider L
 		loopCount++
 
 		for _, call := range currentResp.ToolCalls {
-			t.Logf("### Executing tool locally: %s", call.Function.Name)
+			t.Logf("### Executing tool: %s(%s)", call.Function.Name, string(call.Function.Arguments))
 			result, err := mgr.ExecuteToolCall(ctx, call)
 			if err != nil {
-				t.Logf("Tool execution returned error: %v", err)
+				t.Logf("### Tool Error: %v", err)
 				result = fmt.Sprintf("Error: %v", err)
 			}
 
-			t.Logf("### Tool Result: %s", result)
+			previewResult := result
+			if len(previewResult) > 200 {
+				previewResult = previewResult[:180] + fmt.Sprintf("... [total %d bytes]", len(result))
+			}
+			previewResult = strings.ReplaceAll(previewResult, "\n", " ")
+			t.Logf("### Tool Result (%s): %s", call.Function.Name, previewResult)
 
 			callID := call.ID
 			if callID == "" {
@@ -234,12 +239,19 @@ func executeToolTurn(t *testing.T, ctx context.Context, mgr *Manager, provider L
 		}
 		messages = mapPathToMessages(path)
 
-		t.Logf("### Requesting follow-up response from Assistant (Loop %d)", loopCount)
+		t.Logf("### Requesting follow-up from Assistant (Loop %d)", loopCount)
 		currentResp, err = provider.GenerateResponse(ctx, messages, tools)
 		if err != nil {
 			t.Fatalf("failed to generate follow-up response: %v", err)
 		}
 
+		if currentResp.Thought != "" {
+			thoughtPreview := strings.ReplaceAll(currentResp.Thought, "\n", " ")
+			if len(thoughtPreview) > 150 {
+				thoughtPreview = thoughtPreview[:140] + "..."
+			}
+			t.Logf("### Assistant thought: %s", thoughtPreview)
+		}
 		t.Logf("### Assistant follow-up says: %s", currentResp.Content)
 		if len(currentResp.ToolCalls) > 0 {
 			followUpJSON, _ := json.Marshal(currentResp.ToolCalls)
