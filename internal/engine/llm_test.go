@@ -351,6 +351,108 @@ func TestLLM_ToolExecution(t *testing.T) {
 	simulateTurn(t, ctx, mgr, provider, input, turn8.ID)
 }
 
+func executeAutonomousTurn(t *testing.T, ctx context.Context, mgr *Manager, provider LLMProvider, tools []Tool, input string, parentID string) *Node {
+	userNode, err := mgr.CreateNode(parentID, RoleUser, input, false)
+	if err != nil {
+		t.Fatalf("failed to create user node: %v", err)
+	}
+	t.Logf("### [Node ID: %s] User says: %s", userNode.ID, input)
+
+	messages, err := mgr.BuildLLMContext(userNode.ID, false)
+	if err != nil {
+		t.Fatalf("failed to build LLM context: %v", err)
+	}
+
+	resp, err := provider.GenerateResponse(ctx, messages, tools)
+	if err != nil {
+		t.Fatalf("failed to generate response: %v", err)
+	}
+
+	assistantNode, err := mgr.CreateAssistantNode(userNode.ID, resp.Content, resp.Thought, resp.ToolCalls, false)
+	if err != nil {
+		t.Fatalf("failed to create assistant node: %v", err)
+	}
+
+	if resp.Thought != "" {
+		thoughtPreview := strings.ReplaceAll(resp.Thought, "\n", " ")
+		if len(thoughtPreview) > 150 {
+			thoughtPreview = thoughtPreview[:140] + "..."
+		}
+		t.Logf("### Assistant thought: %s", thoughtPreview)
+	}
+	if resp.Content != "" {
+		t.Logf("### [Node ID: %s] Assistant says: %s", assistantNode.ID, resp.Content)
+	}
+
+	maxLoops := 3
+	loopCount := 0
+	currentResp := resp
+
+	for len(currentResp.ToolCalls) > 0 && loopCount < maxLoops {
+		loopCount++
+
+		for _, call := range currentResp.ToolCalls {
+			t.Logf("### Executing tool: %s(%s)", call.Function.Name, string(call.Function.Arguments))
+			result, err := mgr.ExecuteToolCall(ctx, call)
+			if err != nil {
+				t.Logf("### Tool Error: %v", err)
+				result = fmt.Sprintf("Error: %v", err)
+			}
+
+			previewResult := result
+			if len(previewResult) > 200 {
+				previewResult = previewResult[:180] + fmt.Sprintf("... [total %d bytes]", len(result))
+			}
+			previewResult = strings.ReplaceAll(previewResult, "\n", " ")
+			t.Logf("### Tool Result (%s): %s", call.Function.Name, previewResult)
+
+			callID := call.ID
+			if callID == "" {
+				callID = "call_" + call.Function.Name
+			}
+
+			err = mgr.UpdateAssistantObservations(assistantNode.ID, callID, result)
+			if err != nil {
+				t.Fatalf("failed to update observations: %v", err)
+			}
+		}
+
+		// Rebuild context to include new observations on the active node
+		messages, err = mgr.BuildLLMContext(assistantNode.ID, false)
+		if err != nil {
+			t.Fatalf("failed to build LLM context: %v", err)
+		}
+
+		t.Logf("### Requesting follow-up from Assistant (Loop %d)", loopCount)
+		currentResp, err = provider.GenerateResponse(ctx, messages, tools)
+		if err != nil {
+			t.Fatalf("failed to generate follow-up response: %v", err)
+		}
+
+		if currentResp.Thought != "" {
+			thoughtPreview := strings.ReplaceAll(currentResp.Thought, "\n", " ")
+			if len(thoughtPreview) > 150 {
+				thoughtPreview = thoughtPreview[:140] + "..."
+			}
+			t.Logf("### Assistant thought: %s", thoughtPreview)
+		}
+		if currentResp.Content != "" {
+			t.Logf("### Assistant follow-up says: %s", currentResp.Content)
+		}
+
+		// Append to the assistant node
+		assistantNode, _ = mgr.GetNode(assistantNode.ID)
+		assistantNode.Content += currentResp.Content
+		assistantNode.Thought += currentResp.Thought
+		assistantNode.ToolCalls = append(assistantNode.ToolCalls, currentResp.ToolCalls...)
+		if err := mgr.Storage.SaveNode(assistantNode); err != nil {
+			t.Fatalf("failed to update assistant node: %v", err)
+		}
+	}
+
+	return assistantNode
+}
+
 func TestLLM_AutonomousNarrativeVector(t *testing.T) {
 	mgr, provider := setupLiveFire(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
@@ -370,7 +472,7 @@ func TestLLM_AutonomousNarrativeVector(t *testing.T) {
 
 	// 2. Mission Primer
 	primerPrompt := "Greetings George! Over the next 5 turns, explore this workspace autonomously. On each turn, use the read_file tool to inspect a different core file (e.g. README.md, context_resonance.md, GEMINI.md, internal/engine/service.go, internal/tui/map.go) and weave your findings into the lore of Please. Conclude each turn with your 1-3 emoji signat. Your continuation prompt will always be simply: 'Please proceed.'"
-	primerTurn := executeToolTurn(t, ctx, mgr, provider, tools, primerPrompt, sysNode.ID)
+	primerTurn := executeAutonomousTurn(t, ctx, mgr, provider, tools, primerPrompt, sysNode.ID)
 
 	var turnIDs []string
 	turnIDs = append(turnIDs, primerTurn.ID)
@@ -379,7 +481,7 @@ func TestLLM_AutonomousNarrativeVector(t *testing.T) {
 	// 3. 4 more autonomous turns fueled only by "Please proceed."
 	for i := 2; i <= 5; i++ {
 		t.Logf("=== Starting Autonomous Vector Turn %d/5 ===", i)
-		asstTurn := executeToolTurn(t, ctx, mgr, provider, tools, "Please proceed.", currParentID)
+		asstTurn := executeAutonomousTurn(t, ctx, mgr, provider, tools, "Please proceed.", currParentID)
 		turnIDs = append(turnIDs, asstTurn.ID)
 		currParentID = asstTurn.ID
 
