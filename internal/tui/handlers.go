@@ -86,7 +86,7 @@ func (m *Model) generateSystemSupplement() string {
 
 	// 3. Turn Signatures (Signats)
 	sb.WriteString("\n\n### TURN SIGNATURES (SIGNATS)\n")
-	sb.WriteString("Conclude your final response with a 1-3 emoji signature (signat) summarizing the domain and mood of your turn (e.g. 🛠️💻 for code/impl, 🧠📐 for logic/math, 🔍📁 for research/inspection, 🎨✨ for design/styling, 📝💡 for ideation).\n")
+	sb.WriteString("To anchor your trajectory in the conversation map, conclude the text of your response with a 1-3 emoji signature (signat) reflecting your active domain and mood (e.g. 🛠️💻 for code/impl, 🧠📐 for logic/math, 🔍📜 for research/inspection, 🎨✨ for design/styling, 📝💡 for ideation, 🦉☕ for reflection). Place the signat on the final text line of your message before completing your turn.\n")
 
 	return sb.String()
 }
