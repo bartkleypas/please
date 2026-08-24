@@ -423,3 +423,46 @@ func (s *RemoteDaemonStorage) UpdateNodeParentID(nodeID, newParentID string) err
 func (s *RemoteDaemonStorage) UpdateNodeObservations(nodeID string, obs []ToolObservation) error {
 	return nil
 }
+
+// CreateSupernode calls POST /api/v1/supernodes on the daemon
+func (s *RemoteDaemonStorage) CreateSupernode(ctx context.Context, nodeIDs []string, directive string) (*Node, error) {
+	payload := map[string]interface{}{
+		"node_ids":  nodeIDs,
+		"directive": directive,
+	}
+	bodyBytes, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize supernode payload: %w", err)
+	}
+
+	url := s.BaseURL + "/api/v1/supernodes"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if s.AuthToken != "" {
+		req.Header.Set("Authorization", "Bearer "+s.AuthToken)
+	}
+	if s.HTTPClient == nil {
+		s.HTTPClient = &http.Client{}
+	}
+
+	resp, err := s.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("supernode request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("daemon error (%d): %s", resp.StatusCode, string(respBody))
+	}
+
+	var superNode Node
+	if err := json.NewDecoder(resp.Body).Decode(&superNode); err != nil {
+		return nil, fmt.Errorf("failed to decode supernode response: %w", err)
+	}
+
+	return &superNode, nil
+}

@@ -509,7 +509,8 @@ func (s *Server) handleSupernodes(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	var payload struct {
-		NodeIDs []string `json:"node_ids"`
+		NodeIDs   []string `json:"node_ids"`
+		Directive string   `json:"directive,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -527,7 +528,7 @@ func (s *Server) handleSupernodes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	superNode, err := s.Manager.CompactRange(r.Context(), s.Provider, payload.NodeIDs)
+	superNode, err := s.Manager.CompactRangeWithDirective(r.Context(), s.Provider, payload.NodeIDs, payload.Directive)
 	if err != nil {
 		http.Error(w, "Failed to create supernode: "+err.Error(), http.StatusInternalServerError)
 		return

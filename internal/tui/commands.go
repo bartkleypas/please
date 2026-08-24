@@ -45,6 +45,8 @@ func init() {
 	commandRegistry["/parameters"] = &ParametersCommand{}
 	commandRegistry["/info"] = &ParametersCommand{}
 	commandRegistry["/fold"] = &FoldCommand{}
+	commandRegistry["/compact"] = &CompactCommand{}
+	commandRegistry["/compress"] = &CompactCommand{}
 
 	// Tool confirmation commands
 	commandRegistry["/yes"] = &ConfirmToolCommand{}
@@ -226,6 +228,23 @@ func (c *MapCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	m.Viewport.SetContent(m.ViewportOverride)
 	m.Viewport.GotoTop()
 	return m, nil
+}
+
+type CompactCommand struct{}
+
+func (c *CompactCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
+	rangeIDs := m.getCompactionRange(m.CurrentID)
+	if len(rangeIDs) == 0 {
+		m.Notification = "Nothing to compact on current branch."
+		return m, nil
+	}
+
+	directive := strings.Join(args, " ")
+	m.CompactTargetIDs = rangeIDs
+	m.CompactDirective = directive
+	m.IsCompressing = true
+	m.Notification = "Compacting branch into Supernode..."
+	return m, m.runCompaction()
 }
 
 func (m *Model) syncProviderOptions() {
@@ -618,7 +637,8 @@ func (c *HelpCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	s.WriteString("  /server         Control the web visualization server (/server on|off|status)\n")
 	s.WriteString("  /audit          Toggle full UUID visibility in the graph and chat views\n")
 	s.WriteString("  /pacing         Toggle natural reading pacing for LLM stream (/pacing [on|off])\n")
-	s.WriteString("  /attach <path>  Attach an image file to the next message (alias: /image)\n")
+	s.WriteString("  /compact [hint] Summarize the current branch into a milestone Supernode (alias: /compress)\n")
+	s.WriteString("  /fold [all]     Fold/unfold reasoning thought process blocks (key: Tab / Shift+Tab)\n")
 	s.WriteString("  /parameters     Inspect Stable Diffusion metadata parameters for current node images (alias: /info)\n")
 	s.WriteString("  /q, /quit, /bye Exit the application\n\n")
 	s.WriteString("Navigation:\n")

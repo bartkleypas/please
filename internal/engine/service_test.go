@@ -2,6 +2,7 @@ package engine
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -495,5 +496,42 @@ func TestBuildLLMContext_BudgetAwareRetention(t *testing.T) {
 	// Under extreme pressure, distant thoughts must be pruned, keeping only the active/recent grace turns
 	if tightThoughtsRetained >= 8 {
 		t.Errorf("expected distant thoughts to be pruned under tight context pressure, but got %d", tightThoughtsRetained)
+	}
+}
+
+func TestCompactRangeWithDirective_TrajectoryAndSteering(t *testing.T) {
+	mgr := NewManager(NewGraph(), &MockStorage{})
+
+	root, _ := mgr.CreateNode("", RoleSystem, "You are George 🦉📚", false)
+	user1, _ := mgr.CreateNode(root.ID, RoleUser, "Refactor the database schema", false)
+	asst1, _ := mgr.CreateAssistantNode(user1.ID, "Schema updated 🛠️💻", "Thinking...", nil, false)
+	user2, _ := mgr.CreateNode(asst1.ID, RoleUser, "Verify the queries", false)
+	asst2, _ := mgr.CreateAssistantNode(user2.ID, "Queries verified 🔍📁", "Analyzing...", nil, false)
+
+	mockProvider := &MockLLMProvider{
+		ResponseContent: "Milestone: Database schema refactored and verified.",
+	}
+
+	superNode, err := mgr.CompactRangeWithDirective(
+		context.Background(),
+		mockProvider,
+		[]string{user1.ID, asst1.ID, user2.ID, asst2.ID},
+		"focus on database performance",
+	)
+	if err != nil {
+		t.Fatalf("failed to compact range: %v", err)
+	}
+
+	// 1. Verify supernode content contains trajectory banner
+	if !strings.Contains(superNode.Content, "🎯 Trajectory: 🛠️💻 ➔ 🔍📁") {
+		t.Errorf("expected supernode content to contain trajectory header, got: %s", superNode.Content)
+	}
+	if !strings.Contains(superNode.Content, "Milestone: Database schema refactored and verified.") {
+		t.Errorf("expected supernode content to contain summary text, got: %s", superNode.Content)
+	}
+
+	// 2. Verify supernode parentage is root
+	if superNode.ParentID != root.ID {
+		t.Errorf("expected supernode ParentID to be root (%s), got: %s", root.ID, superNode.ParentID)
 	}
 }

@@ -551,3 +551,42 @@ func TestChatStream_MultiTurnToolCascading(t *testing.T) {
 		t.Errorf("expected 2 turns executed on server, got %d", turnCounter)
 	}
 }
+
+func TestRemoteDaemonStorage_CreateSupernode(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	storage, _ := engine.NewSQLiteStorage(dbPath, "")
+	graph := engine.NewGraph()
+	mgr := engine.NewManager(graph, storage)
+
+	root, _ := mgr.CreateNode("", engine.RoleSystem, "You are George 🦉📚", false)
+	user, _ := mgr.CreateNode(root.ID, engine.RoleUser, "Investigate logs", false)
+	asst, _ := mgr.CreateAssistantNode(user.ID, "Logs clear 🔍📜", "", nil, false)
+
+	mockProvider := &engine.MockLLMProvider{
+		ResponseContent: "Milestone: Investigation complete.",
+	}
+
+	cfg := engine.NewDefaultConfig()
+	srv := NewServerWithProvider(mgr, mockProvider, cfg)
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	remoteStorage, err := engine.NewRemoteDaemonStorage(ts.URL, "", "")
+	if err != nil {
+		t.Fatalf("failed to create remote storage: %v", err)
+	}
+
+	superNode, err := remoteStorage.CreateSupernode(context.Background(), []string{user.ID, asst.ID}, "focus on errors")
+	if err != nil {
+		t.Fatalf("expected CreateSupernode to succeed, got: %v", err)
+	}
+
+	if superNode.Role != engine.RoleSummary {
+		t.Errorf("expected supernode role to be RoleSummary, got %s", superNode.Role)
+	}
+	if !strings.Contains(superNode.Content, "🎯 Trajectory: 🔍📜") {
+		t.Errorf("expected supernode to contain trajectory, got: %s", superNode.Content)
+	}
+}

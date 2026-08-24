@@ -960,3 +960,56 @@ func TestSignat_MapAndChatRendering(t *testing.T) {
 		t.Errorf("expected chat rendering to contain 'assistant 🛠️⚡:', got:\n%s", renderedNode)
 	}
 }
+
+func TestCompactCommand_AndNavigation(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	storage, _ := engine.NewSQLiteStorage(dbPath, "")
+	graph := engine.NewGraph()
+	mgr := engine.NewManager(graph, storage)
+
+	rootNode, _ := mgr.CreateNode("", engine.RoleSystem, "You are George 🦉📚", false)
+	userNode, _ := mgr.CreateNode(rootNode.ID, engine.RoleUser, "Write tests", false)
+	asstNode, _ := mgr.CreateAssistantNode(userNode.ID, "Tests written 🛠️💻", "", nil, false)
+
+	mockProvider := &engine.MockLLMProvider{
+		ResponseContent: "Milestone: All tests written successfully.",
+	}
+
+	cfg := engine.NewDefaultConfig()
+	m := NewModel(cfg, graph, storage, mockProvider, asstNode.ID)
+	m.Width = 80
+
+	// 1. Execute /compact command
+	newModel, cmd, handled := m.HandleCommand("/compact focus on testing")
+	if !handled {
+		t.Fatalf("expected /compact command to be handled")
+	}
+	mModel := newModel.(*Model)
+	if cmd == nil {
+		t.Fatalf("expected /compact to return a batch command")
+	}
+
+	// 2. Execute the returned compaction command Msg
+	msg := cmd()
+	newModel2, _ := mModel.Update(msg)
+	m2 := newModel2.(*Model)
+
+	// 3. Verify CurrentID transitioned to the new Supernode
+	if m2.CurrentID == asstNode.ID {
+		t.Errorf("expected CurrentID to move away from old leaf %s to supernode", asstNode.ID)
+	}
+
+	superNode, err := mgr.GetNode(m2.CurrentID)
+	if err != nil {
+		t.Fatalf("failed to find supernode %s: %v", m2.CurrentID, err)
+	}
+
+	if superNode.Role != engine.RoleSummary {
+		t.Errorf("expected new CurrentID node to have RoleSummary, got %s", superNode.Role)
+	}
+
+	if !strings.Contains(superNode.Content, "🎯 Trajectory: 🛠️💻") {
+		t.Errorf("expected supernode to contain trajectory header, got: %s", superNode.Content)
+	}
+}

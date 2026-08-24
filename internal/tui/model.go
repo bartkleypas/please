@@ -70,6 +70,7 @@ type Model struct {
 	// Compaction state
 	AwaitingCompactConfirmation bool
 	CompactTargetIDs            []string
+	CompactDirective            string
 	IsCompressing               bool
 
 	// Tool handling fields

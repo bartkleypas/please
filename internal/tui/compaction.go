@@ -11,13 +11,26 @@ import (
 
 func (m *Model) handleCompactionFinished(msg compactionFinishedMsg) (tea.Model, tea.Cmd) {
 	m.IsCompressing = false
+	m.CompactTargetIDs = nil
+	m.CompactDirective = ""
+
 	if msg.err != nil {
 		m.Notification = fmt.Sprintf("Compaction failed: %v", msg.err)
 		return m, nil
 	}
 
+	if msg.node != nil {
+		m.CurrentID = msg.node.ID
+		if m.ViewMode == ModeChat {
+			m.navigateToNode(msg.node)
+		} else {
+			m.syncMapSelection()
+			m.ViewportOverride = m.generateMapString()
+			m.Viewport.SetContent(m.ViewportOverride)
+		}
+	}
+
 	m.Notification = "Branch compacted into Supernode."
-	m.syncMapSelection()
 	return m, nil
 }
 
@@ -41,9 +54,25 @@ func (m *Model) getCompactionRange(leafID string) []string {
 }
 
 func (m *Model) runCompaction() tea.Cmd {
+	targetIDs := m.CompactTargetIDs
+	directive := m.CompactDirective
+
 	return func() tea.Msg {
 		ctx := context.Background()
-		node, err := m.Manager.CompactRange(ctx, m.Provider, m.CompactTargetIDs)
+
+		// If connected to remote daemon, route through dedicated POST /api/v1/supernodes endpoint
+		if remoteStorage, ok := m.Manager.Storage.(*engine.RemoteDaemonStorage); ok {
+			node, err := remoteStorage.CreateSupernode(ctx, targetIDs, directive)
+			if err != nil {
+				return compactionFinishedMsg{node: nil, err: err}
+			}
+			// Refresh client-side graph
+			_, _, _ = m.Manager.Sync()
+			return compactionFinishedMsg{node: node, err: nil}
+		}
+
+		// Standalone mode
+		node, err := m.Manager.CompactRangeWithDirective(ctx, m.Provider, targetIDs, directive)
 		return compactionFinishedMsg{node: node, err: err}
 	}
 }

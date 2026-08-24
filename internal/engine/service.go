@@ -597,11 +597,17 @@ func (m *Manager) GarbageCollect() (int64, error) {
 
 // CompactRange summarizes a set of nodes and grafts them into the graph as a Supernode
 func (m *Manager) CompactRange(ctx context.Context, provider LLMProvider, nodeIDs []string) (*Node, error) {
+	return m.CompactRangeWithDirective(ctx, provider, nodeIDs, "")
+}
+
+// CompactRangeWithDirective summarizes a set of nodes with an optional user steering directive and grafts them into the graph as a Supernode
+func (m *Manager) CompactRangeWithDirective(ctx context.Context, provider LLMProvider, nodeIDs []string, directive string) (*Node, error) {
 	if len(nodeIDs) == 0 {
 		return nil, fmt.Errorf("no nodes provided for compaction")
 	}
 
 	var contentToSummarize strings.Builder
+	var signats []string
 	for _, id := range nodeIDs {
 		node, err := m.Graph.GetNode(id)
 		if err != nil {
@@ -610,12 +616,23 @@ func (m *Manager) CompactRange(ctx context.Context, provider LLMProvider, nodeID
 		signatStr := ""
 		if node.Metadata != nil && node.Metadata["signat"] != "" {
 			signatStr = " " + node.Metadata["signat"]
+			signats = append(signats, strings.TrimSpace(node.Metadata["signat"]))
 		}
 		fmt.Fprintf(&contentToSummarize, "[%s%s]: %s\n", node.Role, signatStr, node.Content)
 	}
 
+	// Build trajectory prefix if signats exist
+	trajectoryHeader := ""
+	if len(signats) > 0 {
+		trajectoryHeader = fmt.Sprintf("🎯 Trajectory: %s\n\n", strings.Join(signats, " ➔ "))
+	}
+
 	// 1. Generate Summary
-	summaryPrompt := "You are a concise narrative archivist. Summarize the following conversation segment into a single, high-density paragraph. Preserve key facts, decisions, and the current state of the world. Do not use filler or introductory phrases."
+	summaryPrompt := "You are a concise narrative archivist. Summarize the following conversation segment into a single, high-density milestone paragraph. Preserve key facts, architectural decisions, tool results, and the active state of the world. Do not use filler or introductory phrases."
+	if directive != "" {
+		summaryPrompt += fmt.Sprintf("\nUser Steering Directive: Focus particularly on: %s", directive)
+	}
+
 	messages := []Message{
 		{Role: RoleSystem, Content: summaryPrompt},
 		{Role: RoleUser, Content: contentToSummarize.String()},
@@ -641,9 +658,8 @@ func (m *Manager) CompactRange(ctx context.Context, provider LLMProvider, nodeID
 	}
 
 	// 3. Create Supernode
-	// We add 1 millisecond to ensure strict monotonicity. If it shared the exact same ms,
-	// a lower random tail would cause the Supernode to sort *before* the last node lexically.
-	superNode, err := m.createSupernode(parentID, resp.Content, lastNode.Timestamp.Add(1*time.Millisecond))
+	superNodeContent := trajectoryHeader + strings.TrimSpace(resp.Content)
+	superNode, err := m.createSupernode(parentID, superNodeContent, lastNode.Timestamp.Add(1*time.Millisecond))
 	if err != nil {
 		return nil, err
 	}
