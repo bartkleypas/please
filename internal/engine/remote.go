@@ -321,7 +321,7 @@ func NewRemoteDaemonStorage(baseURL, authToken, caCertPath string) (*RemoteDaemo
 	return &RemoteDaemonStorage{
 		BaseURL:    baseURL,
 		AuthToken:  authToken,
-		HTTPClient: &http.Client{Transport: transport, Timeout: 15 * time.Second},
+		HTTPClient: &http.Client{Transport: transport},
 	}, nil
 }
 
