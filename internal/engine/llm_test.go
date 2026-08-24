@@ -148,12 +148,10 @@ func simulateTurn(t *testing.T, ctx context.Context, mgr *Manager, provider LLMP
 	}
 	t.Logf("### [Node ID: %s] User says: %s", userNode.ID, input)
 
-	path, err := mgr.GetPath(userNode.ID)
+	messages, err := mgr.BuildLLMContext(userNode.ID, false)
 	if err != nil {
-		t.Fatalf("failed to get path: %v", err)
+		t.Fatalf("failed to build LLM context: %v", err)
 	}
-
-	messages := mapPathToMessages(path)
 
 	resp, err := provider.GenerateResponse(ctx, messages, nil)
 	if err != nil {
@@ -176,12 +174,10 @@ func executeToolTurn(t *testing.T, ctx context.Context, mgr *Manager, provider L
 	}
 	t.Logf("### [Node ID: %s] User says: %s", userNode.ID, input)
 
-	path, err := mgr.GetPath(userNode.ID)
+	messages, err := mgr.BuildLLMContext(userNode.ID, false)
 	if err != nil {
-		t.Fatalf("failed to get path: %v", err)
+		t.Fatalf("failed to build LLM context: %v", err)
 	}
-
-	messages := mapPathToMessages(path)
 
 	resp, err := provider.GenerateResponse(ctx, messages, tools)
 	if err != nil {
@@ -232,12 +228,11 @@ func executeToolTurn(t *testing.T, ctx context.Context, mgr *Manager, provider L
 			}
 		}
 
-		// Refetch path to include new observations on the active node
-		path, err = mgr.GetPath(assistantNode.ID)
+		// Rebuild context to include new observations on the active node
+		messages, err = mgr.BuildLLMContext(assistantNode.ID, false)
 		if err != nil {
-			t.Fatalf("failed to get path: %v", err)
+			t.Fatalf("failed to build LLM context: %v", err)
 		}
-		messages = mapPathToMessages(path)
 
 		t.Logf("### Requesting follow-up from Assistant (Loop %d)", loopCount)
 		currentResp, err = provider.GenerateResponse(ctx, messages, tools)
