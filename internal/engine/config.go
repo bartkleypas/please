@@ -13,12 +13,15 @@ const CurrentConfigVersion = 2
 
 // ModelOptions holds model inference and sampling parameters
 type ModelOptions struct {
-	Temperature   *float64 `json:"temperature,omitempty"`
-	TopP          *float64 `json:"top_p,omitempty"`
-	TopK          *int     `json:"top_k,omitempty"`
-	NumCtx        *int     `json:"num_ctx,omitempty"`
-	MaxTokens     *int     `json:"max_tokens,omitempty"`
-	RepeatPenalty *float64 `json:"repeat_penalty,omitempty"`
+	Temperature      *float64 `json:"temperature,omitempty"`
+	TopP             *float64 `json:"top_p,omitempty"`
+	TopK             *int     `json:"top_k,omitempty"`
+	MinP             *float64 `json:"min_p,omitempty"`
+	NumCtx           *int     `json:"num_ctx,omitempty"`
+	MaxTokens        *int     `json:"max_tokens,omitempty"`
+	RepeatPenalty    *float64 `json:"repeat_penalty,omitempty"`
+	RepeatLastN      *int     `json:"repeat_last_n,omitempty"`
+	FrequencyPenalty *float64 `json:"frequency_penalty,omitempty"`
 }
 
 // ServerConfig holds settings for running the engine daemon / standalone backend

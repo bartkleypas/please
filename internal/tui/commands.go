@@ -324,10 +324,10 @@ func (m *Model) renderConfigString() string {
 		} else {
 			s.WriteString("      Top P:         (default)\n")
 		}
-		if srv.Options.TopK != nil {
-			fmt.Fprintf(&s, "      Top K:         %d\n", *srv.Options.TopK)
+		if srv.Options.MinP != nil {
+			fmt.Fprintf(&s, "      Min P:         %.2f\n", *srv.Options.MinP)
 		} else {
-			s.WriteString("      Top K:         (default)\n")
+			s.WriteString("      Min P:         (default)\n")
 		}
 		if srv.Options.NumCtx != nil {
 			fmt.Fprintf(&s, "      Context Size:  %d tokens\n", *srv.Options.NumCtx)
@@ -343,6 +343,16 @@ func (m *Model) renderConfigString() string {
 			fmt.Fprintf(&s, "      Repeat Penalty:%.2f\n", *srv.Options.RepeatPenalty)
 		} else {
 			s.WriteString("      Repeat Penalty:(default)\n")
+		}
+		if srv.Options.RepeatLastN != nil {
+			fmt.Fprintf(&s, "      Repeat Last N: %d tokens\n", *srv.Options.RepeatLastN)
+		} else {
+			s.WriteString("      Repeat Last N: (default)\n")
+		}
+		if srv.Options.FrequencyPenalty != nil {
+			fmt.Fprintf(&s, "      Freq Penalty:  %.2f\n", *srv.Options.FrequencyPenalty)
+		} else {
+			s.WriteString("      Freq Penalty:  (default)\n")
 		}
 	} else {
 		s.WriteString("      (All provider defaults)\n")
@@ -376,9 +386,12 @@ func (m *Model) renderConfigString() string {
 	s.WriteString("  /config temp <val|default>    Set sampling temperature\n")
 	s.WriteString("  /config top_p <val|default>   Set top-p sampling\n")
 	s.WriteString("  /config top_k <val|default>   Set top-k sampling\n")
+	s.WriteString("  /config min_p <val|default>   Set min-p sampling (e.g. 0.05)\n")
 	s.WriteString("  /config ctx <val|default>     Set context window tokens\n")
 	s.WriteString("  /config max_tokens <val|def>  Set maximum generation tokens\n")
-	s.WriteString("  /config penalty <val|default> Set repeat penalty (e.g. 1.10)\n")
+	s.WriteString("  /config penalty <val|default> Set repeat penalty (e.g. 1.05)\n")
+	s.WriteString("  /config last_n <val|default>  Set repeat penalty lookback tokens (e.g. 128)\n")
+	s.WriteString("  /config freq <val|default>    Set frequency penalty (e.g. 0.15)\n")
 	s.WriteString("  /config sandbox <policy>      Set sandbox policy (strict|standard|permissive)\n")
 
 	return s.String()
@@ -395,7 +408,7 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	}
 
 	if len(args) < 2 {
-		m.Notification = "Usage: /config <model|endpoint|workspace|key|pacing|remote|temp|top_p|top_k|ctx|max_tokens|penalty|sandbox> <value>"
+		m.Notification = "Usage: /config <model|endpoint|workspace|key|pacing|remote|temp|top_p|top_k|min_p|ctx|max_tokens|penalty|last_n|freq|sandbox> <value>"
 		return m, nil
 	}
 
@@ -517,6 +530,23 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 			m.Notification = fmt.Sprintf("Top-k set to %d", val)
 		}
 		m.syncProviderOptions()
+	case "min_p", "minp":
+		if m.Config.Server.Options == nil {
+			m.Config.Server.Options = &engine.ModelOptions{}
+		}
+		if strings.ToLower(value) == "default" || strings.ToLower(value) == "reset" || strings.ToLower(value) == "none" {
+			m.Config.Server.Options.MinP = nil
+			m.Notification = "Min-p reset to default"
+		} else {
+			var val float64
+			if _, err := fmt.Sscanf(value, "%f", &val); err != nil || val < 0 || val > 1.0 {
+				m.Notification = "Invalid min_p value. Expected float between 0.0 and 1.0 (e.g. 0.05)"
+				return m, nil
+			}
+			m.Config.Server.Options.MinP = &val
+			m.Notification = fmt.Sprintf("Min-p set to %.2f", val)
+		}
+		m.syncProviderOptions()
 	case "ctx", "num_ctx", "context", "context_size":
 		if m.Config.Server.Options == nil {
 			m.Config.Server.Options = &engine.ModelOptions{}
@@ -561,11 +591,45 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		} else {
 			var val float64
 			if _, err := fmt.Sscanf(value, "%f", &val); err != nil || val < 0 {
-				m.Notification = "Invalid repeat_penalty value. Expected positive float (e.g. 1.10)"
+				m.Notification = "Invalid repeat_penalty value. Expected positive float (e.g. 1.05)"
 				return m, nil
 			}
 			m.Config.Server.Options.RepeatPenalty = &val
 			m.Notification = fmt.Sprintf("Repeat penalty set to %.2f", val)
+		}
+		m.syncProviderOptions()
+	case "last_n", "repeat_last_n", "repeatlastn":
+		if m.Config.Server.Options == nil {
+			m.Config.Server.Options = &engine.ModelOptions{}
+		}
+		if strings.ToLower(value) == "default" || strings.ToLower(value) == "reset" || strings.ToLower(value) == "none" {
+			m.Config.Server.Options.RepeatLastN = nil
+			m.Notification = "Repeat last N reset to default"
+		} else {
+			var val int
+			if _, err := fmt.Sscanf(value, "%d", &val); err != nil || val < 0 {
+				m.Notification = "Invalid repeat_last_n value. Expected positive integer (e.g. 128)"
+				return m, nil
+			}
+			m.Config.Server.Options.RepeatLastN = &val
+			m.Notification = fmt.Sprintf("Repeat last N set to %d tokens", val)
+		}
+		m.syncProviderOptions()
+	case "freq", "freq_penalty", "frequency_penalty", "freqpenalty":
+		if m.Config.Server.Options == nil {
+			m.Config.Server.Options = &engine.ModelOptions{}
+		}
+		if strings.ToLower(value) == "default" || strings.ToLower(value) == "reset" || strings.ToLower(value) == "none" {
+			m.Config.Server.Options.FrequencyPenalty = nil
+			m.Notification = "Frequency penalty reset to default"
+		} else {
+			var val float64
+			if _, err := fmt.Sscanf(value, "%f", &val); err != nil || val < -2.0 || val > 2.0 {
+				m.Notification = "Invalid frequency_penalty value. Expected float between -2.0 and 2.0 (e.g. 0.15)"
+				return m, nil
+			}
+			m.Config.Server.Options.FrequencyPenalty = &val
+			m.Notification = fmt.Sprintf("Frequency penalty set to %.2f", val)
 		}
 		m.syncProviderOptions()
 	case "sandbox", "sandbox_policy", "policy":

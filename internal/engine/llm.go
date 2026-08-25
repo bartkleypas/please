@@ -65,6 +65,9 @@ func (o *OllamaProvider) buildOllamaOptions() map[string]interface{} {
 	if o.Options.TopK != nil {
 		opts["top_k"] = *o.Options.TopK
 	}
+	if o.Options.MinP != nil {
+		opts["min_p"] = *o.Options.MinP
+	}
 	if o.Options.NumCtx != nil {
 		opts["num_ctx"] = *o.Options.NumCtx
 	}
@@ -73,6 +76,12 @@ func (o *OllamaProvider) buildOllamaOptions() map[string]interface{} {
 	}
 	if o.Options.RepeatPenalty != nil {
 		opts["repeat_penalty"] = *o.Options.RepeatPenalty
+	}
+	if o.Options.RepeatLastN != nil {
+		opts["repeat_last_n"] = *o.Options.RepeatLastN
+	}
+	if o.Options.FrequencyPenalty != nil {
+		opts["frequency_penalty"] = *o.Options.FrequencyPenalty
 	}
 	if len(opts) == 0 {
 		return nil

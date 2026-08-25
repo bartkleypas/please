@@ -453,7 +453,40 @@ func TestViewportOverrideTextInputAndLiveUpdate(t *testing.T) {
 		t.Errorf("expected ViewportOverride to live-update with new repeat penalty, got:\n%s", m.ViewportOverride)
 	}
 
-	// 4c. Run /config sandbox strict while config view is open
+	// 4c. Run /config min_p 0.05 while config view is open
+	m.TextInput.SetValue("/config min_p 0.05")
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.Config.Server.Options.MinP == nil || *m.Config.Server.Options.MinP != 0.05 {
+		t.Fatalf("expected min_p to be 0.05, got %v", m.Config.Server.Options.MinP)
+	}
+	if !strings.Contains(m.ViewportOverride, "0.05") {
+		t.Errorf("expected ViewportOverride to live-update with new min_p, got:\n%s", m.ViewportOverride)
+	}
+
+	// 4d. Run /config last_n 128 while config view is open
+	m.TextInput.SetValue("/config last_n 128")
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.Config.Server.Options.RepeatLastN == nil || *m.Config.Server.Options.RepeatLastN != 128 {
+		t.Fatalf("expected repeat_last_n to be 128, got %v", m.Config.Server.Options.RepeatLastN)
+	}
+	if !strings.Contains(m.ViewportOverride, "128") {
+		t.Errorf("expected ViewportOverride to live-update with new repeat_last_n, got:\n%s", m.ViewportOverride)
+	}
+
+	// 4e. Run /config freq 0.15 while config view is open
+	m.TextInput.SetValue("/config freq 0.15")
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.Config.Server.Options.FrequencyPenalty == nil || *m.Config.Server.Options.FrequencyPenalty != 0.15 {
+		t.Fatalf("expected frequency penalty to be 0.15, got %v", m.Config.Server.Options.FrequencyPenalty)
+	}
+	if !strings.Contains(m.ViewportOverride, "0.15") {
+		t.Errorf("expected ViewportOverride to live-update with new frequency penalty, got:\n%s", m.ViewportOverride)
+	}
+
+	// 4f. Run /config sandbox strict while config view is open
 	m.TextInput.SetValue("/config sandbox strict")
 	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
 

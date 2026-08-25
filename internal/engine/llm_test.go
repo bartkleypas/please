@@ -525,17 +525,23 @@ func TestOllamaProvider_OptionsSerialization(t *testing.T) {
 	temp := 0.7
 	topP := 0.9
 	topK := 40
+	minP := 0.05
 	numCtx := 16384
 	maxTokens := 2048
 	repeatPenalty := 1.1
+	repeatLastN := 128
+	freqPenalty := 0.15
 
 	options := &ModelOptions{
-		Temperature:   &temp,
-		TopP:          &topP,
-		TopK:          &topK,
-		NumCtx:        &numCtx,
-		MaxTokens:     &maxTokens,
-		RepeatPenalty: &repeatPenalty,
+		Temperature:      &temp,
+		TopP:             &topP,
+		TopK:             &topK,
+		MinP:             &minP,
+		NumCtx:           &numCtx,
+		MaxTokens:        &maxTokens,
+		RepeatPenalty:    &repeatPenalty,
+		RepeatLastN:      &repeatLastN,
+		FrequencyPenalty: &freqPenalty,
 	}
 
 	provider := NewOllamaProvider(server.URL, "test-model", options)
@@ -568,6 +574,9 @@ func TestOllamaProvider_OptionsSerialization(t *testing.T) {
 	if opts["top_k"] != float64(40) {
 		t.Errorf("expected top_k 40, got %v", opts["top_k"])
 	}
+	if opts["min_p"] != 0.05 {
+		t.Errorf("expected min_p 0.05, got %v", opts["min_p"])
+	}
 	if opts["num_ctx"] != float64(16384) {
 		t.Errorf("expected num_ctx 16384, got %v", opts["num_ctx"])
 	}
@@ -576,6 +585,12 @@ func TestOllamaProvider_OptionsSerialization(t *testing.T) {
 	}
 	if opts["repeat_penalty"] != 1.1 {
 		t.Errorf("expected repeat_penalty 1.1, got %v", opts["repeat_penalty"])
+	}
+	if opts["repeat_last_n"] != float64(128) {
+		t.Errorf("expected repeat_last_n 128, got %v", opts["repeat_last_n"])
+	}
+	if opts["frequency_penalty"] != 0.15 {
+		t.Errorf("expected frequency_penalty 0.15, got %v", opts["frequency_penalty"])
 	}
 }
 
@@ -606,11 +621,13 @@ func TestOpenAIProvider_OptionsSerialization(t *testing.T) {
 	temp := 0.2
 	topP := 0.85
 	maxTokens := 1024
+	freqPenalty := 0.25
 
 	options := &ModelOptions{
-		Temperature: &temp,
-		TopP:        &topP,
-		MaxTokens:   &maxTokens,
+		Temperature:      &temp,
+		TopP:             &topP,
+		MaxTokens:        &maxTokens,
+		FrequencyPenalty: &freqPenalty,
 	}
 
 	provider := NewOpenAIProvider(server.URL, "gpt-4o", "test-key", options)
@@ -637,6 +654,9 @@ func TestOpenAIProvider_OptionsSerialization(t *testing.T) {
 	}
 	if reqData["max_tokens"] != float64(1024) {
 		t.Errorf("expected max_tokens 1024, got %v", reqData["max_tokens"])
+	}
+	if reqData["frequency_penalty"] != 0.25 {
+		t.Errorf("expected frequency_penalty 0.25, got %v", reqData["frequency_penalty"])
 	}
 }
 

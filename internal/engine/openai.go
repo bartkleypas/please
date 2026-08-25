@@ -70,13 +70,14 @@ type openAIToolCall struct {
 }
 
 type openAIRequest struct {
-	Model       string          `json:"model"`
-	Messages    []openAIMessage `json:"messages"`
-	Stream      bool            `json:"stream"`
-	Tools       []openAITool    `json:"tools,omitempty"`
-	Temperature *float64        `json:"temperature,omitempty"`
-	TopP        *float64        `json:"top_p,omitempty"`
-	MaxTokens   *int            `json:"max_tokens,omitempty"`
+	Model            string          `json:"model"`
+	Messages         []openAIMessage `json:"messages"`
+	Stream           bool            `json:"stream"`
+	Tools            []openAITool    `json:"tools,omitempty"`
+	Temperature      *float64        `json:"temperature,omitempty"`
+	TopP             *float64        `json:"top_p,omitempty"`
+	MaxTokens        *int            `json:"max_tokens,omitempty"`
+	FrequencyPenalty *float64        `json:"frequency_penalty,omitempty"`
 }
 
 type openAIResponse struct {
@@ -127,6 +128,7 @@ func (o *OpenAIProvider) GenerateResponse(ctx context.Context, messages []Messag
 		reqBody.Temperature = o.Options.Temperature
 		reqBody.TopP = o.Options.TopP
 		reqBody.MaxTokens = o.Options.MaxTokens
+		reqBody.FrequencyPenalty = o.Options.FrequencyPenalty
 	}
 
 	// OpenAI API drops empty tool arrays sometimes, best to omit if zero
@@ -204,6 +206,7 @@ func (o *OpenAIProvider) GenerateResponseStream(ctx context.Context, messages []
 			reqBody.Temperature = o.Options.Temperature
 			reqBody.TopP = o.Options.TopP
 			reqBody.MaxTokens = o.Options.MaxTokens
+			reqBody.FrequencyPenalty = o.Options.FrequencyPenalty
 		}
 
 		if len(reqBody.Tools) == 0 {
