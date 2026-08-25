@@ -36,6 +36,7 @@ type ServerConfig struct {
 	AuthToken     string        `json:"auth_token,omitempty"`
 	TLSCertFile   string        `json:"tls_cert_file,omitempty"`
 	TLSKeyFile    string        `json:"tls_key_file,omitempty"`
+	SandboxPolicy string        `json:"sandbox_policy,omitempty"` // "strict", "standard", "permissive"
 	Options       *ModelOptions `json:"options,omitempty"`
 }
 

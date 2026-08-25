@@ -306,6 +306,11 @@ func (m *Model) renderConfigString() string {
 		authStr = "enabled (Bearer token active)"
 	}
 	fmt.Fprintf(&s, "    Authentication:  %s\n", authStr)
+	sandboxStr := srv.SandboxPolicy
+	if sandboxStr == "" {
+		sandboxStr = "standard (default)"
+	}
+	fmt.Fprintf(&s, "    Sandbox Policy:  %s\n", sandboxStr)
 
 	s.WriteString("\n    Inference Parameters:\n")
 	if srv.Options != nil {
@@ -374,6 +379,7 @@ func (m *Model) renderConfigString() string {
 	s.WriteString("  /config ctx <val|default>     Set context window tokens\n")
 	s.WriteString("  /config max_tokens <val|def>  Set maximum generation tokens\n")
 	s.WriteString("  /config penalty <val|default> Set repeat penalty (e.g. 1.10)\n")
+	s.WriteString("  /config sandbox <policy>      Set sandbox policy (strict|standard|permissive)\n")
 
 	return s.String()
 }
@@ -389,7 +395,7 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	}
 
 	if len(args) < 2 {
-		m.Notification = "Usage: /config <model|endpoint|workspace|key|pacing|remote|temp|top_p|top_k|ctx|max_tokens|penalty> <value>"
+		m.Notification = "Usage: /config <model|endpoint|workspace|key|pacing|remote|temp|top_p|top_k|ctx|max_tokens|penalty|sandbox> <value>"
 		return m, nil
 	}
 
@@ -562,6 +568,18 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 			m.Notification = fmt.Sprintf("Repeat penalty set to %.2f", val)
 		}
 		m.syncProviderOptions()
+	case "sandbox", "sandbox_policy", "policy":
+		pol := strings.ToLower(value)
+		if pol == "default" || pol == "reset" {
+			m.Config.Server.SandboxPolicy = ""
+			m.Notification = "Sandbox policy reset to standard default"
+		} else if pol == engine.SandboxPolicyStrict || pol == engine.SandboxPolicyStandard || pol == engine.SandboxPolicyPermissive {
+			m.Config.Server.SandboxPolicy = pol
+			m.Notification = fmt.Sprintf("Sandbox policy set to '%s'", pol)
+		} else {
+			m.Notification = "Invalid sandbox policy. Expected 'strict', 'standard', or 'permissive'"
+			return m, nil
+		}
 	default:
 		m.Notification = "Unknown config key: " + key
 		return m, nil

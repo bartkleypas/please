@@ -920,7 +920,7 @@ func TestToolDefaults_WorkspaceScoping(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected path traversal outside workspace to fail with security error")
 	}
-	if !strings.Contains(err.Error(), "outside of project root") {
+	if !strings.Contains(err.Error(), "outside of workspace root") && !strings.Contains(err.Error(), "outside of project root") {
 		t.Errorf("expected security error, got: %v", err)
 	}
 

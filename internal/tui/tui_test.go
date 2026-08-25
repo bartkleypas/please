@@ -453,6 +453,17 @@ func TestViewportOverrideTextInputAndLiveUpdate(t *testing.T) {
 		t.Errorf("expected ViewportOverride to live-update with new repeat penalty, got:\n%s", m.ViewportOverride)
 	}
 
+	// 4c. Run /config sandbox strict while config view is open
+	m.TextInput.SetValue("/config sandbox strict")
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.Config.Server.SandboxPolicy != "strict" {
+		t.Fatalf("expected sandbox policy to be 'strict', got %q", m.Config.Server.SandboxPolicy)
+	}
+	if !strings.Contains(m.ViewportOverride, "strict") {
+		t.Errorf("expected ViewportOverride to live-update with new sandbox policy, got:\n%s", m.ViewportOverride)
+	}
+
 	// 5. Send a regular chat message while ViewportOverride is active
 	m.TextInput.SetValue("Let's resume chat")
 	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})

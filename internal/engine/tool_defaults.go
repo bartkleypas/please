@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"image"
 	_ "image/gif"
@@ -17,38 +18,10 @@ import (
 	_ "image/png"
 )
 
-var allowedCommands = []string{
-	"git", "go", "groovy", "ls", "grep", "cat", "echo", "find", "pwd", "date", "rm", "mkdir", "ssh",
-}
+var allowedCommands = StandardAllowedCommands
 
 func validatePath(workspaceDir, path string) (string, error) {
-	base := workspaceDir
-	if base == "" {
-		base = "."
-	}
-	absRoot, err := filepath.Abs(base)
-	if err != nil {
-		return "", fmt.Errorf("failed to get absolute root: %w", err)
-	}
-
-	var targetPath string
-	if filepath.IsAbs(path) {
-		targetPath = filepath.Clean(path)
-	} else {
-		targetPath = filepath.Join(absRoot, path)
-	}
-
-	absPath, err := filepath.Abs(targetPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to get absolute path: %w", err)
-	}
-
-	rel, err := filepath.Rel(absRoot, absPath)
-	if err != nil || strings.HasPrefix(rel, "..") {
-		return "", fmt.Errorf("security error: path '%s' is outside of project root (%s)", path, absRoot)
-	}
-
-	return absPath, nil
+	return ValidateSafePath(workspaceDir, path)
 }
 
 // getStringArg is a helper to extract string arguments from tool arguments
@@ -521,27 +494,14 @@ func GetDefaultTools(workspaceDir ...string) []Tool {
 					return "", err
 				}
 
-				parts := strings.Fields(command)
-				if len(parts) == 0 {
-					return "", fmt.Errorf("empty command")
+				if err := ParseAndValidatePipeline(command, allowedCommands); err != nil {
+					return "", err
 				}
 
-				binary := parts[0]
-				allowed := false
-				for _, a := range allowedCommands {
-					if binary == a {
-						allowed = true
-						break
-					}
-				}
+				execCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+				defer cancel()
 
-				if !allowed {
-					return "", fmt.Errorf("security error: command '%s' is not in the allow-list", binary)
-				}
-
-				// We execute using 'bash -c' for flexibility, but we've validated the primary binary.
-				cmd := exec.CommandContext(ctx, "bash", "-c", command)
-				// Ensure it runs in the configured workspace directory root
+				cmd := exec.CommandContext(execCtx, "bash", "-c", command)
 				absRoot, err := filepath.Abs(ws)
 				if err != nil {
 					absRoot, _ = filepath.Abs(".")
@@ -549,7 +509,16 @@ func GetDefaultTools(workspaceDir ...string) []Tool {
 				cmd.Dir = absRoot
 
 				output, err := cmd.CombinedOutput()
+
+				const maxOutputBytes = 100 * 1024
+				if len(output) > maxOutputBytes {
+					output = append(output[:maxOutputBytes], []byte("\n\n[output truncated: exceeded 100KB limit]")...)
+				}
+
 				if err != nil {
+					if execCtx.Err() == context.DeadlineExceeded {
+						return string(output), fmt.Errorf("command execution timed out after 30s")
+					}
 					return string(output), fmt.Errorf("command failed: %w", err)
 				}
 
