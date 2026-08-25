@@ -60,14 +60,17 @@ func setupLiveFire(t *testing.T) (*Manager, LLMProvider) {
 	providerType := "ollama"
 	apiKey := ""
 
+	var options *ModelOptions
+
 	// 2. Try loading a workspace-specific test config
 	workspaceConfigPath := "livefire.json"
 	if data, err := os.ReadFile(workspaceConfigPath); err == nil {
 		var wsConfig struct {
-			Provider string `json:"provider"`
-			Endpoint string `json:"endpoint"`
-			Model    string `json:"model"`
-			APIKey   string `json:"api_key"`
+			Provider string        `json:"provider"`
+			Endpoint string        `json:"endpoint"`
+			Model    string        `json:"model"`
+			APIKey   string        `json:"api_key"`
+			Options  *ModelOptions `json:"options"`
 		}
 		if json.Unmarshal(data, &wsConfig) == nil {
 			if wsConfig.Provider != "" {
@@ -81,6 +84,9 @@ func setupLiveFire(t *testing.T) (*Manager, LLMProvider) {
 			}
 			if wsConfig.APIKey != "" {
 				apiKey = wsConfig.APIKey
+			}
+			if wsConfig.Options != nil {
+				options = wsConfig.Options
 			}
 		}
 	} else {
@@ -97,6 +103,9 @@ func setupLiveFire(t *testing.T) (*Manager, LLMProvider) {
 			}
 			if globalCfg.Server.APIKey != "" {
 				apiKey = globalCfg.Server.APIKey
+			}
+			if globalCfg.Server.Options != nil {
+				options = globalCfg.Server.Options
 			}
 		}
 	}
@@ -117,9 +126,9 @@ func setupLiveFire(t *testing.T) (*Manager, LLMProvider) {
 
 	var provider LLMProvider
 	if providerType == "openai" {
-		provider = NewOpenAIProvider(endpoint, model, apiKey, nil)
+		provider = NewOpenAIProvider(endpoint, model, apiKey, options)
 	} else {
-		provider = NewOllamaProvider(endpoint, model, nil)
+		provider = NewOllamaProvider(endpoint, model, options)
 	}
 
 	return mgr, provider
