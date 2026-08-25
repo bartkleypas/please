@@ -125,22 +125,6 @@ func setupLiveFire(t *testing.T) (*Manager, LLMProvider) {
 	return mgr, provider
 }
 
-func mapPathToMessages(path []*Node) []Message {
-	var messages []Message
-	for _, n := range path {
-		messages = append(messages, Message{
-			Role:         n.Role,
-			Content:      n.Content,
-			Thought:      n.Thought,
-			ToolCalls:    n.ToolCalls,
-			ToolCallID:   n.ToolCallID,
-			Observations: n.Observations,
-			Internal:     n.Internal,
-		})
-	}
-	return messages
-}
-
 func simulateTurn(t *testing.T, ctx context.Context, mgr *Manager, provider LLMProvider, input string, parentID string) *Node {
 	userNode, err := mgr.CreateNode(parentID, RoleUser, input, false)
 	if err != nil {
