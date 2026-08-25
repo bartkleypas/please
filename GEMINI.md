@@ -54,7 +54,7 @@ To maintain the architectural conventions of the `please` codebase during edits:
 ## 🗺️ Next Up (Roadmap)
 
 - [ ] **Phase 5: Secure Execution Sandbox & Swift Package Foundation**
-  - [ ] Implement command execution validation and safety rules.
+  - [x] Implement command execution validation and safety rules (pipeline decomposition, symlink escape jail, 30s timeouts, 100KB buffer caps, and tiered sandbox policies).
   - [ ] Scaffold `PleasePackage` Swift structure (`PleaseEngine`, `PleaseUI`, `PleaseCLI`).
   - [ ] Build `CloudLLMProvider` using `URLSession` for testing on Intel Mac iPadOS Simulator.
   - [ ] Implement iPad Mini SwiftUI adaptive layout (Split View, Slide Over, Touch/Pencil graph navigation, `⌘ + Enter` shortcuts).
