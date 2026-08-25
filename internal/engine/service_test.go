@@ -317,13 +317,13 @@ func TestManager_BuildLLMContext_SequentialSegments(t *testing.T) {
 	if messages[0].Role != RoleUser || messages[0].Content != "Run test" {
 		t.Errorf("unexpected message 0: %+v", messages[0])
 	}
-	if messages[1].Role != RoleAssistant || messages[1].Content != "" || messages[1].Thought != "thought 1" || len(messages[1].ToolCalls) != 1 || messages[1].ToolCalls[0].ID != "call_1" {
+	if messages[1].Role != RoleAssistant || messages[1].Content != "" || len(messages[1].ToolCalls) != 1 || messages[1].ToolCalls[0].ID != "call_1" {
 		t.Errorf("unexpected message 1: %+v", messages[1])
 	}
 	if messages[2].Role != RoleTool || messages[2].Content != "success 1" || messages[2].ToolCallID != "call_1" {
 		t.Errorf("unexpected message 2: %+v", messages[2])
 	}
-	if messages[3].Role != RoleAssistant || messages[3].Content != "Step 1 done. Running test 2." || messages[3].Thought != "thought 2" || len(messages[3].ToolCalls) != 1 || messages[3].ToolCalls[0].ID != "call_2" {
+	if messages[3].Role != RoleAssistant || messages[3].Content != "Step 1 done. Running test 2." || len(messages[3].ToolCalls) != 1 || messages[3].ToolCalls[0].ID != "call_2" {
 		t.Errorf("unexpected message 3: %+v", messages[3])
 	}
 	if messages[4].Role != RoleTool || messages[4].Content != "success 2" || messages[4].ToolCallID != "call_2" {
@@ -445,19 +445,19 @@ func TestBuildLLMContext_BudgetAwareRetention(t *testing.T) {
 		currID = asst.ID
 	}
 
-	// 1. With 128k context, fillRatio < 60% -> All 8 assistant turns MUST retain their thoughts
+	// 1. With 128k context, fillRatio < 60% -> All 8 assistant turns are retained in full dialogue fidelity, but thoughts are stripped from LLM prompt context
 	messages, err := mgr.BuildLLMContext(currID, false)
 	if err != nil {
 		t.Fatalf("failed to build LLM context: %v", err)
 	}
 
 	asstCount := 0
-	thoughtsRetained := 0
+	thoughtsInContext := 0
 	for _, msg := range messages {
 		if msg.Role == RoleAssistant {
 			asstCount++
 			if msg.Thought != "" {
-				thoughtsRetained++
+				thoughtsInContext++
 			}
 		}
 	}
@@ -465,8 +465,16 @@ func TestBuildLLMContext_BudgetAwareRetention(t *testing.T) {
 	if asstCount != 8 {
 		t.Errorf("expected 8 assistant messages, got %d", asstCount)
 	}
-	if thoughtsRetained != 8 {
-		t.Errorf("expected all 8 assistant turns to retain thoughts under 128k headroom, got %d", thoughtsRetained)
+	if thoughtsInContext != 0 {
+		t.Errorf("expected historical thoughts to be stripped from LLM prompt context, but got %d", thoughtsInContext)
+	}
+
+	// Verify that thoughts remain 100% preserved in graph/storage for humans
+	path, _ := mgr.GetPath(currID)
+	for _, n := range path {
+		if n.Role == RoleAssistant && n.Thought == "" {
+			t.Errorf("expected node in storage to preserve Thought, got empty string")
+		}
 	}
 
 	// 2. Test tight context capacity (e.g. NumCtx = 50 tokens) -> High pressure triggers pruning
@@ -486,16 +494,8 @@ func TestBuildLLMContext_BudgetAwareRetention(t *testing.T) {
 		t.Fatalf("failed to build tight LLM context: %v", err)
 	}
 
-	tightThoughtsRetained := 0
-	for _, msg := range messagesTight {
-		if msg.Role == RoleAssistant && msg.Thought != "" {
-			tightThoughtsRetained++
-		}
-	}
-
-	// Under extreme pressure, distant thoughts must be pruned, keeping only the active/recent grace turns
-	if tightThoughtsRetained >= 8 {
-		t.Errorf("expected distant thoughts to be pruned under tight context pressure, but got %d", tightThoughtsRetained)
+	if len(messagesTight) == 0 {
+		t.Errorf("expected non-empty messages under tight context")
 	}
 }
 
@@ -599,12 +599,12 @@ func TestManager_AutonomousVectorLoop_Mock(t *testing.T) {
 	}
 
 	asstCount := 0
-	thoughtsRetained := 0
+	thoughtsInContext := 0
 	for _, msg := range messages {
 		if msg.Role == RoleAssistant {
 			asstCount++
 			if msg.Thought != "" {
-				thoughtsRetained++
+				thoughtsInContext++
 			}
 		}
 	}
@@ -612,8 +612,16 @@ func TestManager_AutonomousVectorLoop_Mock(t *testing.T) {
 	if asstCount != 5 {
 		t.Errorf("expected 5 assistant turns, got %d", asstCount)
 	}
-	if thoughtsRetained != 5 {
-		t.Errorf("expected all 5 assistant turns to retain thoughts, got %d", thoughtsRetained)
+	if thoughtsInContext != 0 {
+		t.Errorf("expected 0 thoughts in LLM prompt context, got %d", thoughtsInContext)
+	}
+
+	// Verify thoughts are preserved in storage for the human
+	path, _ := mgr.GetPath(currID)
+	for _, n := range path {
+		if n.Role == RoleAssistant && n.Thought == "" {
+			t.Errorf("expected storage node %s to retain thought", n.ID)
+		}
 	}
 
 	// 5. Synthesize 5-turn Milestone Compaction

@@ -46,6 +46,7 @@ For detailed and authoritative documentation, consult these dedicated files inst
 To maintain the architectural conventions of the `please` codebase during edits:
 *   **DAG Navigation**: Remember that the "current" view in the app is always a leaf node in a DAG. Reconstruct linear history by traversing parent pointers up to the root.
 *   **LLM Provider Abstraction**: Maintain strict protocol boundaries (`LLMProvider`) so cloud HTTP streaming (Gemini/OpenAI on Intel Macs) and local Apple Silicon MLX/CoreML engines swap seamlessly.
+*   **Ephemeral Reasoning Tokens (RTFM Rule)**: NEVER feed past reasoning tokens (`<think>` / `Thought`) back into the LLM prompt context (`BuildLLMContext`, `mapToOllamaMessages`). Preserve 100% of thoughts in SQLite/TUI for human audit and folding, but strip them from model history to prevent attention pollution and reasoning collapse in reasoning models (Gemma 4, DeepSeek-R1).
 *   **Testing Discipline**: Always run fast hermetic tests (`go test -count=1 ./...` and `make build`) for automated verification (~2s). Treat `PLEASE_LIVE_FIRE=1` (`make test-livefire`) as **Manual / On-Demand Integration Testing** triggered only when explicitly evaluating real local LLM inference.
 
 ---

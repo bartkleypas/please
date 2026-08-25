@@ -46,3 +46,10 @@ Rather than applying rigid constant cutoffs, `Please` computes the active path's
    * Engages protective decay to prevent context exhaustion before the user triggers `/compact`.
    * Distant tool observations are crushed to 1-line summary skeletons (*"[Tool 'read_file' execution completed. Detailed results omitted. Total size: 4500 bytes.]"*), while the most recent 3 turns stay in full fidelity.
 
+---
+
+## Ephemeral Reasoning Tokens vs. Vault Preservation
+
+* **Vault & UI Preservation (100% Recorded)**: Chain-of-thought reasoning (`<think>` / `node.Thought`) is permanently stored (and encrypted) in SQLite and displayed as interactive collapsible accordions (`▶ Thought Process • [Tab to expand]`) in the TUI and Web UI.
+* **Prompt Context Sanitization (Clean Slate)**: When constructing the message context for the LLM (`BuildLLMContext`), historical reasoning tokens are stripped from prior assistant turns. Reasoning models (e.g. Gemma 4, DeepSeek-R1) treat reasoning tokens as *ephemeral generation scratchpads*; feeding past thoughts back into the model's auto-regressive context causes attention pollution, suppresses fresh reasoning, and induces model collapse. Observation results, tool call linkages, and signats are fully preserved.
+

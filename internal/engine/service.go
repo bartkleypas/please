@@ -371,15 +371,7 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 						Internal: node.Internal,
 					}
 
-					if v > 5.0 {
-						msg.Thought = seg.Thought
-						msg.ToolCalls = tCalls
-					} else if v > 0.5 {
-						msg.ToolCalls = tCalls
-					} else {
-						msg.ToolCalls = tCalls
-					}
-
+					msg.ToolCalls = tCalls
 					messages = append(messages, msg)
 
 					if j < len(node.ToolCalls) && j < len(node.Observations) {
@@ -456,8 +448,7 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 		}
 
 		if v > 5.0 {
-			// Keep full fidelity
-			msg.Thought = node.Thought
+			// Keep full fidelity observations
 			msg.ToolCalls = node.ToolCalls
 			msg.Observations = make([]ToolObservation, len(node.Observations))
 			for j, obs := range node.Observations {
