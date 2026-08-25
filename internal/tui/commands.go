@@ -334,6 +334,11 @@ func (m *Model) renderConfigString() string {
 		} else {
 			s.WriteString("      Max Tokens:    (default)\n")
 		}
+		if srv.Options.RepeatPenalty != nil {
+			fmt.Fprintf(&s, "      Repeat Penalty:%.2f\n", *srv.Options.RepeatPenalty)
+		} else {
+			s.WriteString("      Repeat Penalty:(default)\n")
+		}
 	} else {
 		s.WriteString("      (All provider defaults)\n")
 	}
@@ -368,6 +373,7 @@ func (m *Model) renderConfigString() string {
 	s.WriteString("  /config top_k <val|default>   Set top-k sampling\n")
 	s.WriteString("  /config ctx <val|default>     Set context window tokens\n")
 	s.WriteString("  /config max_tokens <val|def>  Set maximum generation tokens\n")
+	s.WriteString("  /config penalty <val|default> Set repeat penalty (e.g. 1.10)\n")
 
 	return s.String()
 }
@@ -383,7 +389,7 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	}
 
 	if len(args) < 2 {
-		m.Notification = "Usage: /config <model|endpoint|workspace|key|pacing|remote|temp|top_p|top_k|ctx|max_tokens> <value>"
+		m.Notification = "Usage: /config <model|endpoint|workspace|key|pacing|remote|temp|top_p|top_k|ctx|max_tokens|penalty> <value>"
 		return m, nil
 	}
 
@@ -537,6 +543,23 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 			}
 			m.Config.Server.Options.MaxTokens = &val
 			m.Notification = fmt.Sprintf("Max tokens set to %d", val)
+		}
+		m.syncProviderOptions()
+	case "penalty", "repeat_penalty", "repeatpenalty":
+		if m.Config.Server.Options == nil {
+			m.Config.Server.Options = &engine.ModelOptions{}
+		}
+		if strings.ToLower(value) == "default" || strings.ToLower(value) == "reset" || strings.ToLower(value) == "none" {
+			m.Config.Server.Options.RepeatPenalty = nil
+			m.Notification = "Repeat penalty reset to default"
+		} else {
+			var val float64
+			if _, err := fmt.Sscanf(value, "%f", &val); err != nil || val < 0 {
+				m.Notification = "Invalid repeat_penalty value. Expected positive float (e.g. 1.10)"
+				return m, nil
+			}
+			m.Config.Server.Options.RepeatPenalty = &val
+			m.Notification = fmt.Sprintf("Repeat penalty set to %.2f", val)
 		}
 		m.syncProviderOptions()
 	default:

@@ -534,13 +534,15 @@ func TestOllamaProvider_OptionsSerialization(t *testing.T) {
 	topK := 40
 	numCtx := 16384
 	maxTokens := 2048
+	repeatPenalty := 1.1
 
 	options := &ModelOptions{
-		Temperature: &temp,
-		TopP:        &topP,
-		TopK:        &topK,
-		NumCtx:      &numCtx,
-		MaxTokens:   &maxTokens,
+		Temperature:   &temp,
+		TopP:          &topP,
+		TopK:          &topK,
+		NumCtx:        &numCtx,
+		MaxTokens:     &maxTokens,
+		RepeatPenalty: &repeatPenalty,
 	}
 
 	provider := NewOllamaProvider(server.URL, "test-model", options)
@@ -578,6 +580,9 @@ func TestOllamaProvider_OptionsSerialization(t *testing.T) {
 	}
 	if opts["num_predict"] != float64(2048) {
 		t.Errorf("expected num_predict 2048, got %v", opts["num_predict"])
+	}
+	if opts["repeat_penalty"] != 1.1 {
+		t.Errorf("expected repeat_penalty 1.1, got %v", opts["repeat_penalty"])
 	}
 }
 

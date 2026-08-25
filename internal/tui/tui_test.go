@@ -442,6 +442,17 @@ func TestViewportOverrideTextInputAndLiveUpdate(t *testing.T) {
 		t.Errorf("expected ViewportOverride to live-update with new temperature, got:\n%s", m.ViewportOverride)
 	}
 
+	// 4b. Run /config penalty 1.10 while config view is open
+	m.TextInput.SetValue("/config penalty 1.10")
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.Config.Server.Options.RepeatPenalty == nil || *m.Config.Server.Options.RepeatPenalty != 1.10 {
+		t.Fatalf("expected repeat penalty to be 1.10, got %v", m.Config.Server.Options.RepeatPenalty)
+	}
+	if !strings.Contains(m.ViewportOverride, "1.10") {
+		t.Errorf("expected ViewportOverride to live-update with new repeat penalty, got:\n%s", m.ViewportOverride)
+	}
+
 	// 5. Send a regular chat message while ViewportOverride is active
 	m.TextInput.SetValue("Let's resume chat")
 	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})

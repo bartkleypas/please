@@ -71,6 +71,9 @@ func (o *OllamaProvider) buildOllamaOptions() map[string]interface{} {
 	if o.Options.MaxTokens != nil {
 		opts["num_predict"] = *o.Options.MaxTokens
 	}
+	if o.Options.RepeatPenalty != nil {
+		opts["repeat_penalty"] = *o.Options.RepeatPenalty
+	}
 	if len(opts) == 0 {
 		return nil
 	}
