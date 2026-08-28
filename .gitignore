@@ -2,4 +2,6 @@
 
 /Lore
 /test_vault
+*.db
 livefire.json
+.DS_Store
