@@ -93,11 +93,13 @@ func (s *Server) Handler() http.Handler {
 
 	// REST API v1
 	mux.HandleFunc("/api/v1/health", s.handleHealth)
+	mux.HandleFunc("/api/v1/status", s.handleHealth)
 	mux.HandleFunc("/api/v1/graph", s.handleGraph)
 	mux.HandleFunc("/api/v1/events", s.handleEventsStream)
 	mux.HandleFunc("/api/v1/nodes", s.handleNodes)
 	mux.HandleFunc("/api/v1/nodes/", s.handleNodeByID)
 	mux.HandleFunc("/api/v1/branches/", s.handleBranchByID)
+	mux.HandleFunc("/api/v1/path/", s.handleBranchByID)
 	mux.HandleFunc("/api/v1/supernodes", s.handleSupernodes)
 	mux.HandleFunc("/api/v1/gc", s.handleGC)
 	mux.HandleFunc("/api/v1/tools", s.handleTools)
