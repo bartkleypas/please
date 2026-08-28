@@ -365,6 +365,18 @@ func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	switch r.Method {
+	case http.MethodGet:
+		if _, _, err := s.Manager.Sync(); err != nil {
+			http.Error(w, "Failed to sync: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		nodes := s.Manager.Graph.GetAllNodes()
+		if nodes == nil {
+			nodes = []*engine.Node{}
+		}
+		_ = json.NewEncoder(w).Encode(nodes)
+		return
+
 	case http.MethodPost:
 		bodyBytes, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -482,13 +494,24 @@ func (s *Server) handleNodeByID(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleBranchByID(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	id := strings.TrimPrefix(r.URL.Path, "/api/v1/branches/")
+	id = strings.TrimPrefix(id, "/api/v1/path/")
 
 	if id == "" {
-		http.Error(w, "Missing branch root node ID", http.StatusBadRequest)
+		http.Error(w, "Missing node ID", http.StatusBadRequest)
 		return
 	}
 
-	if r.Method == http.MethodDelete || r.Method == http.MethodPost {
+	switch r.Method {
+	case http.MethodGet:
+		path, err := s.Manager.GetPath(id)
+		if err != nil {
+			http.Error(w, "Path not found: "+err.Error(), http.StatusNotFound)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(path)
+		return
+
+	case http.MethodDelete, http.MethodPost:
 		if err := s.Manager.PruneBranch(id); err != nil {
 			http.Error(w, "Failed to prune branch: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -498,9 +521,10 @@ func (s *Server) handleBranchByID(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "pruned", "branch_id": id})
 		return
-	}
 
-	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 func (s *Server) handleSupernodes(w http.ResponseWriter, r *http.Request) {

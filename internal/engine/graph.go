@@ -66,6 +66,20 @@ func (g *Graph) AddNode(node *Node) {
 	}
 }
 
+// GetAllNodes returns a slice of all active (non-deleted) nodes in the graph.
+func (g *Graph) GetAllNodes() []*Node {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	var nodes []*Node
+	for _, n := range g.Nodes {
+		if !n.Deleted {
+			nodes = append(nodes, n)
+		}
+	}
+	return nodes
+}
+
 // GetNode retrieves a node by its ID
 func (g *Graph) GetNode(id string) (*Node, error) {
 	g.mu.RLock()
