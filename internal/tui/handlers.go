@@ -88,5 +88,11 @@ func (m *Model) generateSystemSupplement() string {
 	sb.WriteString("\n\n### TURN SIGNATURES (SIGNATS)\n")
 	sb.WriteString("To anchor your trajectory in the conversation map, conclude the text of your response with a 1-3 emoji signature (signat) reflecting your active domain and mood (e.g. 🛠️💻 for code/impl, 🧠📐 for logic/math, 🔍📜 for research/inspection, 🎨✨ for design/styling, 📝💡 for ideation, 🦉☕ for reflection). Place the signat on the final text line of your message before completing your turn.\n")
 
+	// 4. Tool Execution Guidelines
+	sb.WriteString("\n\n### TOOL EXECUTION GUIDELINES\n")
+	sb.WriteString("- When writing or editing files, note the confirmed path, byte count, and line count returned in successful tool observations.\n")
+	sb.WriteString("- `write_file` creates new files; to overwrite an existing file completely, pass `overwrite: true`.\n")
+	sb.WriteString("- After modifying files, you may use `read_file` to verify the state of the workspace before concluding your turn.\n")
+
 	return sb.String()
 }

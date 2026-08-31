@@ -167,3 +167,118 @@ func TestRoleSummary_ProviderMapping(t *testing.T) {
 		t.Errorf("expected summary content in openai message")
 	}
 }
+
+func TestWriteFile_OverwriteAndTelemetry(t *testing.T) {
+	tmpDir := t.TempDir()
+	mgr := NewManager(NewGraph(), nil)
+	mgr.RegisterDefaultTools(tmpDir)
+
+	writeFile := mgr.Registry.Tools["write_file"].Function
+	ctx := context.Background()
+
+	// 1. Create a new file
+	res, err := writeFile(ctx, map[string]interface{}{
+		"path":    "hello.txt",
+		"content": "Hello\nWorld",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error creating file: %v", err)
+	}
+	expectedMsg := "file 'hello.txt' created successfully (11 bytes, 2 lines)"
+	if res != expectedMsg {
+		t.Errorf("expected '%s', got '%s'", expectedMsg, res)
+	}
+
+	diskBytes, err := os.ReadFile(filepath.Join(tmpDir, "hello.txt"))
+	if err != nil || string(diskBytes) != "Hello\nWorld" {
+		t.Fatalf("file content on disk mismatch: %s", string(diskBytes))
+	}
+
+	// 2. Attempt duplicate write without overwrite flag -> should fail with informative error
+	_, err = writeFile(ctx, map[string]interface{}{
+		"path":    "hello.txt",
+		"content": "Duplicate write",
+	})
+	if err == nil {
+		t.Fatalf("expected error when file already exists without overwrite flag")
+	}
+	if !strings.Contains(err.Error(), "to overwrite completely, set overwrite=true") {
+		t.Errorf("expected actionable overwrite hint in error, got: %v", err)
+	}
+
+	// 3. Overwrite with overwrite: true
+	res, err = writeFile(ctx, map[string]interface{}{
+		"path":      "hello.txt",
+		"content":   "Overwritten\nContent\nHere",
+		"overwrite": true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error overwriting file: %v", err)
+	}
+	expectedOverwriteMsg := "file 'hello.txt' overwritten successfully (24 bytes, 3 lines)"
+	if res != expectedOverwriteMsg {
+		t.Errorf("expected '%s', got '%s'", expectedOverwriteMsg, res)
+	}
+
+	diskBytes, err = os.ReadFile(filepath.Join(tmpDir, "hello.txt"))
+	if err != nil || string(diskBytes) != "Overwritten\nContent\nHere" {
+		t.Fatalf("overwritten file content on disk mismatch: %s", string(diskBytes))
+	}
+
+	// 4. Overwrite with overwrite: "true" string
+	res, err = writeFile(ctx, map[string]interface{}{
+		"path":      "hello.txt",
+		"content":   "String\nTrue",
+		"overwrite": "true",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error overwriting file with string true: %v", err)
+	}
+	if !strings.Contains(res, "overwritten successfully") {
+		t.Errorf("expected 'overwritten successfully', got '%s'", res)
+	}
+
+	// 5. Test patch_file telemetry
+	patchFile := mgr.Registry.Tools["patch_file"].Function
+	res, err = patchFile(ctx, map[string]interface{}{
+		"path":    "hello.txt",
+		"search":  "String",
+		"replace": "Patched",
+	})
+	if err != nil {
+		t.Fatalf("patch_file failed: %v", err)
+	}
+	if res != "file 'hello.txt' patched successfully" {
+		t.Errorf("expected 'file 'hello.txt' patched successfully', got '%s'", res)
+	}
+
+	// 6. Test edit_file telemetry
+	editFile := mgr.Registry.Tools["edit_file"].Function
+	res, err = editFile(ctx, map[string]interface{}{
+		"path":    "hello.txt",
+		"mode":    "replace_string",
+		"search":  "Patched",
+		"replace": "Edited",
+	})
+	if err != nil {
+		t.Fatalf("edit_file failed: %v", err)
+	}
+	if res != "file 'hello.txt' edited successfully (mode: replace_string)" {
+		t.Errorf("expected 'file 'hello.txt' edited successfully (mode: replace_string)', got '%s'", res)
+	}
+
+	// 7. Test search_and_replace telemetry
+	searchAndReplace := mgr.Registry.Tools["search_and_replace"].Function
+	res, err = searchAndReplace(ctx, map[string]interface{}{
+		"path":          "hello.txt",
+		"search_block":  "Edited\nTrue",
+		"replace_block": "Final\nContent",
+	})
+	if err != nil {
+		t.Fatalf("search_and_replace failed: %v", err)
+	}
+	if res != "file 'hello.txt' edited successfully via context matching" {
+		t.Errorf("expected 'file 'hello.txt' edited successfully via context matching', got '%s'", res)
+	}
+}
+

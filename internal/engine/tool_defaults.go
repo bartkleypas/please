@@ -288,7 +288,7 @@ func GetDefaultTools(workspaceDir ...string) []Tool {
 		},
 		{
 			Name:        "write_file",
-			Description: "Create a new file with content. Will fail if the file already exists.",
+			Description: "Create a new file with content, or optionally overwrite an existing file when overwrite=true.",
 			Interactive: true,
 			Parameters: map[string]interface{}{
 				"type": "object",
@@ -300,6 +300,10 @@ func GetDefaultTools(workspaceDir ...string) []Tool {
 					"content": map[string]interface{}{
 						"type":        "string",
 						"description": "The content to write to the file",
+					},
+					"overwrite": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Optional: if true, overwrites the file if it already exists. Defaults to false.",
 					},
 				},
 				"required": []string{"path", "content"},
@@ -318,22 +322,37 @@ func GetDefaultTools(workspaceDir ...string) []Tool {
 					return "", err
 				}
 
+				overwrite := false
+				if ov, ok := args["overwrite"]; ok {
+					switch v := ov.(type) {
+					case bool:
+						overwrite = v
+					case string:
+						overwrite = strings.ToLower(v) == "true"
+					}
+				}
+
 				// Create parent directories if they don't exist
 				if err := os.MkdirAll(filepath.Dir(safePath), 0755); err != nil {
 					return "", fmt.Errorf("failed to create directories: %w", err)
 				}
 
-				// Fail if file already exists
+				action := "created"
 				if _, err := os.Stat(safePath); err == nil {
-					return "", fmt.Errorf("file already exists (use edit_file or patch_file to modify): %s", path)
+					if !overwrite {
+						return "", fmt.Errorf("file already exists: %s (to overwrite completely, set overwrite=true, or use edit_file / patch_file to modify)", path)
+					}
+					action = "overwritten"
 				} else if !os.IsNotExist(err) {
 					return "", fmt.Errorf("error checking file: %w", err)
 				}
 
-				if err := os.WriteFile(safePath, []byte(content), 0644); err != nil {
+				byteContent := []byte(content)
+				if err := os.WriteFile(safePath, byteContent, 0644); err != nil {
 					return "", fmt.Errorf("failed to write file: %w", err)
 				}
-				return "file written successfully", nil
+				lineCount := len(strings.Split(content, "\n"))
+				return fmt.Sprintf("file '%s' %s successfully (%d bytes, %d lines)", path, action, len(byteContent), lineCount), nil
 			},
 		},
 		{
@@ -581,7 +600,7 @@ func GetDefaultTools(workspaceDir ...string) []Tool {
 					return "", fmt.Errorf("failed to write file: %w", err)
 				}
 
-				return "file patched successfully", nil
+				return fmt.Sprintf("file '%s' patched successfully", path), nil
 			},
 		},
 		{
@@ -717,7 +736,7 @@ func GetDefaultTools(workspaceDir ...string) []Tool {
 					return "", fmt.Errorf("failed to write file: %w", err)
 				}
 
-				return "file edited successfully", nil
+				return fmt.Sprintf("file '%s' edited successfully (mode: %s)", path, mode), nil
 			},
 		},
 		{
@@ -826,7 +845,7 @@ func GetDefaultTools(workspaceDir ...string) []Tool {
 					return "", fmt.Errorf("failed to write file: %w", err)
 				}
 
-				return "file edited successfully via context matching", nil
+				return fmt.Sprintf("file '%s' edited successfully via context matching", path), nil
 			},
 		},
 	}
