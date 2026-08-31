@@ -20,6 +20,7 @@ timestamp: "2026-07-05T14:26:05-07:00"
 *   [internal/engine](internal/engine/index.md) - Core engine package managing graph structures, SQLite storage, LLM providers, and tools.
 *   [internal/server](internal/server/index.md) - Engine daemon, REST v1 API, SSE streaming protocol, and 20-year internal PKI cert generator.
 *   [internal/tui](internal/tui/index.md) - Bubble Tea TUI state machine and handle rendering.
+*   [please-cli](cmd/please/index.md) - The primary CLI entry point, providing various operational modes including TUI, Daemon, and Remote Client.
 
 ## Concepts & Architecture
 
