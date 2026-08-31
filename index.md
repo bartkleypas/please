@@ -25,6 +25,7 @@ timestamp: "2026-07-05T14:26:05-07:00"
 ## Concepts & Architecture
 
 *   [bootstrap_memory](GEMINI.md) - The bootstrap intent document detailing architecture overview and development conventions.
+*   [daemon_protocol](docs/daemon_protocol_spec.md) - Authoritative REST v1 and SSE streaming wire protocol specification for multi-platform clients.
 *   [swift_apple_evolution](decisions/004-swift-apple-ecosystem-evolution.md) - ADR 004: Swift port strategy, iPad Mini device targeting, and Intel Mac dev bridge strategy.
 *   [context_resonance](context_resonance.md) - Dynamic Context Resonance Scoring algorithm (`V = (W * C) * e^(-k * Δt)`) to prune old tool outputs.
 *   [natural_pacing](natural_pacing.md) - Natural reading-pace stream buffering with punctuation-sensitive pauses.

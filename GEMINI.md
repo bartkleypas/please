@@ -21,6 +21,7 @@ timestamp: "2026-07-09T14:35:00-07:00"
 For detailed and authoritative documentation, consult these dedicated files instead of relying on this bootstrap anchor:
 *   [Project Index](index.md) - The central directory of packages, concepts, and specifications.
 *   [Technical README](README.md) - Features list, CLI examples, setup, TUI controls table, and testing instructions.
+*   [Daemon Protocol Spec](docs/daemon_protocol_spec.md) - Authoritative REST v1 and SSE streaming wire protocol specification.
 *   [Context Resonance Spec](context_resonance.md) - Math formula and scoring mechanics for token decay.
 *   [Natural Pacing Spec](natural_pacing.md) - Stream buffering and punctuation-sensitive pacing rules.
 *   [Architecture Decisions (ADRs)](decisions/index.md) - Historical record of TUI framework, SQLite storage, and visualization server.
@@ -30,14 +31,15 @@ For detailed and authoritative documentation, consult these dedicated files inst
 
 ## 🏗️ Active Design Context & Focus
 
-*   **Current Focus**: Formalizing the multi-platform Swift Package evolution (`PleasePackage`) targeting iPad Mini (iPadOS) and macOS, while establishing an Intel Mac development bridge strategy ([ADR 004](decisions/004-swift-apple-ecosystem-evolution.md)).
-*   **Go Baseline**: TUI input event routing and CLI pipe parsing stabilized ([2026-07-08](log.md#2026-07-08)).
+*   **Current Focus**: Engine daemon (`please serve`), REST v1 / SSE streaming API, remote client protocol (`please connect`), and resilient workspace tool execution.
+*   **Go Baseline**: Bubble Tea TUI, DAG conversation graph, SQLite WAL storage, and 20-year internal PKI certs (`please cert generate`) stabilized ([v0.1.10](log.md)).
+*   **Clients**: Standalone Go TUI (`please`), Connected Go TUI (`please connect`), and the external native Apple client ([please-swift](../please-swift/index.md)).
 
 ---
 
 ## ⚖️ Active Debates
 
-*   *There are currently no active debates.* The Swift port strategy and Intel-to-iPad bridge architecture have been resolved in [ADR 004](decisions/004-swift-apple-ecosystem-evolution.md).
+*   *There are currently no active debates.* Architecture decisions for SQLite persistence, TUI state machines, and daemon streaming protocols are resolved in [decisions/](decisions/index.md).
 
 ---
 
@@ -45,15 +47,22 @@ For detailed and authoritative documentation, consult these dedicated files inst
 
 To maintain the architectural conventions of the `please` codebase during edits:
 *   **DAG Navigation**: Remember that the "current" view in the app is always a leaf node in a DAG. Reconstruct linear history by traversing parent pointers up to the root.
-*   **LLM Provider Abstraction**: Maintain strict protocol boundaries (`LLMProvider`) so cloud HTTP streaming (Gemini/OpenAI on Intel Macs) and local Apple Silicon MLX/CoreML engines swap seamlessly.
+*   **LLM Provider Abstraction**: Maintain strict protocol boundaries (`LLMProvider`) so local Ollama backends, OpenAI-compatible cloud/self-hosted endpoints, and remote `please serve` daemons swap seamlessly.
 *   **Testing Discipline**: Always run fast hermetic tests (`go test -count=1 ./...` and `make build`) for automated verification (~2s). Treat `PLEASE_LIVE_FIRE=1` (`make test-livefire`) as **Manual / On-Demand Integration Testing** triggered only when explicitly evaluating real local LLM inference.
+*   **Tool Contracts as Sensory Input**: Tools must return concrete telemetry (paths, byte sizes, line counts) and descriptive error messages with actionable hints to prevent model retry loops.
 
 ---
 
 ## 🗺️ Next Up (Roadmap)
 
-- [ ] **Phase 5: Secure Execution Sandbox & Swift Package Foundation**
-  - [x] Implement command execution validation and safety rules (pipeline decomposition, symlink escape jail, 30s timeouts, 100KB buffer caps, and tiered sandbox policies).
-  - [ ] Scaffold `PleasePackage` Swift structure (`PleaseEngine`, `PleaseUI`, `PleaseCLI`).
-  - [ ] Build `CloudLLMProvider` using `URLSession` for testing on Intel Mac iPadOS Simulator.
-  - [ ] Implement iPad Mini SwiftUI adaptive layout (Split View, Slide Over, Touch/Pencil graph navigation, `⌘ + Enter` shortcuts).
+- [ ] **Daemon Observability & Graph Visualization**:
+  - [ ] Web-based D3 graph visualizer served directly from `please serve` (`/visualize`).
+  - [ ] Real-time SSE event bus streaming node creation, tool execution, and branch forks to web clients.
+- [ ] **Multi-Turn Tool Orchestration**:
+  - [x] Resilient write telemetry, `overwrite: bool` support, and offset-based `read_file` pagination.
+  - [ ] Multi-block file search and patch validation.
+  - [ ] Command execution sandboxing rules and tiered timeout enforcement.
+- [x] **Cross-Platform & Client Interop**:
+  - [x] Schema v2 config migration for clean client/server separation.
+  - [x] 20-year internal Root CA and Server TLS generation for local network pairing.
+  - [x] Stable REST / SSE contracts for native companion clients ([daemon_protocol_spec.md](docs/daemon_protocol_spec.md)).
