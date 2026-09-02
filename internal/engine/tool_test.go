@@ -282,3 +282,76 @@ func TestWriteFile_OverwriteAndTelemetry(t *testing.T) {
 	}
 }
 
+func TestDefaultTools_AppendFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	mgr := NewManager(NewGraph(), nil)
+	mgr.RegisterDefaultTools(tmpDir)
+
+	ctx := context.Background()
+	appendFile := mgr.Registry.Tools["append_file"].Function
+
+	// 1. Append to non-existent file in sub-directory -> creates file and parent dirs cleanly
+	res, err := appendFile(ctx, map[string]interface{}{
+		"path":    "logs/sub/events.log",
+		"content": "event 1: initialized",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error creating file via append: %v", err)
+	}
+	if !strings.Contains(res, "created successfully via append") {
+		t.Errorf("expected creation message, got: %s", res)
+	}
+
+	content, err := os.ReadFile(filepath.Join(tmpDir, "logs/sub/events.log"))
+	if err != nil || string(content) != "event 1: initialized" {
+		t.Fatalf("unexpected disk content: %q", string(content))
+	}
+
+	// 2. Append to existing file without trailing newline -> automatically inserts newline boundary
+	res, err = appendFile(ctx, map[string]interface{}{
+		"path":    "logs/sub/events.log",
+		"content": "event 2: connected\n",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error appending: %v", err)
+	}
+	if !strings.Contains(res, "appended successfully") {
+		t.Errorf("expected appended message, got: %s", res)
+	}
+
+	content, err = os.ReadFile(filepath.Join(tmpDir, "logs/sub/events.log"))
+	if err != nil {
+		t.Fatalf("failed reading file: %v", err)
+	}
+	expected := "event 1: initialized\nevent 2: connected\n"
+	if string(content) != expected {
+		t.Fatalf("expected clean newline insertion between appends.\nExpected:\n%q\nGot:\n%q", expected, string(content))
+	}
+
+	// 3. Append to existing file with trailing newline when content starts with newline -> no double blank lines
+	res, err = appendFile(ctx, map[string]interface{}{
+		"path":    "logs/sub/events.log",
+		"content": "\nevent 3: completed",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error appending: %v", err)
+	}
+
+	content, err = os.ReadFile(filepath.Join(tmpDir, "logs/sub/events.log"))
+	if err != nil {
+		t.Fatalf("failed reading file: %v", err)
+	}
+	expected = "event 1: initialized\nevent 2: connected\nevent 3: completed"
+	if string(content) != expected {
+		t.Fatalf("expected no duplicate blank lines when appending with leading newline.\nExpected:\n%q\nGot:\n%q", expected, string(content))
+	}
+
+	// 4. Sandboxing check: cannot write outside workspace
+	_, err = appendFile(ctx, map[string]interface{}{
+		"path":    "../../outside.txt",
+		"content": "escape attempt",
+	})
+	if err == nil {
+		t.Fatalf("expected sandbox violation error for path traversal")
+	}
+}

@@ -356,6 +356,96 @@ func GetDefaultTools(workspaceDir ...string) []Tool {
 			},
 		},
 		{
+			Name:        "append_file",
+			Description: "Append content to the end of a file on the local filesystem. Creates the file and parent directories if they do not exist. Automatically handles line boundary separation without creating redundant blank lines.",
+			Interactive: true,
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"path": map[string]interface{}{
+						"type":        "string",
+						"description": "The path to the file to append to",
+					},
+					"content": map[string]interface{}{
+						"type":        "string",
+						"description": "The content to append to the file",
+					},
+				},
+				"required": []string{"path", "content"},
+			},
+			Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
+				path, err := getStringArg(args, "path")
+				if err != nil {
+					return "", err
+				}
+				content, err := getStringArg(args, "content")
+				if err != nil {
+					return "", err
+				}
+				safePath, err := validatePath(ws, path)
+				if err != nil {
+					return "", err
+				}
+
+				// Create parent directories if they don't exist
+				if err := os.MkdirAll(filepath.Dir(safePath), 0755); err != nil {
+					return "", fmt.Errorf("failed to create directories: %w", err)
+				}
+
+				stat, err := os.Stat(safePath)
+				if err != nil && !os.IsNotExist(err) {
+					return "", fmt.Errorf("error checking file: %w", err)
+				}
+
+				if os.IsNotExist(err) {
+					// File does not exist: create freshly
+					byteContent := []byte(content)
+					if err := os.WriteFile(safePath, byteContent, 0644); err != nil {
+						return "", fmt.Errorf("failed to create file via append: %w", err)
+					}
+					lineCount := len(strings.Split(content, "\n"))
+					return fmt.Sprintf("file '%s' created successfully via append (%d bytes, %d lines)", path, len(byteContent), lineCount), nil
+				}
+
+				// File exists: check line boundary hygiene
+				prefix := ""
+				if stat.Size() > 0 {
+					f, err := os.Open(safePath)
+					if err == nil {
+						lastByte := make([]byte, 1)
+						if _, err := f.ReadAt(lastByte, stat.Size()-1); err == nil {
+							if lastByte[0] != '\n' {
+								prefix = "\n"
+							}
+						}
+						f.Close()
+					}
+				}
+
+				toAppend := content
+				// If existing file already had trailing newline and content starts with newline,
+				// trim one leading newline to avoid accidental double blank line.
+				if prefix == "" && strings.HasPrefix(toAppend, "\n") {
+					toAppend = strings.TrimPrefix(toAppend, "\n")
+				}
+
+				data := []byte(prefix + toAppend)
+				f, err := os.OpenFile(safePath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+				if err != nil {
+					return "", fmt.Errorf("failed to open file for append: %w", err)
+				}
+				defer f.Close()
+
+				if _, err := f.Write(data); err != nil {
+					return "", fmt.Errorf("failed to append to file: %w", err)
+				}
+
+				newSize := stat.Size() + int64(len(data))
+				addedLines := len(strings.Split(toAppend, "\n"))
+				return fmt.Sprintf("file '%s' appended successfully (added %d bytes, %d lines; total size: %d bytes)", path, len(data), addedLines, newSize), nil
+			},
+		},
+		{
 			Name:        "list_directory",
 			Description: "List the contents of a directory on the local filesystem",
 			Interactive: false,

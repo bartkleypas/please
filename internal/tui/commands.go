@@ -634,13 +634,14 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		m.syncProviderOptions()
 	case "sandbox", "sandbox_policy", "policy":
 		pol := strings.ToLower(value)
-		if pol == "default" || pol == "reset" {
+		switch pol {
+		case "default", "reset":
 			m.Config.Server.SandboxPolicy = ""
 			m.Notification = "Sandbox policy reset to standard default"
-		} else if pol == engine.SandboxPolicyStrict || pol == engine.SandboxPolicyStandard || pol == engine.SandboxPolicyPermissive {
+		case engine.SandboxPolicyStrict, engine.SandboxPolicyStandard, engine.SandboxPolicyPermissive:
 			m.Config.Server.SandboxPolicy = pol
 			m.Notification = fmt.Sprintf("Sandbox policy set to '%s'", pol)
-		} else {
+		default:
 			m.Notification = "Invalid sandbox policy. Expected 'strict', 'standard', or 'permissive'"
 			return m, nil
 		}

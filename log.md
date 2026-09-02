@@ -79,3 +79,7 @@ All updates and modifications to this knowledge bundle are tracked chronological
 *   **Extended Multi-Turn Tool Runway**: Elevated the default multi-turn tool depth ceiling from 10 to 50 in [stream.go](internal/server/stream.go) and added configurable `max_tool_depth` in [config.go](internal/engine/config.go) via `ServerConfig.GetMaxToolDepth()`.
 *   **Ephemeral Tool Observation Compaction**: Tuned `BuildLLMContext()` in [service.go](internal/engine/service.go) to eagerly compact intermediate tool observations exceeding 1,000 bytes at `distance >= 2` into concise digests, preventing context clobbering over deep multi-turn sessions.
 *   **Model Autonomy & Scratchpad Steering**: Added execution guidelines to `generateSystemSupplement()` in [handlers.go](internal/tui/handlers.go) instructing the model on its extended turn runway and advising it to record essential discoveries in its intermediate thoughts.
+
+## 2026-09-02
+
+*   **Dedicated Append Tool**: Added `append_file` tool in [tool_defaults.go](internal/engine/tool_defaults.go) with automatic line-boundary separation, directory creation, duplicate newline suppression, and rich telemetry.

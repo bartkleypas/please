@@ -60,8 +60,11 @@ To maintain the architectural conventions of the `please` codebase during edits:
   - [ ] Real-time SSE event bus streaming node creation, tool execution, and branch forks to web clients.
 - [ ] **Multi-Turn Tool Orchestration**:
   - [x] Resilient write telemetry, `overwrite: bool` support, and offset-based `read_file` pagination.
+  - [x] Add "append_file" tool with line-boundary hygiene to models tool kit.
   - [ ] Multi-block file search and patch validation.
   - [ ] Command execution sandboxing rules and tiered timeout enforcement.
+- [ ] **Dynamic Root/System Prompt/Node**:
+  - [ ] Eval of impact to model context views
 - [x] **Cross-Platform & Client Interop**:
   - [x] Schema v2 config migration for clean client/server separation.
   - [x] 20-year internal Root CA and Server TLS generation for local network pairing.
