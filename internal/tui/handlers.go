@@ -90,8 +90,8 @@ func (m *Model) generateSystemSupplement() string {
 
 	// 4. Tool Execution Guidelines
 	sb.WriteString("\n\n### TOOL EXECUTION GUIDELINES\n")
-	sb.WriteString("- You have an extended multi-turn tool execution loop available. Work methodically without rushing: inspect -> note facts -> edit -> verify.\n")
-	sb.WriteString("- Tool observations are ephemeral scratchpad data compacted as turns age. Record key facts, paths, and findings directly into your thoughts/reasoning so you retain them across turns.\n")
+	sb.WriteString("- Tool observations decay over turns. State critical file paths, byte counts, and key discoveries explicitly in your response.\n")
+	sb.WriteString("- Use your reasoning phase (<think>) exclusively for active problem-solving, planning the next immediate tool call, and verifying tool outputs before responding.\n")
 	sb.WriteString("- When writing or editing files, note the confirmed path, byte count, and line count returned in successful tool observations.\n")
 	sb.WriteString("- `write_file` creates new files; to overwrite an existing file completely, pass `overwrite: true`.\n")
 	sb.WriteString("- After modifying files, you may use `read_file` to verify the state of the workspace before concluding your turn.\n")
