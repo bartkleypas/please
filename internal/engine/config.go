@@ -40,6 +40,7 @@ type ServerConfig struct {
 	TLSCertFile   string        `json:"tls_cert_file,omitempty"`
 	TLSKeyFile    string        `json:"tls_key_file,omitempty"`
 	SandboxPolicy string        `json:"sandbox_policy,omitempty"` // "strict", "standard", "permissive"
+	MaxToolDepth  *int          `json:"max_tool_depth,omitempty"`
 	Options       *ModelOptions `json:"options,omitempty"`
 }
 
@@ -122,6 +123,22 @@ func (c *Config) IsPacingEnabled() bool {
 		return true
 	}
 	return *c.Client.NaturalPacing
+}
+
+// GetMaxToolDepth returns the configured maximum multi-turn tool depth, or 50 by default.
+func (s *ServerConfig) GetMaxToolDepth() int {
+	if s != nil && s.MaxToolDepth != nil && *s.MaxToolDepth > 0 {
+		return *s.MaxToolDepth
+	}
+	return 50
+}
+
+// GetMaxToolDepth returns the configured maximum multi-turn tool depth, or 50 by default.
+func (c *Config) GetMaxToolDepth() int {
+	if c != nil && c.Server != nil {
+		return c.Server.GetMaxToolDepth()
+	}
+	return 50
 }
 
 // GetConfigDir returns the directory where the configuration file is stored.

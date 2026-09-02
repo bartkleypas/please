@@ -377,7 +377,10 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 					if j < len(node.ToolCalls) && j < len(node.Observations) {
 						obs := node.Observations[j]
 						truncatedResult := obs.Result
-						if v > 5.0 {
+						toolName := node.ToolCalls[j].Function.Name
+						if distance >= 2 && len(truncatedResult) > 1000 {
+							truncatedResult = fmt.Sprintf("[Tool '%s' execution completed. Detailed results omitted. Total size: %d bytes.]", toolName, len(obs.Result))
+						} else if v > 5.0 {
 							if fillRatio >= 0.60 && len(truncatedResult) > 8000 {
 								truncatedResult = truncatedResult[:8000] + "... [truncated]"
 							}
@@ -386,7 +389,6 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 								truncatedResult = truncatedResult[:2000] + "... [truncated]"
 							}
 						} else {
-							toolName := node.ToolCalls[j].Function.Name
 							truncatedResult = fmt.Sprintf("[Tool '%s' execution completed. Detailed results omitted. Total size: %d bytes.]", toolName, len(obs.Result))
 						}
 
@@ -447,7 +449,28 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 			Images:     nodeImages,
 		}
 
-		if v > 5.0 {
+		if distance >= 2 && len(node.Observations) > 0 {
+			// Older turns (distance >= 2): compact large tool observations (ephemeral scratchpad)
+			msg.ToolCalls = node.ToolCalls
+			msg.Observations = make([]ToolObservation, len(node.Observations))
+			for j, obs := range node.Observations {
+				toolName := "unknown_tool"
+				for _, tc := range node.ToolCalls {
+					if tc.ID == obs.ToolCallID {
+						toolName = tc.Function.Name
+						break
+					}
+				}
+				truncatedResult := obs.Result
+				if len(truncatedResult) > 1000 {
+					truncatedResult = fmt.Sprintf("[Tool '%s' execution completed. Detailed results omitted. Total size: %d bytes.]", toolName, len(obs.Result))
+				}
+				msg.Observations[j] = ToolObservation{
+					ToolCallID: obs.ToolCallID,
+					Result:     truncatedResult,
+				}
+			}
+		} else if v > 5.0 {
 			// Keep full fidelity observations
 			msg.ToolCalls = node.ToolCalls
 			msg.Observations = make([]ToolObservation, len(node.Observations))

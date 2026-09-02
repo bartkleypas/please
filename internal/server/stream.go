@@ -176,8 +176,11 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	maxDepth := req.MaxToolDepth
+	if maxDepth <= 0 && s.Config != nil && s.Config.Server != nil {
+		maxDepth = s.Config.Server.GetMaxToolDepth()
+	}
 	if maxDepth <= 0 {
-		maxDepth = 10
+		maxDepth = 50
 	}
 
 	ctx := r.Context()

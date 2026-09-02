@@ -642,3 +642,89 @@ func TestManager_AutonomousVectorLoop_Mock(t *testing.T) {
 		t.Errorf("expected supernode to attach to root (%s), got %s", root.ID, superNode.ParentID)
 	}
 }
+
+func TestBuildLLMContext_EphemeralToolCompaction(t *testing.T) {
+	mgr := NewManager(NewGraph(), &MockStorage{})
+	mgr.NumCtx = 131072 // 128k context (fillRatio < 0.60)
+
+	root, _ := mgr.CreateNode("", RoleSystem, "System prompt", false)
+
+	// Turn 1: Assistant executes large read_file (e.g. ~4400 chars)
+	tcs1 := []ToolCall{
+		{
+			ID:   "call_read_old",
+			Type: "function",
+			Function: struct {
+				Name      string          `json:"name"`
+				Arguments json.RawMessage `json:"arguments"`
+			}{
+				Name:      "read_file",
+				Arguments: json.RawMessage(`{"path":"old.go"}`),
+			},
+		},
+	}
+	asst1, _ := mgr.CreateAssistantNode(root.ID, "Reading old file...", "Analyzing file", tcs1, false)
+	_ = mgr.UpdateAssistantObservations(asst1.ID, "call_read_old", strings.Repeat("old file content line\n", 200))
+
+	// Turn 2: Follow-up user turn
+	user2, _ := mgr.CreateNode(asst1.ID, RoleUser, "Now check recent.go", false)
+
+	// Turn 3: Assistant executes recent read_file (distance = 1 from leaf)
+	tcs3 := []ToolCall{
+		{
+			ID:   "call_read_recent",
+			Type: "function",
+			Function: struct {
+				Name      string          `json:"name"`
+				Arguments json.RawMessage `json:"arguments"`
+			}{
+				Name:      "read_file",
+				Arguments: json.RawMessage(`{"path":"recent.go"}`),
+			},
+		},
+	}
+	asst3, _ := mgr.CreateAssistantNode(user2.ID, "Reading recent file...", "Inspecting recent", tcs3, false)
+	recentContent := strings.Repeat("recent file content line\n", 100)
+	_ = mgr.UpdateAssistantObservations(asst3.ID, "call_read_recent", recentContent)
+
+	// Turn 4: User active leaf (distance = 0)
+	user4, _ := mgr.CreateNode(asst3.ID, RoleUser, "What is the summary?", false)
+
+	// Build context from active leaf user4:
+	// - asst1 is at distance = 3 (>= 2): should be compacted!
+	// - asst3 is at distance = 1 (< 2): should remain full fidelity!
+	messages, err := mgr.BuildLLMContext(user4.ID, false)
+	if err != nil {
+		t.Fatalf("failed to build context: %v", err)
+	}
+
+	foundOld := false
+	foundRecent := false
+	for _, msg := range messages {
+		if msg.Role == RoleTool {
+			if msg.ToolCallID == "call_read_old" {
+				foundOld = true
+				if !strings.Contains(msg.Content, "[Tool 'read_file' execution completed. Detailed results omitted. Total size:") {
+					t.Errorf("expected old tool call at distance >= 2 to be compacted, got: %s", msg.Content)
+				}
+			}
+			if msg.ToolCallID == "call_read_recent" {
+				foundRecent = true
+				if strings.Contains(msg.Content, "Detailed results omitted") {
+					t.Errorf("expected recent tool call at distance 1 to retain full fidelity, got compacted: %s", msg.Content)
+				}
+				if !strings.Contains(msg.Content, "recent file content line") {
+					t.Errorf("expected recent tool call to contain raw output, got: %s", msg.Content)
+				}
+			}
+		}
+	}
+
+	if !foundOld {
+		t.Errorf("expected to find call_read_old tool message in context")
+	}
+	if !foundRecent {
+		t.Errorf("expected to find call_read_recent tool message in context")
+	}
+}
+

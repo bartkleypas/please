@@ -69,11 +69,13 @@ All updates and modifications to this knowledge bundle are tracked chronological
 *   **Budget-Aware Dynamic Context Retention**: Wires `num_ctx` (e.g. 128k for Gemma 4) into `BuildLLMContext()` in [service.go](internal/engine/service.go). Enforces 100% full fidelity (zero thought stripping, full observations) under 60% capacity, dynamically expands grace turns for moderate load, and engages protective decay only when crossing 85% capacity.
 *   **Emoji Turn Signatures ("Signats") & Persona Visual Identity**: Added `ExtractSignat()` in [signat.go](internal/engine/signat.go) and integrated signats (e.g. `🦉📚`, `🛠️💻`, `🧠📐`) across [service.go](internal/engine/service.go), [handlers.go](internal/tui/handlers.go), `/map` ASCII DAG tree visualization ([map.go](internal/tui/map.go)), and chat role headers ([chat.go](internal/tui/chat.go)).
 
+## 2026-08-31
 
+*   **Write Tool Telemetry & Overwrite Semantics**: Enriched write and edit tools (`write_file`, `edit_file`, `patch_file`, `search_and_replace`) in [tool_defaults.go](internal/engine/tool_defaults.go) with concrete telemetry return strings (path, bytes, lines, action), added explicit `overwrite: bool` support to `write_file`, and updated tool execution guidelines in [handlers.go](internal/tui/handlers.go).
+*   **Daemon Wire Protocol Specification**: Authored authoritative client-agnostic protocol specification in [daemon_protocol_spec.md](docs/daemon_protocol_spec.md) covering REST v1 endpoints, Server-Sent Events (SSE) streaming lifecycle, 20-year PKI TLS handshake, and strict RFC 3339 timestamp normalization. Recorded workspace-level [ADR 002](../decisions/002-please-daemon-wire-protocol.md).
 
+## 2026-09-01
 
-
-
-
-
-
+*   **Extended Multi-Turn Tool Runway**: Elevated the default multi-turn tool depth ceiling from 10 to 50 in [stream.go](internal/server/stream.go) and added configurable `max_tool_depth` in [config.go](internal/engine/config.go) via `ServerConfig.GetMaxToolDepth()`.
+*   **Ephemeral Tool Observation Compaction**: Tuned `BuildLLMContext()` in [service.go](internal/engine/service.go) to eagerly compact intermediate tool observations exceeding 1,000 bytes at `distance >= 2` into concise digests, preventing context clobbering over deep multi-turn sessions.
+*   **Model Autonomy & Scratchpad Steering**: Added execution guidelines to `generateSystemSupplement()` in [handlers.go](internal/tui/handlers.go) instructing the model on its extended turn runway and advising it to record essential discoveries in its intermediate thoughts.
