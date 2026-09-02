@@ -61,8 +61,11 @@ To maintain the architectural conventions of the `please` codebase during edits:
 - [ ] **Multi-Turn Tool Orchestration**:
   - [x] Resilient write telemetry, `overwrite: bool` support, and offset-based `read_file` pagination.
   - [x] Add "append_file" tool with line-boundary hygiene to models tool kit.
-  - [ ] Multi-block file search and patch validation.
-  - [ ] Command execution sandboxing rules and tiered timeout enforcement.
+  - [x] Reduce/reuse/recycle on the redundant commands (eg:`patch_file`, `edit_file`, `search_and_replace`, etc).
+  - [x] Admit that yes, technically adding an `append_file` tool first was a classic off by one error. This is an easy one to check off.
+  - [ ] Fix long standing tool order bug causing KV cache invalidation.
+  - [ ] Add explicit Categorization on Tool for `read/write/execute` ToolCategory types (security bridge).
+  - [ ] Use new tool categorization for explicit boundries in SandboxPolicy enforcement and rule guidlines.
 - [ ] **Dynamic Root/System Prompt/Node**:
   - [ ] Eval of impact to model context views
 - [x] **Cross-Platform & Client Interop**:

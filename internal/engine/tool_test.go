@@ -238,26 +238,12 @@ func TestWriteFile_OverwriteAndTelemetry(t *testing.T) {
 		t.Errorf("expected 'overwritten successfully', got '%s'", res)
 	}
 
-	// 5. Test patch_file telemetry
-	patchFile := mgr.Registry.Tools["patch_file"].Function
-	res, err = patchFile(ctx, map[string]interface{}{
-		"path":    "hello.txt",
-		"search":  "String",
-		"replace": "Patched",
-	})
-	if err != nil {
-		t.Fatalf("patch_file failed: %v", err)
-	}
-	if res != "file 'hello.txt' patched successfully" {
-		t.Errorf("expected 'file 'hello.txt' patched successfully', got '%s'", res)
-	}
-
-	// 6. Test edit_file telemetry
+	// 5. Test edit_file with explicit mode
 	editFile := mgr.Registry.Tools["edit_file"].Function
 	res, err = editFile(ctx, map[string]interface{}{
 		"path":    "hello.txt",
 		"mode":    "replace_string",
-		"search":  "Patched",
+		"search":  "String",
 		"replace": "Edited",
 	})
 	if err != nil {
@@ -267,18 +253,35 @@ func TestWriteFile_OverwriteAndTelemetry(t *testing.T) {
 		t.Errorf("expected 'file 'hello.txt' edited successfully (mode: replace_string)', got '%s'", res)
 	}
 
-	// 7. Test search_and_replace telemetry
-	searchAndReplace := mgr.Registry.Tools["search_and_replace"].Function
-	res, err = searchAndReplace(ctx, map[string]interface{}{
+	// 6. Test edit_file with omitted mode (defaults to replace_string)
+	res, err = editFile(ctx, map[string]interface{}{
+		"path":    "hello.txt",
+		"search":  "Edited",
+		"replace": "Patched",
+	})
+	if err != nil {
+		t.Fatalf("edit_file with default mode failed: %v", err)
+	}
+	if res != "file 'hello.txt' edited successfully (mode: replace_string)" {
+		t.Errorf("expected default replace_string mode success, got '%s'", res)
+	}
+
+	// 7. Test edit_file with block alias parameters (search_block / replace_block)
+	res, err = editFile(ctx, map[string]interface{}{
 		"path":          "hello.txt",
-		"search_block":  "Edited\nTrue",
+		"search_block":  "Patched\nTrue",
 		"replace_block": "Final\nContent",
 	})
 	if err != nil {
-		t.Fatalf("search_and_replace failed: %v", err)
+		t.Fatalf("edit_file with search_block/replace_block failed: %v", err)
 	}
-	if res != "file 'hello.txt' edited successfully via context matching" {
-		t.Errorf("expected 'file 'hello.txt' edited successfully via context matching', got '%s'", res)
+	if res != "file 'hello.txt' edited successfully (mode: replace_string)" {
+		t.Errorf("expected block replacement success, got '%s'", res)
+	}
+
+	diskBytes, err = os.ReadFile(filepath.Join(tmpDir, "hello.txt"))
+	if err != nil || string(diskBytes) != "Final\nContent" {
+		t.Fatalf("unexpected content after edits: %s", string(diskBytes))
 	}
 }
 

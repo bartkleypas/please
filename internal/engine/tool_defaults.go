@@ -635,67 +635,8 @@ func GetDefaultTools(workspaceDir ...string) []Tool {
 			},
 		},
 		{
-			Name:        "patch_file",
-			Description: "Search for a string in a file and replace it with another string",
-			Interactive: true,
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"path": map[string]interface{}{
-						"type":        "string",
-						"description": "The path to the file to patch",
-					},
-					"search": map[string]interface{}{
-						"type":        "string",
-						"description": "The string to search for",
-					},
-					"replace": map[string]interface{}{
-						"type":        "string",
-						"description": "The string to replace it with",
-					},
-				},
-				"required": []string{"path", "search", "replace"},
-			},
-			Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
-				path, err := getStringArg(args, "path")
-				if err != nil {
-					return "", err
-				}
-				search, err := getStringArg(args, "search")
-				if err != nil {
-					return "", err
-				}
-				replace, err := getStringArg(args, "replace")
-				if err != nil {
-					return "", err
-				}
-
-				safePath, err := validatePath(ws, path)
-				if err != nil {
-					return "", err
-				}
-
-				content, err := os.ReadFile(safePath)
-				if err != nil {
-					return "", fmt.Errorf("failed to read file: %w", err)
-				}
-
-				newContent := strings.Replace(string(content), search, replace, 1)
-				if newContent == string(content) {
-					return "search string not found in file", nil
-				}
-
-				err = os.WriteFile(safePath, []byte(newContent), 0644)
-				if err != nil {
-					return "", fmt.Errorf("failed to write file: %w", err)
-				}
-
-				return fmt.Sprintf("file '%s' patched successfully", path), nil
-			},
-		},
-		{
 			Name:        "edit_file",
-			Description: "Advanced text editing tool supporting regex, line replacement, and insertions",
+			Description: "Surgical in-place text editing tool supporting search & replace (default), regex, line replacement, and insertions",
 			Interactive: true,
 			Parameters: map[string]interface{}{
 				"type": "object",
@@ -707,31 +648,31 @@ func GetDefaultTools(workspaceDir ...string) []Tool {
 					"mode": map[string]interface{}{
 						"type":        "string",
 						"enum":        []string{"replace_string", "replace_regex", "replace_line", "insert_after"},
-						"description": "The mode of operation",
+						"description": "Optional: the mode of operation (defaults to 'replace_string')",
 					},
 					"search": map[string]interface{}{
 						"type":        "string",
-						"description": "The string or regex pattern to search for",
+						"description": "The string or regex pattern to search for (also accepts search_block)",
 					},
 					"replace": map[string]interface{}{
 						"type":        "string",
-						"description": "The replacement string",
+						"description": "The replacement string or block (also accepts replace_block)",
 					},
 					"line_number": map[string]interface{}{
 						"type":        "integer",
 						"description": "Required if mode is 'replace_line'",
 					},
 				},
-				"required": []string{"path", "mode"},
+				"required": []string{"path"},
 			},
 			Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
 				path, err := getStringArg(args, "path")
 				if err != nil {
 					return "", err
 				}
-				mode, err := getStringArg(args, "mode")
-				if err != nil {
-					return "", err
+				mode := "replace_string"
+				if m, ok := args["mode"].(string); ok && m != "" {
+					mode = m
 				}
 
 				safePath, err := validatePath(ws, path)
@@ -752,11 +693,20 @@ func GetDefaultTools(workspaceDir ...string) []Tool {
 				case "replace_string":
 					search, err := getStringArg(args, "search")
 					if err != nil {
-						return "", err
+						search, err = getStringArg(args, "search_block")
+					}
+					if err != nil {
+						return "", fmt.Errorf("missing 'search' parameter: %w", err)
 					}
 					replace, err := getStringArg(args, "replace")
 					if err != nil {
-						return "", err
+						replace, err = getStringArg(args, "replace_block")
+					}
+					if err != nil {
+						return "", fmt.Errorf("missing 'replace' parameter: %w", err)
+					}
+					if !strings.Contains(content, search) {
+						return fmt.Sprintf("search string not found in file '%s'. Ensure exact match including whitespace/indentation.", path), nil
 					}
 					newContent = strings.Replace(content, search, replace, 1)
 
@@ -876,66 +826,6 @@ func GetDefaultTools(workspaceDir ...string) []Tool {
 				}
 
 				return strings.Join(results, "\n"), nil
-			},
-		},
-		{
-			Name:        "search_and_replace",
-			Description: "Context-aware search and replace. Searches for a specific block of text and replaces it with another.",
-			Interactive: true,
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"path": map[string]interface{}{
-						"type":        "string",
-						"description": "The path to the file to edit",
-					},
-					"search_block": map[string]interface{}{
-						"type":        "string",
-						"description": "The exact block of code/text to search for",
-					},
-					"replace_block": map[string]interface{}{
-						"type":        "string",
-						"description": "The new block of code/text to replace it with",
-					},
-				},
-				"required": []string{"path", "search_block", "replace_block"},
-			},
-			Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
-				path, err := getStringArg(args, "path")
-				if err != nil {
-					return "", err
-				}
-				search, err := getStringArg(args, "search_block")
-				if err != nil {
-					return "", err
-				}
-				replace, err := getStringArg(args, "replace_block")
-				if err != nil {
-					return "", err
-				}
-
-				safePath, err := validatePath(ws, path)
-				if err != nil {
-					return "", err
-				}
-
-				contentBytes, err := os.ReadFile(safePath)
-				if err != nil {
-					return "", fmt.Errorf("failed to read file: %w", err)
-				}
-				content := string(contentBytes)
-
-				if !strings.Contains(content, search) {
-					return "search block not found. Ensure the block is an exact match (including whitespace/indentation).", nil
-				}
-
-				newContent := strings.Replace(content, search, replace, 1)
-				err = os.WriteFile(safePath, []byte(newContent), 0644)
-				if err != nil {
-					return "", fmt.Errorf("failed to write file: %w", err)
-				}
-
-				return fmt.Sprintf("file '%s' edited successfully via context matching", path), nil
 			},
 		},
 	}

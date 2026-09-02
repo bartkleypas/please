@@ -83,3 +83,4 @@ All updates and modifications to this knowledge bundle are tracked chronological
 ## 2026-09-02
 
 *   **Dedicated Append Tool**: Added `append_file` tool in [tool_defaults.go](internal/engine/tool_defaults.go) with automatic line-boundary separation, directory creation, duplicate newline suppression, and rich telemetry.
+*   **Pruned Redundant Mutation Tools & Enhanced `edit_file`**: Removed duplicate tools `patch_file` and `search_and_replace` from [tool_defaults.go](internal/engine/tool_defaults.go). Enhanced `edit_file` to default to `replace_string` when `mode` is omitted with `search_block`/`replace_block` alias compatibility, establishing it as the single canonical in-place file mutation tool.
