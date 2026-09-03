@@ -142,4 +142,32 @@ func TestConfig_GetSandboxPolicy(t *testing.T) {
 	}
 }
 
+func TestConfig_EnableSignatSteering(t *testing.T) {
+	// 1. Default: disabled
+	cfg := &Config{
+		Server: &ServerConfig{},
+	}
+	if cfg.EnableSignatSteering() {
+		t.Errorf("expected default signat steering to be disabled")
+	}
+
+	// 2. Explicitly enabled
+	enabled := true
+	cfg.Server.SignatSteering = &enabled
+	if !cfg.EnableSignatSteering() {
+		t.Errorf("expected signat steering to be enabled")
+	}
+
+	// 3. Nil receiver safety
+	var nilConfig *Config
+	if nilConfig.EnableSignatSteering() {
+		t.Errorf("expected nil config to return false")
+	}
+	var nilServer *ServerConfig
+	if nilServer.EnableSignatSteering() {
+		t.Errorf("expected nil server to return false")
+	}
+}
+
+
 

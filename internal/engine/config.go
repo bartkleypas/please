@@ -41,6 +41,7 @@ type ServerConfig struct {
 	TLSKeyFile    string        `json:"tls_key_file,omitempty"`
 	SandboxPolicy string        `json:"sandbox_policy,omitempty"` // "strict", "standard", "permissive"
 	MaxToolDepth  *int          `json:"max_tool_depth,omitempty"`
+	SignatSteering *bool        `json:"signat_steering,omitempty"`
 	Options       *ModelOptions `json:"options,omitempty"`
 }
 
@@ -156,6 +157,23 @@ func (c *Config) GetSandboxPolicy() string {
 		return c.Server.GetSandboxPolicy()
 	}
 	return SandboxPolicyStandard
+}
+
+// EnableSignatSteering returns whether turn signature (signat) emoji steering is enabled.
+// Defaults to false (clean, distraction-free prompts).
+func (s *ServerConfig) EnableSignatSteering() bool {
+	if s == nil || s.SignatSteering == nil {
+		return false
+	}
+	return *s.SignatSteering
+}
+
+// EnableSignatSteering returns whether turn signature (signat) emoji steering is enabled from ServerConfig.
+func (c *Config) EnableSignatSteering() bool {
+	if c != nil && c.Server != nil {
+		return c.Server.EnableSignatSteering()
+	}
+	return false
 }
 
 // GetConfigDir returns the directory where the configuration file is stored.

@@ -26,15 +26,20 @@ type AssistantSegment struct {
 	Thought string `json:"thought"`
 }
 
+// SignatSteeringContract defines the invariant output formatting instruction for turn signatures.
+// Layered ephemerally onto the Genesis root node (RoleSystem) when signat_steering is enabled.
+const SignatSteeringContract = "To anchor your trajectory in the conversation map, conclude the text of each turn with a 1-3 emoji signature (signat) on the final line reflecting your active posture (e.g. 🛠️💻 for code/impl, 🧠📐 for logic/math, 🔍📜 for research/inspection, 🎨✨ for design/styling, 📝💡 for ideation, 🦉☕ for reflection)."
+
 // Manager is the central coordinator for the application engine. It provides
 // a high-level API that combines graph operations (traversal, branching)
 // with storage persistence, ensuring that all narrative changes are saved.
 type Manager struct {
-	Graph        *Graph
-	Storage      Storage
-	Registry     *ToolRegistry
-	WorkspaceDir string
-	NumCtx       int
+	Graph          *Graph
+	Storage        Storage
+	Registry       *ToolRegistry
+	WorkspaceDir   string
+	NumCtx         int
+	SignatSteering bool
 }
 
 // NewManager creates a new Manager instance
@@ -104,6 +109,10 @@ func (m *Manager) CreateAssistantNode(parentID string, content string, thought s
 
 	if signat != "" {
 		node.Metadata["signat"] = signat
+	} else {
+		if silent := m.deriveSilentSignat(toolCalls, thought); silent != "" {
+			node.Metadata["signat"] = silent
+		}
 	}
 
 	segments := []AssistantSegment{
@@ -126,6 +135,42 @@ func (m *Manager) CreateAssistantNode(parentID string, content string, thought s
 	}
 
 	return node, nil
+}
+
+// deriveSilentSignat infers an ambient signat emoji from physical tool categories or internal thought.
+// Used when signat_steering is disabled or the model omitted an explicit signat, ensuring
+// the TUI /map and companion client graphs maintain 100% visual color coverage with zero prompt tax.
+func (m *Manager) deriveSilentSignat(toolCalls []ToolCall, thought string) string {
+	if m.Registry != nil && len(toolCalls) > 0 {
+		hasExecute := false
+		hasMutate := false
+		hasSensory := false
+		for _, tc := range toolCalls {
+			if tool, ok := m.Registry.Tools[tc.Function.Name]; ok {
+				switch tool.Category {
+				case CategoryExecute:
+					hasExecute = true
+				case CategoryMutate:
+					hasMutate = true
+				case CategorySensory:
+					hasSensory = true
+				}
+			}
+		}
+		if hasExecute {
+			return "🧪⚡"
+		}
+		if hasMutate {
+			return "🛠️💻"
+		}
+		if hasSensory {
+			return "🔍📜"
+		}
+	}
+	if len(thought) > 0 {
+		return "🧠📐"
+	}
+	return "💬💭"
 }
 
 // CreateToolNode creates a node containing the result of a tool execution
@@ -361,7 +406,7 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 					}
 
 					content := seg.Content
-					if j == len(segments)-1 && node.Metadata != nil && node.Metadata["signat"] != "" {
+					if m.SignatSteering && j == len(segments)-1 && node.Metadata != nil && node.Metadata["signat"] != "" {
 						content = content + " " + node.Metadata["signat"]
 					}
 
@@ -435,15 +480,25 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 		}
 
 		signatSuffix := ""
-		if node.Metadata != nil && node.Metadata["signat"] != "" && (node.Role == RoleAssistant || node.Role == RoleSystem) {
+		if m.SignatSteering && node.Metadata != nil && node.Metadata["signat"] != "" && (node.Role == RoleAssistant || node.Role == RoleSystem) {
 			signatSuffix = " " + node.Metadata["signat"]
+		}
+
+		content := node.Content + signatSuffix + metadataText
+		// Layered Genesis Prompt (ADR 003 refined):
+		// Dynamically layer the signat formatting contract onto the root node (messages[0])
+		// if signat_steering is enabled, keeping SQLite storage 100% pure persona.
+		if m.SignatSteering && (node.Role == RoleSystem || i == 0) {
+			if !strings.Contains(content, "signat") && !strings.Contains(content, "emoji signature") {
+				content += "\n\n" + SignatSteeringContract
+			}
 		}
 
 		msg := Message{
 			ID:         node.ID,
 			ParentID:   node.ParentID,
 			Role:       node.Role,
-			Content:    node.Content + signatSuffix + metadataText,
+			Content:    content,
 			ToolCallID: node.ToolCallID,
 			Internal:   node.Internal,
 			Images:     nodeImages,

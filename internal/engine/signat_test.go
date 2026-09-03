@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -81,22 +82,39 @@ func TestBuildLLMContext_SignatRetention(t *testing.T) {
 	user, _ := mgr.CreateNode(root.ID, RoleUser, "Hello George!", false)
 	asst, _ := mgr.CreateAssistantNode(user.ID, "Greetings! 🦉📜", "Thinking...", nil, false)
 
-	messages, err := mgr.BuildLLMContext(asst.ID, false)
+	// Mode 1: Default Clean Mode (SignatSteering = false)
+	// Prompts sent to model must be 100% clean (no emojis injected into past turns)
+	cleanMessages, err := mgr.BuildLLMContext(asst.ID, false)
 	if err != nil {
 		t.Fatalf("failed to build context: %v", err)
 	}
-
-	if len(messages) != 3 {
-		t.Fatalf("expected 3 messages, got %d", len(messages))
+	if cleanMessages[0].Content != "You are George" {
+		t.Errorf("clean mode: expected root message to omit signat, got: %q", cleanMessages[0].Content)
+	}
+	if cleanMessages[2].Content != "Greetings!" {
+		t.Errorf("clean mode: expected assistant message to omit signat, got: %q", cleanMessages[2].Content)
 	}
 
-	// Verify root system message retains signat
-	if messages[0].Content != "You are George 🦉📚" {
-		t.Errorf("expected root message to retain signat, got: %q", messages[0].Content)
+	// But metadata in SQLite MUST still record the signat for TUI and Subway Map!
+	storedAsst, _ := mgr.GetNode(asst.ID)
+	if storedAsst.Metadata["signat"] != "🦉📜" {
+		t.Errorf("expected stored assistant metadata to preserve signat '🦉📜', got: %q", storedAsst.Metadata["signat"])
 	}
 
-	// Verify assistant message retains signat
-	if messages[2].Content != "Greetings! 🦉📜" {
-		t.Errorf("expected assistant message to retain signat, got: %q", messages[2].Content)
+	// Mode 2: Opt-In Mode (SignatSteering = true)
+	// Model gets layered genesis contract and sees emojis in context
+	mgr.SignatSteering = true
+	steeredMessages, err := mgr.BuildLLMContext(asst.ID, false)
+	if err != nil {
+		t.Fatalf("failed to build steered context: %v", err)
+	}
+	if !strings.Contains(steeredMessages[0].Content, "🦉📚") {
+		t.Errorf("steered mode: expected root message to contain signat, got: %q", steeredMessages[0].Content)
+	}
+	if !strings.Contains(steeredMessages[0].Content, SignatSteeringContract) {
+		t.Errorf("steered mode: expected root message to layer SignatSteeringContract, got: %q", steeredMessages[0].Content)
+	}
+	if steeredMessages[2].Content != "Greetings! 🦉📜" {
+		t.Errorf("steered mode: expected assistant message to retain signat, got: %q", steeredMessages[2].Content)
 	}
 }

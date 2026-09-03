@@ -130,6 +130,9 @@ func NewModel(cfg *engine.Config, g *engine.Graph, s engine.Storage, p engine.LL
 	}
 
 	mgr := engine.NewManager(g, s)
+	if cfg != nil {
+		mgr.SignatSteering = cfg.EnableSignatSteering()
+	}
 	if cfg != nil && cfg.Server != nil && cfg.Server.Options != nil && cfg.Server.Options.NumCtx != nil {
 		mgr.NumCtx = *cfg.Server.Options.NumCtx
 	}

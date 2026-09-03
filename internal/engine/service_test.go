@@ -778,3 +778,58 @@ func TestBuildLLMContext_PureRootAndUnbumperedUserTurns(t *testing.T) {
 		t.Errorf("expected leaf user turn to remain un-bumpered %q, got: %q", "Turn 2 active leaf prompt", leafMsg.Content)
 	}
 }
+
+func TestManager_DeriveSilentSignat(t *testing.T) {
+	mgr := NewManager(NewGraph(), &MockStorage{})
+	mgr.RegisterDefaultTools(".")
+
+	makeTC := func(name string) ToolCall {
+		var tc ToolCall
+		tc.Function.Name = name
+		return tc
+	}
+
+	// 1. Sensory tools -> 🔍📜
+	sensoryNode, _ := mgr.CreateAssistantNode("root", "Reading file", "", []ToolCall{
+		makeTC("read_file"),
+	}, false)
+	if sensoryNode.Metadata["signat"] != "🔍📜" {
+		t.Errorf("expected sensory tool to derive '🔍📜', got %q", sensoryNode.Metadata["signat"])
+	}
+
+	// 2. Mutate tools -> 🛠️💻
+	mutateNode, _ := mgr.CreateAssistantNode("root", "Editing file", "", []ToolCall{
+		makeTC("edit_file"),
+	}, false)
+	if mutateNode.Metadata["signat"] != "🛠️💻" {
+		t.Errorf("expected mutate tool to derive '🛠️💻', got %q", mutateNode.Metadata["signat"])
+	}
+
+	// 3. Execute tools -> 🧪⚡
+	execNode, _ := mgr.CreateAssistantNode("root", "Running tests", "", []ToolCall{
+		makeTC("execute_command"),
+	}, false)
+	if execNode.Metadata["signat"] != "🧪⚡" {
+		t.Errorf("expected execute tool to derive '🧪⚡', got %q", execNode.Metadata["signat"])
+	}
+
+	// 4. Pure reasoning / thought -> 🧠📐
+	thoughtNode, _ := mgr.CreateAssistantNode("root", "Architectural decision", "Analyzing graph invariants", nil, false)
+	if thoughtNode.Metadata["signat"] != "🧠📐" {
+		t.Errorf("expected thought node to derive '🧠📐', got %q", thoughtNode.Metadata["signat"])
+	}
+
+	// 5. Pure dialogue -> 💬💭
+	dialogueNode, _ := mgr.CreateAssistantNode("root", "Hello there!", "", nil, false)
+	if dialogueNode.Metadata["signat"] != "💬💭" {
+		t.Errorf("expected dialogue node to derive '💬💭', got %q", dialogueNode.Metadata["signat"])
+	}
+
+	// 6. Explicit model signat takes priority
+	explicitNode, _ := mgr.CreateAssistantNode("root", "I found the lore. 🦉☕", "", []ToolCall{
+		makeTC("read_file"),
+	}, false)
+	if explicitNode.Metadata["signat"] != "🦉☕" {
+		t.Errorf("expected explicit signat '🦉☕' to override silent derivation, got %q", explicitNode.Metadata["signat"])
+	}
+}

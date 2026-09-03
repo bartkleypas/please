@@ -68,9 +68,13 @@ To maintain the architectural conventions of the `please` codebase during edits:
   - [x] Use new tool categorization for explicit boundries in SandboxPolicy enforcement and rule guidlines.
 - [x] **Pure Root Persona & Active Perception Architecture**:
   - [x] Eval of impact to model context views ([ADR 003](../decisions/003-ephemeral-leaf-telemetry-pure-root-persona.md)).
-  - [x] Remove supplement injection from genesis node init (keeping: pure persona roots).
+  - [x] Remove supplement injection from genesis node init (evolved: dynamic user choice associated w/ signat/emoji steering below).
   - [x] Reject leaf bumper injection in favor of un-bumpered human intent and active sensory tool perception.
 - [x] **Cross-Platform & Client Interop**:
   - [x] Schema v2 config migration for clean client/server separation.
   - [x] 20-year internal Root CA and Server TLS generation for local network pairing.
   - [x] Stable REST / SSE contracts for native companion clients ([daemon_protocol_spec.md](docs/daemon_protocol_spec.md)).
+- [x] **Add User Configuration Option for Signat Features**:
+  - [x] Add `signat_steering` boolean to `ServerConfig` and TUI `/config signats on|off` command.
+  - [x] Silent category-driven derivation (`deriveSilentSignat()`) from `ToolCategory` (`🔍📜`, `🛠️💻`, `🧪⚡`, `🧠📐`, `💬💭`) ensuring 100% map coverage with zero prompt tax.
+  - [x] Dynamic layered Genesis prompt overlay (`SignatSteeringContract`) on `messages[0]` when enabled, leaving SQLite storage 100% pure persona.

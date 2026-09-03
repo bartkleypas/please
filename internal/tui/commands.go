@@ -311,6 +311,11 @@ func (m *Model) renderConfigString() string {
 		sandboxStr = "standard (default)"
 	}
 	fmt.Fprintf(&s, "    Sandbox Policy:  %s\n", sandboxStr)
+	signatStr := "disabled (pure prompt, silent metadata derivation)"
+	if m.Config.EnableSignatSteering() {
+		signatStr = "enabled (layered Genesis prompt steering)"
+	}
+	fmt.Fprintf(&s, "    Signat Steering: %s\n", signatStr)
 
 	s.WriteString("\n    Inference Parameters:\n")
 	if srv.Options != nil {
@@ -393,6 +398,7 @@ func (m *Model) renderConfigString() string {
 	s.WriteString("  /config last_n <val|default>  Set repeat penalty lookback tokens (e.g. 128)\n")
 	s.WriteString("  /config freq <val|default>    Set frequency penalty (e.g. 0.15)\n")
 	s.WriteString("  /config sandbox <policy>      Set sandbox policy (strict|standard|permissive)\n")
+	s.WriteString("  /config signats <on|off>      Toggle signat emoji steering\n")
 
 	return s.String()
 }
@@ -408,7 +414,7 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	}
 
 	if len(args) < 2 {
-		m.Notification = "Usage: /config <model|endpoint|workspace|key|pacing|remote|temp|top_p|top_k|min_p|ctx|max_tokens|penalty|last_n|freq|sandbox> <value>"
+		m.Notification = "Usage: /config <model|endpoint|workspace|key|pacing|remote|temp|top_p|top_k|min_p|ctx|max_tokens|penalty|last_n|freq|sandbox|signats> <value>"
 		return m, nil
 	}
 
@@ -643,6 +649,26 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 			m.Notification = fmt.Sprintf("Sandbox policy set to '%s'", pol)
 		default:
 			m.Notification = "Invalid sandbox policy. Expected 'strict', 'standard', or 'permissive'"
+			return m, nil
+		}
+	case "signats", "signat", "emojis", "signat_steering":
+		switch strings.ToLower(value) {
+		case "on", "true", "yes", "enable":
+			steering := true
+			m.Config.Server.SignatSteering = &steering
+			if m.Manager != nil {
+				m.Manager.SignatSteering = true
+			}
+			m.Notification = "Signat emoji steering enabled."
+		case "off", "false", "no", "disable":
+			steering := false
+			m.Config.Server.SignatSteering = &steering
+			if m.Manager != nil {
+				m.Manager.SignatSteering = false
+			}
+			m.Notification = "Signat emoji steering disabled."
+		default:
+			m.Notification = "Usage: /config signats <on|off>"
 			return m, nil
 		}
 	default:
