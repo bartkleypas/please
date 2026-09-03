@@ -66,10 +66,10 @@ To maintain the architectural conventions of the `please` codebase during edits:
   - [x] Fix long standing tool order bug causing KV cache invalidation.
   - [x] Add explicit Categorization on Tool for `read/write/execute` ToolCategory types (security bridge).
   - [x] Use new tool categorization for explicit boundries in SandboxPolicy enforcement and rule guidlines.
-- [x] **Ephemeral Leaf Telemetry & Pure Root Persona**:
+- [x] **Pure Root Persona & Active Perception Architecture**:
   - [x] Eval of impact to model context views ([ADR 003](../decisions/003-ephemeral-leaf-telemetry-pure-root-persona.md)).
-  - [x] Remove supplement injection from genesis node init.
-  - [x] Overlay/inject workspace state and steering rules into single turn ephemeral grounding data (`generateWorkspaceSupplement()`) in-turn.
+  - [x] Remove supplement injection from genesis node init (keeping: pure persona roots).
+  - [x] Reject leaf bumper injection in favor of un-bumpered human intent and active sensory tool perception.
 - [x] **Cross-Platform & Client Interop**:
   - [x] Schema v2 config migration for clean client/server separation.
   - [x] 20-year internal Root CA and Server TLS generation for local network pairing.
