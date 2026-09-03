@@ -358,3 +358,53 @@ func TestDefaultTools_AppendFile(t *testing.T) {
 		t.Fatalf("expected sandbox violation error for path traversal")
 	}
 }
+
+func TestToolRegistry_DeterministicOrdering(t *testing.T) {
+	mgr := NewManager(NewGraph(), nil)
+	mgr.RegisterDefaultTools("/tmp")
+
+	toolsFirst := mgr.Registry.GetTools()
+	if len(toolsFirst) == 0 {
+		t.Fatalf("expected registered default tools")
+	}
+
+	// 1. Verify that repeated calls produce 100% byte-for-byte identical sequence (no Go map jitter)
+	for i := 0; i < 50; i++ {
+		toolsNext := mgr.Registry.GetTools()
+		if len(toolsNext) != len(toolsFirst) {
+			t.Fatalf("tool count mismatch on iteration %d", i)
+		}
+		for j := range toolsFirst {
+			if toolsFirst[j].Name != toolsNext[j].Name {
+				t.Fatalf("iteration %d: tool order changed at index %d: expected %s, got %s",
+					i, j, toolsFirst[j].Name, toolsNext[j].Name)
+			}
+		}
+	}
+
+	// 2. Verify family order: Sensory/Read tools come before Write tools, which come before Execute
+	foundWrite := false
+	foundExec := false
+	for _, tool := range toolsFirst {
+		switch tool.Name {
+		case "read_file", "list_directory", "list_files_recursive", "search_files", "inspect_image":
+			if foundWrite {
+				t.Errorf("sensory tool %s appeared after write tools", tool.Name)
+			}
+			if foundExec {
+				t.Errorf("sensory tool %s appeared after execute tools", tool.Name)
+			}
+		case "write_file", "append_file", "edit_file":
+			foundWrite = true
+			if foundExec {
+				t.Errorf("write tool %s appeared after execute tools", tool.Name)
+			}
+		case "execute_command":
+			foundExec = true
+		}
+	}
+	if !foundWrite || !foundExec {
+		t.Errorf("expected both write and execute tools in default registry")
+	}
+}
+

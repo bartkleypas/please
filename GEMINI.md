@@ -63,7 +63,7 @@ To maintain the architectural conventions of the `please` codebase during edits:
   - [x] Add "append_file" tool with line-boundary hygiene to models tool kit.
   - [x] Reduce/reuse/recycle on the redundant commands (eg:`patch_file`, `edit_file`, `search_and_replace`, etc).
   - [x] Admit that yes, technically adding an `append_file` tool first was a classic off by one error. This is an easy one to check off.
-  - [ ] Fix long standing tool order bug causing KV cache invalidation.
+  - [x] Fix long standing tool order bug causing KV cache invalidation.
   - [ ] Add explicit Categorization on Tool for `read/write/execute` ToolCategory types (security bridge).
   - [ ] Use new tool categorization for explicit boundries in SandboxPolicy enforcement and rule guidlines.
 - [ ] **Dynamic Root/System Prompt/Node**:
