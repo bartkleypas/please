@@ -89,12 +89,11 @@ func (m *Model) generateSystemSupplement() string {
 	sb.WriteString("To anchor your trajectory in the conversation map, conclude the text of your response with a 1-3 emoji signature (signat) reflecting your active domain and mood (e.g. 🛠️💻 for code/impl, 🧠📐 for logic/math, 🔍📜 for research/inspection, 🎨✨ for design/styling, 📝💡 for ideation, 🦉☕ for reflection). Place the signat on the final text line of your message before completing your turn.\n")
 
 	// 4. Tool Execution Guidelines
-	sb.WriteString("\n\n### TOOL EXECUTION GUIDELINES\n")
-	sb.WriteString("- Tool observations decay over turns. State critical file paths, byte counts, and key discoveries explicitly in your response.\n")
-	sb.WriteString("- Use your reasoning phase (<think>) exclusively for active problem-solving, planning the next immediate tool call, and verifying tool outputs before responding.\n")
-	sb.WriteString("- When writing or editing files, note the confirmed path, byte count, and line count returned in successful tool observations.\n")
-	sb.WriteString("- `write_file` creates new files; to overwrite an existing file completely, pass `overwrite: true`.\n")
-	sb.WriteString("- After modifying files, you may use `read_file` to verify the state of the workspace before concluding your turn.\n")
+	sb.WriteString("\n\n### TOOL GUIDELINES\n")
+	sb.WriteString("- Cadence: Inspect (read/grep/list) -> Mutate (edit/append/write) -> Verify.\n")
+	sb.WriteString("- Retention: Tool observations decay; state essential paths, byte sizes, and findings in your dialogue.\n")
+	sb.WriteString("- Mutation: Use `edit_file` for in-place edits, `append_file` for logs/notes, and `write_file` for new files (`overwrite: true` to clobber).\n")
+	sb.WriteString("- Thinking: Use <think> exclusively for immediate step planning and output verification.\n")
 
 	return sb.String()
 }

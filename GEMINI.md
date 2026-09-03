@@ -58,7 +58,7 @@ To maintain the architectural conventions of the `please` codebase during edits:
 - [ ] **Daemon Observability & Graph Visualization**:
   - [ ] Web-based D3 graph visualizer served directly from `please serve` (`/visualize`).
   - [ ] Real-time SSE event bus streaming node creation, tool execution, and branch forks to web clients.
-- [ ] **Multi-Turn Tool Orchestration**:
+- [x] **Multi-Turn Tool Orchestration**:
   - [x] Resilient write telemetry, `overwrite: bool` support, and offset-based `read_file` pagination.
   - [x] Add "append_file" tool with line-boundary hygiene to models tool kit.
   - [x] Reduce/reuse/recycle on the redundant commands (eg:`patch_file`, `edit_file`, `search_and_replace`, etc).
