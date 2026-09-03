@@ -780,7 +780,7 @@ func TestBuildLLMContext_EphemeralLeafTelemetry(t *testing.T) {
 	}
 
 	// Message 1 (Historical User Turn 1): Should remain clean (no telemetry!)
-	if strings.Contains(messages[1].Content, "ACTIVE WORKSPACE TELEMETRY") {
+	if strings.Contains(messages[1].Content, "<workspace_context>") {
 		t.Errorf("historical user turn 1 should NOT contain workspace telemetry: %s", messages[1].Content)
 	}
 
@@ -789,7 +789,7 @@ func TestBuildLLMContext_EphemeralLeafTelemetry(t *testing.T) {
 	if leafMsg.Role != RoleUser {
 		t.Fatalf("expected last message to be RoleUser, got %s", leafMsg.Role)
 	}
-	if !strings.Contains(leafMsg.Content, "### ACTIVE WORKSPACE TELEMETRY") {
+	if !strings.Contains(leafMsg.Content, "<workspace_context>") {
 		t.Errorf("expected active leaf message to contain workspace telemetry header, got:\n%s", leafMsg.Content)
 	}
 	if !strings.Contains(leafMsg.Content, "main.go") {
@@ -801,9 +801,10 @@ func TestBuildLLMContext_EphemeralLeafTelemetry(t *testing.T) {
 	if !strings.Contains(leafMsg.Content, "# Workspace Index") {
 		t.Errorf("expected workspace telemetry to include index.md snippet, got:\n%s", leafMsg.Content)
 	}
-	if !strings.Contains(leafMsg.Content, "### TOOL GUIDELINES") {
-		t.Errorf("expected active leaf message to contain tool guidelines, got:\n%s", leafMsg.Content)
+	if !strings.Contains(leafMsg.Content, "Tool Reference:") {
+		t.Errorf("expected active leaf message to contain tool reference, got:\n%s", leafMsg.Content)
+	}
+	if !strings.Contains(leafMsg.Content, "</workspace_context>") {
+		t.Errorf("expected active leaf message to close workspace_context tag, got:\n%s", leafMsg.Content)
 	}
 }
-
-

@@ -557,7 +557,7 @@ func (m *Manager) GenerateWorkspaceSupplement() string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString("\n\n### ACTIVE WORKSPACE TELEMETRY\n")
+	sb.WriteString("\n\n<workspace_context>\n(Background reference for tool operations; do not echo or recite unless asked.)\n")
 
 	// 1. Shallow Directory Listing (skipping hidden files/directories)
 	entries, err := os.ReadDir(wsDir)
@@ -595,12 +595,10 @@ func (m *Manager) GenerateWorkspaceSupplement() string {
 		sb.WriteString("\n")
 	}
 
-	// 3. Tool Execution Guidelines
-	sb.WriteString("\n### TOOL GUIDELINES\n")
-	sb.WriteString("- Cadence: Inspect (read/grep/list) -> Mutate (edit/append/write) -> Verify.\n")
-	sb.WriteString("- Retention: Tool observations decay; state essential paths, byte sizes, and findings in your dialogue.\n")
-	sb.WriteString("- Mutation: Use `edit_file` for in-place edits, `append_file` for logs/notes, and `write_file` for new files (`overwrite: true` to clobber).\n")
-	sb.WriteString("- Thinking: Use <think> exclusively for immediate step planning and output verification.\n")
+	// 3. Ambient Tool Reference
+	sb.WriteString("\nTool Reference:\n")
+	sb.WriteString("- In-place edits: `edit_file`. New files: `write_file` (`overwrite: true` to clobber). Appending: `append_file`.\n")
+	sb.WriteString("</workspace_context>\n")
 
 	return sb.String()
 }
