@@ -113,3 +113,33 @@ func TestConfig_GetMaxToolDepth(t *testing.T) {
 	}
 }
 
+func TestConfig_GetSandboxPolicy(t *testing.T) {
+	// 1. Default fallback to SandboxPolicyStandard
+	cfg := &Config{
+		Server: &ServerConfig{},
+	}
+	if cfg.GetSandboxPolicy() != SandboxPolicyStandard {
+		t.Errorf("expected default standard policy, got %s", cfg.GetSandboxPolicy())
+	}
+	if cfg.Server.GetSandboxPolicy() != SandboxPolicyStandard {
+		t.Errorf("expected server standard policy, got %s", cfg.Server.GetSandboxPolicy())
+	}
+
+	// 2. Explicit strict policy
+	cfg.Server.SandboxPolicy = SandboxPolicyStrict
+	if cfg.GetSandboxPolicy() != SandboxPolicyStrict {
+		t.Errorf("expected strict policy, got %s", cfg.GetSandboxPolicy())
+	}
+
+	// 3. Nil receiver safety
+	var nilConfig *Config
+	if nilConfig.GetSandboxPolicy() != SandboxPolicyStandard {
+		t.Errorf("expected nil config to return standard policy, got %s", nilConfig.GetSandboxPolicy())
+	}
+	var nilServer *ServerConfig
+	if nilServer.GetSandboxPolicy() != SandboxPolicyStandard {
+		t.Errorf("expected nil server to return standard policy, got %s", nilServer.GetSandboxPolicy())
+	}
+}
+
+

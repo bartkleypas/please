@@ -475,7 +475,7 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 	m.StreamCancel = cancel
 
 	return m, tea.Batch(
-		streamResponse(ctx, m.Provider, messages, m.Manager.Registry.GetTools(), newNode.ID, ""),
+		streamResponse(ctx, m.Provider, messages, m.Manager.Registry.GetToolsForPolicy(m.Config.GetSandboxPolicy()), newNode.ID, ""),
 		tick(),
 	)
 }

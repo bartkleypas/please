@@ -141,6 +141,23 @@ func (c *Config) GetMaxToolDepth() int {
 	return 50
 }
 
+// GetSandboxPolicy returns the active sandbox policy ("strict", "standard", "permissive").
+// Defaults to SandboxPolicyStandard if not configured.
+func (s *ServerConfig) GetSandboxPolicy() string {
+	if s == nil || s.SandboxPolicy == "" {
+		return SandboxPolicyStandard
+	}
+	return s.SandboxPolicy
+}
+
+// GetSandboxPolicy returns the active sandbox policy from ServerConfig, defaulting to standard.
+func (c *Config) GetSandboxPolicy() string {
+	if c != nil && c.Server != nil {
+		return c.Server.GetSandboxPolicy()
+	}
+	return SandboxPolicyStandard
+}
+
 // GetConfigDir returns the directory where the configuration file is stored.
 func GetConfigDir() (string, error) {
 	if dir := os.Getenv("PLEASE_CONFIG_DIR"); dir != "" {

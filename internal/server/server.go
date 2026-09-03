@@ -594,16 +594,22 @@ func (s *Server) handleTools(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	type toolInfo struct {
-		Name        string      `json:"name"`
-		Description string      `json:"description"`
-		Parameters  interface{} `json:"parameters"`
+		Name        string              `json:"name"`
+		Category    engine.ToolCategory `json:"category,omitempty"`
+		Description string              `json:"description"`
+		Parameters  interface{}         `json:"parameters"`
 	}
 
 	var list []toolInfo
 	if s.Manager.Registry != nil {
-		for _, t := range s.Manager.Registry.Tools {
+		policy := ""
+		if s.Config != nil {
+			policy = s.Config.GetSandboxPolicy()
+		}
+		for _, t := range s.Manager.Registry.GetToolsForPolicy(policy) {
 			list = append(list, toolInfo{
 				Name:        t.Name,
+				Category:    t.Category,
 				Description: t.Description,
 				Parameters:  t.Parameters,
 			})

@@ -267,7 +267,7 @@ func (m *Model) resumeStreamCmd(ctx context.Context, activeNodeID string) tea.Cm
 			return llmStreamFinishedMsg{err: err, activeNodeID: activeNodeID}
 		}
 
-		contentChan, thoughtChan, toolCallChan, errChan := m.Provider.GenerateResponseStream(ctx, messages, m.Manager.Registry.GetTools())
+		contentChan, thoughtChan, toolCallChan, errChan := m.Provider.GenerateResponseStream(ctx, messages, m.Manager.Registry.GetToolsForPolicy(m.Config.GetSandboxPolicy()))
 		return streamResponseMsg{
 			contentChan:  contentChan,
 			thoughtChan:  thoughtChan,

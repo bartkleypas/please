@@ -199,12 +199,14 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Retrieve active tools from manager registry
+		// Retrieve active tools from manager registry filtered by sandbox policy
 		var tools []engine.Tool
 		if s.Manager.Registry != nil {
-			for _, t := range s.Manager.Registry.Tools {
-				tools = append(tools, t)
+			policy := ""
+			if s.Config != nil {
+				policy = s.Config.GetSandboxPolicy()
 			}
+			tools = s.Manager.Registry.GetToolsForPolicy(policy)
 		}
 
 		contentChan, thoughtChan, toolCallsChan, errChan := s.Provider.GenerateResponseStream(ctx, messages, tools)

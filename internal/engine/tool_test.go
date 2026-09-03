@@ -387,7 +387,7 @@ func TestToolRegistry_DeterministicOrdering(t *testing.T) {
 	foundExec := false
 	for _, tool := range toolsFirst {
 		switch tool.Name {
-		case "read_file", "list_directory", "list_files_recursive", "search_files", "inspect_image":
+		case "read_file", "list_directory", "list_files_recursive", "grep_search", "inspect_image":
 			if foundWrite {
 				t.Errorf("sensory tool %s appeared after write tools", tool.Name)
 			}
@@ -407,4 +407,41 @@ func TestToolRegistry_DeterministicOrdering(t *testing.T) {
 		t.Errorf("expected both write and execute tools in default registry")
 	}
 }
+
+func TestToolCategory_TaxonomyAndPolicyFiltering(t *testing.T) {
+	mgr := NewManager(NewGraph(), nil)
+	mgr.RegisterDefaultTools("/tmp")
+
+	// 1. Verify every default tool has an explicit category
+	tools := mgr.Registry.GetTools()
+	for _, tool := range tools {
+		if tool.Category == "" {
+			t.Errorf("tool %s has no category assigned", tool.Name)
+		}
+		switch tool.Category {
+		case CategorySensory, CategoryMutate, CategoryExecute:
+			// Valid category
+		default:
+			t.Errorf("tool %s has invalid category: %s", tool.Name, tool.Category)
+		}
+	}
+
+	// 2. Verify strict policy filtering drops CategoryExecute
+	strictTools := mgr.Registry.GetToolsForPolicy(SandboxPolicyStrict)
+	for _, tool := range strictTools {
+		if tool.Category == CategoryExecute || tool.Name == "execute_command" {
+			t.Errorf("strict policy included execution tool: %s", tool.Name)
+		}
+	}
+	if len(strictTools) >= len(tools) {
+		t.Errorf("expected strict tools count to be less than all tools (%d vs %d)", len(strictTools), len(tools))
+	}
+
+	// 3. Verify standard policy retains all tools
+	standardTools := mgr.Registry.GetToolsForPolicy(SandboxPolicyStandard)
+	if len(standardTools) != len(tools) {
+		t.Errorf("expected standard policy to retain all tools (%d vs %d)", len(standardTools), len(tools))
+	}
+}
+
 

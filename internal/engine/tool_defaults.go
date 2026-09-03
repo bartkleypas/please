@@ -43,6 +43,7 @@ func GetDefaultTools(workspaceDir ...string) []Tool {
 	return []Tool{
 		{
 			Name:        "inspect_image",
+			Category:    CategorySensory,
 			Description: "Read and inspect an image file's properties. Extracts format, resolution, file size, and any embedded generation metadata (such as Stable Diffusion prompts, seeds, negative prompts, and models).",
 			Interactive: false,
 			Parameters: map[string]interface{}{
@@ -126,6 +127,7 @@ func GetDefaultTools(workspaceDir ...string) []Tool {
 		},
 		{
 			Name:        "read_file",
+			Category:    CategorySensory,
 			Description: "Read the contents of a file from the local filesystem with optional line slicing and byte windowing. Supports pagination for large files.",
 			Interactive: false,
 			Parameters: map[string]interface{}{
@@ -288,6 +290,7 @@ func GetDefaultTools(workspaceDir ...string) []Tool {
 		},
 		{
 			Name:        "write_file",
+			Category:    CategoryMutate,
 			Description: "Create a new file with content, or optionally overwrite an existing file when overwrite=true.",
 			Interactive: true,
 			Parameters: map[string]interface{}{
@@ -357,6 +360,7 @@ func GetDefaultTools(workspaceDir ...string) []Tool {
 		},
 		{
 			Name:        "append_file",
+			Category:    CategoryMutate,
 			Description: "Append content to the end of a file on the local filesystem. Creates the file and parent directories if they do not exist. Automatically handles line boundary separation without creating redundant blank lines.",
 			Interactive: true,
 			Parameters: map[string]interface{}{
@@ -447,6 +451,7 @@ func GetDefaultTools(workspaceDir ...string) []Tool {
 		},
 		{
 			Name:        "list_directory",
+			Category:    CategorySensory,
 			Description: "List the contents of a directory on the local filesystem",
 			Interactive: false,
 			Parameters: map[string]interface{}{
@@ -491,6 +496,7 @@ func GetDefaultTools(workspaceDir ...string) []Tool {
 		},
 		{
 			Name:        "grep_search",
+			Category:    CategorySensory,
 			Description: "Search for a pattern in files within a directory (recursive)",
 			Interactive: false,
 			Parameters: map[string]interface{}{
@@ -585,6 +591,7 @@ func GetDefaultTools(workspaceDir ...string) []Tool {
 		},
 		{
 			Name:        "execute_command",
+			Category:    CategoryExecute,
 			Description: "Execute a shell command and return the combined output",
 			Interactive: true,
 			Parameters: map[string]interface{}{
@@ -636,6 +643,7 @@ func GetDefaultTools(workspaceDir ...string) []Tool {
 		},
 		{
 			Name:        "edit_file",
+			Category:    CategoryMutate,
 			Description: "Surgical in-place text editing tool supporting search & replace (default), regex, line replacement, and insertions",
 			Interactive: true,
 			Parameters: map[string]interface{}{
@@ -781,6 +789,7 @@ func GetDefaultTools(workspaceDir ...string) []Tool {
 		},
 		{
 			Name:        "list_files_recursive",
+			Category:    CategorySensory,
 			Description: "Recursively list all files in a directory",
 			Interactive: false,
 			Parameters: map[string]interface{}{
