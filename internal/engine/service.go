@@ -533,7 +533,76 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 		}
 	}
 
+	// Project ephemeral workspace telemetry onto the active leaf turn (ADR 003)
+	// Only project when the target leaf node being evaluated is an active user turn.
+	if len(path) > 0 && path[len(path)-1].Role == RoleUser {
+		leafUserID := path[len(path)-1].ID
+		for i := len(messages) - 1; i >= 0; i-- {
+			if messages[i].Role == RoleUser && messages[i].ID == leafUserID {
+				messages[i].Content += m.GenerateWorkspaceSupplement()
+				break
+			}
+		}
+	}
+
 	return messages, nil
+}
+
+// GenerateWorkspaceSupplement constructs the ephemeral grounding telemetry for the active turn.
+// Gathers current directory listing (skipping hidden files), index.md header, and concise tool execution guidelines.
+func (m *Manager) GenerateWorkspaceSupplement() string {
+	wsDir := m.WorkspaceDir
+	if wsDir == "" {
+		wsDir = "."
+	}
+
+	var sb strings.Builder
+	sb.WriteString("\n\n### ACTIVE WORKSPACE TELEMETRY\n")
+
+	// 1. Shallow Directory Listing (skipping hidden files/directories)
+	entries, err := os.ReadDir(wsDir)
+	if err == nil {
+		sb.WriteString("Current Directory Tree:\n")
+		count := 0
+		for _, e := range entries {
+			name := e.Name()
+			if strings.HasPrefix(name, ".") {
+				continue // Skip hidden files/dirs like .git
+			}
+			if e.IsDir() {
+				sb.WriteString(fmt.Sprintf(" - %s/\n", name))
+			} else {
+				sb.WriteString(fmt.Sprintf(" - %s\n", name))
+			}
+			count++
+			if count >= 30 {
+				sb.WriteString(" - ... [additional files omitted]\n")
+				break
+			}
+		}
+	}
+
+	// 2. Index Header
+	indexPath := filepath.Join(wsDir, "index.md")
+	if indexContent, err := os.ReadFile(indexPath); err == nil {
+		lines := strings.Split(string(indexContent), "\n")
+		limit := 25
+		if len(lines) < limit {
+			limit = len(lines)
+		}
+		sb.WriteString("\nIndex Snippet:\n")
+		sb.WriteString(strings.Join(lines[:limit], "\n"))
+		sb.WriteString("\n")
+	}
+
+	// 3. Tool Execution Guidelines
+	sb.WriteString("\n### TOOL GUIDELINES\n")
+	sb.WriteString("- Cadence: Inspect (read/grep/list) -> Mutate (edit/append/write) -> Verify.\n")
+	sb.WriteString("- Retention: Tool observations decay; state essential paths, byte sizes, and findings in your dialogue.\n")
+	sb.WriteString("- Mutation: Use `edit_file` for in-place edits, `append_file` for logs/notes, and `write_file` for new files (`overwrite: true` to clobber).\n")
+	sb.WriteString("- Thinking: Use <think> exclusively for immediate step planning and output verification.\n")
+
+	return sb.String()
 }
 
 // Delegation methods to encapsulated Graph operations

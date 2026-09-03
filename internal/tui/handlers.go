@@ -2,9 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -44,56 +41,4 @@ func (m *Model) handleSyncResult(msg syncResultMsg) (tea.Model, tea.Cmd) {
 		m.updateViewportContent()
 	}
 	return m, nil
-}
-
-func (m *Model) generateSystemSupplement() string {
-	var sb strings.Builder
-	sb.WriteString("\n\n### PROJECT CONTEXT (AUTOMATED DISCOVERY)\n")
-
-	wsDir := "."
-	if m.Config != nil {
-		wsDir = m.Config.GetWorkspaceDir()
-	}
-
-	// 1. Shallow Directory Listing
-	entries, err := os.ReadDir(wsDir)
-	if err == nil {
-		sb.WriteString("Current Directory Tree:\n")
-		for _, e := range entries {
-			if e.IsDir() {
-				sb.WriteString(" - ")
-				sb.WriteString(e.Name())
-				sb.WriteString("/\n")
-			} else {
-				sb.WriteString(" - ")
-				sb.WriteString(e.Name())
-				sb.WriteString("\n")
-			}
-		}
-	}
-
-	// 2. Index Header
-	indexContent, err := os.ReadFile(filepath.Join(wsDir, "index.md"))
-	if err == nil {
-		lines := strings.Split(string(indexContent), "\n")
-		limit := 25
-		if len(lines) < limit {
-			limit = len(lines)
-		}
-		sb.WriteString("\nIndex Snippet:\n")
-		sb.WriteString(strings.Join(lines[:limit], "\n"))
-	}
-
-	// 3. Turn Signatures (Signats)
-	sb.WriteString("\n\n### TURN SIGNATURES (SIGNATS)\n")
-	sb.WriteString("To anchor your trajectory in the conversation map, conclude the text of your response with a 1-3 emoji signature (signat) reflecting your active domain and mood (e.g. 🛠️💻 for code/impl, 🧠📐 for logic/math, 🔍📜 for research/inspection, 🎨✨ for design/styling, 📝💡 for ideation, 🦉☕ for reflection). Place the signat on the final text line of your message before completing your turn.\n")
-
-	// 4. Tool Execution Guidelines
-	sb.WriteString("\n\n### TOOL GUIDELINES\n")
-	sb.WriteString("- Cadence: Inspect (read/grep/list) -> Mutate (edit/append/write) -> Verify.\n")
-	sb.WriteString("- Retention: Tool observations decay; state essential paths, byte sizes, and findings in your dialogue.\n")
-	sb.WriteString("- Mutation: Use `edit_file` for in-place edits, `append_file` for logs/notes, and `write_file` for new files (`overwrite: true` to clobber).\n")
-	sb.WriteString("- Thinking: Use <think> exclusively for immediate step planning and output verification.\n")
-
-	return sb.String()
 }

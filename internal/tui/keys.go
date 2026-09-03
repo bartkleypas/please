@@ -411,9 +411,8 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 
 	// 1. Handle Setup Modes: Initial system prompt or new persona creation.
 	if m.SetupMode || m.PersonaSetupMode {
-		// Append repository context for immediate discovery (closes point #3 of feedback)
-		supplement := m.generateSystemSupplement()
-		newNode, err := m.Manager.CreateNode("", engine.RoleSystem, input+supplement, false)
+		// Genesis node holds pure persona without baked-in workspace supplement (ADR 003)
+		newNode, err := m.Manager.CreateNode("", engine.RoleSystem, input, false)
 		if err != nil {
 			m.Notification = fmt.Sprintf("Error: %v", err)
 			return m, nil

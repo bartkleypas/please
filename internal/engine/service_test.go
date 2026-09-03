@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -727,4 +728,82 @@ func TestBuildLLMContext_EphemeralToolCompaction(t *testing.T) {
 		t.Errorf("expected to find call_read_recent tool message in context")
 	}
 }
+
+func TestBuildLLMContext_EphemeralLeafTelemetry(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 1. Create a workspace with a visible file, a hidden file (.git), and index.md
+	if err := os.WriteFile(filepath.Join(tmpDir, "main.go"), []byte("package main"), 0644); err != nil {
+		t.Fatalf("failed to write main.go: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, ".secret"), []byte("hidden"), 0644); err != nil {
+		t.Fatalf("failed to write .secret: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "index.md"), []byte("# Workspace Index\nLiving architecture notes."), 0644); err != nil {
+		t.Fatalf("failed to write index.md: %v", err)
+	}
+
+	storage := &MockStorage{}
+	mgr := NewManager(NewGraph(), storage)
+	mgr.WorkspaceDir = tmpDir
+
+	// 2. Genesis node: pure persona (ADR 003)
+	rootPrompt := "You are George the Archivist, Lore-Warden of the Scriptorium."
+	rootNode, err := mgr.CreateNode("", RoleSystem, rootPrompt, false)
+	if err != nil {
+		t.Fatalf("failed to create root node: %v", err)
+	}
+
+	// Assert root node in storage is 100% pure persona with zero baked-in telemetry
+	storedRoot, err := mgr.GetNode(rootNode.ID)
+	if err != nil {
+		t.Fatalf("failed to retrieve stored root node: %v", err)
+	}
+	if storedRoot.Content != rootPrompt {
+		t.Fatalf("expected stored root to match pure prompt %q, got %q", rootPrompt, storedRoot.Content)
+	}
+
+	// 3. Multi-turn path: Turn 1 (User -> Assistant) -> Turn 2 (User active leaf)
+	user1, _ := mgr.CreateNode(rootNode.ID, RoleUser, "Turn 1 prompt", false)
+	asst1, _ := mgr.CreateNode(user1.ID, RoleAssistant, "Turn 1 response", false)
+	user2, _ := mgr.CreateNode(asst1.ID, RoleUser, "Turn 2 active leaf prompt", false)
+
+	messages, err := mgr.BuildLLMContext(user2.ID, false)
+	if err != nil {
+		t.Fatalf("failed to build context: %v", err)
+	}
+
+	// 4. Verify context structure:
+	// Message 0: Pure root persona (no telemetry!)
+	if messages[0].Content != rootPrompt {
+		t.Errorf("expected root message in context to be pure persona, got: %s", messages[0].Content)
+	}
+
+	// Message 1 (Historical User Turn 1): Should remain clean (no telemetry!)
+	if strings.Contains(messages[1].Content, "ACTIVE WORKSPACE TELEMETRY") {
+		t.Errorf("historical user turn 1 should NOT contain workspace telemetry: %s", messages[1].Content)
+	}
+
+	// Message 3 (Active Leaf User Turn 2): Must contain ephemeral workspace telemetry
+	leafMsg := messages[len(messages)-1]
+	if leafMsg.Role != RoleUser {
+		t.Fatalf("expected last message to be RoleUser, got %s", leafMsg.Role)
+	}
+	if !strings.Contains(leafMsg.Content, "### ACTIVE WORKSPACE TELEMETRY") {
+		t.Errorf("expected active leaf message to contain workspace telemetry header, got:\n%s", leafMsg.Content)
+	}
+	if !strings.Contains(leafMsg.Content, "main.go") {
+		t.Errorf("expected workspace telemetry to include main.go, got:\n%s", leafMsg.Content)
+	}
+	if strings.Contains(leafMsg.Content, ".secret") {
+		t.Errorf("workspace telemetry must skip hidden files (.secret), got:\n%s", leafMsg.Content)
+	}
+	if !strings.Contains(leafMsg.Content, "# Workspace Index") {
+		t.Errorf("expected workspace telemetry to include index.md snippet, got:\n%s", leafMsg.Content)
+	}
+	if !strings.Contains(leafMsg.Content, "### TOOL GUIDELINES") {
+		t.Errorf("expected active leaf message to contain tool guidelines, got:\n%s", leafMsg.Content)
+	}
+}
+
 
