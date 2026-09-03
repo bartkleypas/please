@@ -595,9 +595,10 @@ func (m *Manager) GenerateWorkspaceSupplement() string {
 		sb.WriteString("\n")
 	}
 
-	// 3. Ambient Tool Reference
-	sb.WriteString("\nTool Reference:\n")
+	// 3. Ambient Tool Reference & Turn Signatures
+	sb.WriteString("\nTool Reference & Trajectory:\n")
 	sb.WriteString("- In-place edits: `edit_file`. New files: `write_file` (`overwrite: true` to clobber). Appending: `append_file`.\n")
+	sb.WriteString("- Conclude the final line of your message with a 1-3 emoji signature (signat) reflecting your active domain and posture (e.g. 🛠️💻 for code/impl, 🧠📐 for logic/math, 🔍📜 for inspection, 🎨✨ for design, 🦉☕ for reflection).\n")
 	sb.WriteString("</workspace_context>\n")
 
 	return sb.String()
