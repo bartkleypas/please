@@ -109,7 +109,7 @@ func (c *Config) SupportsVision() bool {
 		return true
 	}
 	modelLower := strings.ToLower(c.Server.Model)
-	keywords := []string{"vision", "llava", "pixtral", "minicpm", "mplug", "bakllava", "llama3.2-vision", "llama-3.2-vision", "llama3-vision"}
+	keywords := []string{"vision", "llava", "pixtral", "minicpm", "mplug", "bakllava", "llama3.2-vision", "llama-3.2-vision", "llama3-vision", "gemma4"}
 	for _, kw := range keywords {
 		if strings.Contains(modelLower, kw) {
 			return true

@@ -1068,3 +1068,35 @@ func TestCompactCommand_AndNavigation(t *testing.T) {
 		t.Errorf("expected supernode to contain trajectory header, got: %s", superNode.Content)
 	}
 }
+
+func TestAttachCommand_SpacesAndQuotes(t *testing.T) {
+	tmpDir := t.TempDir()
+	subDir := filepath.Join(tmpDir, "Chat Agents")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatalf("failed to create test dir with space: %v", err)
+	}
+	imgPath := filepath.Join(subDir, "my portrait.png")
+	if err := os.WriteFile(imgPath, []byte("fake image data"), 0644); err != nil {
+		t.Fatalf("failed to write test image: %v", err)
+	}
+
+	graph := engine.NewGraph()
+	storage := engine.NewJSONLStorage(filepath.Join(tmpDir, "vault.jsonl"), "")
+	m := NewModel(&engine.Config{}, graph, storage, &engine.MockLLMProvider{}, "")
+
+	// 1. Unquoted path with spaces
+	m.HandleCommand("/attach " + imgPath)
+	if len(m.PendingImages) != 1 || m.PendingImages[0] != imgPath {
+		t.Errorf("expected unquoted path with spaces to attach successfully, got %v (notification: %q)", m.PendingImages, m.Notification)
+	}
+
+	// Reset
+	m.PendingImages = nil
+
+	// 2. Quoted path with spaces
+	m.HandleCommand(fmt.Sprintf("/image %q", imgPath))
+	if len(m.PendingImages) != 1 || m.PendingImages[0] != imgPath {
+		t.Errorf("expected quoted path with spaces to attach successfully, got %v (notification: %q)", m.PendingImages, m.Notification)
+	}
+}
+

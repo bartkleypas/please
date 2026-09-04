@@ -387,7 +387,7 @@ func TestToolRegistry_DeterministicOrdering(t *testing.T) {
 	foundExec := false
 	for _, tool := range toolsFirst {
 		switch tool.Name {
-		case "read_file", "list_directory", "list_files_recursive", "grep_search", "inspect_image":
+		case "read_file", "list_directory", "list_files_recursive", "grep_search":
 			if foundWrite {
 				t.Errorf("sensory tool %s appeared after write tools", tool.Name)
 			}

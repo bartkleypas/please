@@ -2,10 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"image"
-	_ "image/gif"
-	_ "image/jpeg"
-	_ "image/png"
 	"os"
 	"strings"
 
@@ -42,8 +38,6 @@ func init() {
 	commandRegistry["/pacing"] = &PacingCommand{}
 	commandRegistry["/attach"] = &AttachCommand{}
 	commandRegistry["/image"] = &AttachCommand{}
-	commandRegistry["/parameters"] = &ParametersCommand{}
-	commandRegistry["/info"] = &ParametersCommand{}
 	commandRegistry["/fold"] = &FoldCommand{}
 	commandRegistry["/compact"] = &CompactCommand{}
 	commandRegistry["/compress"] = &CompactCommand{}
@@ -823,11 +817,11 @@ func (c *CancelToolCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd
 type AttachCommand struct{}
 
 func (c *AttachCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
-	if len(args) != 1 {
+	if len(args) == 0 {
 		m.Notification = "Usage: /attach <path>"
 		return m, nil
 	}
-	path := args[0]
+	path := strings.Trim(strings.Join(args, " "), `"'`)
 	if _, err := os.Stat(path); err != nil {
 		m.Notification = fmt.Sprintf("Error: file %s does not exist or is not readable", path)
 		return m, nil
@@ -835,60 +829,6 @@ func (c *AttachCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 
 	m.PendingImages = append(m.PendingImages, path)
 	m.Notification = fmt.Sprintf("Attached image: %s", path)
-	return m, nil
-}
-
-type ParametersCommand struct{}
-
-func (c *ParametersCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
-	node, err := m.Manager.GetNode(m.CurrentID)
-	if err != nil {
-		m.Notification = "Error: node not found"
-		return m, nil
-	}
-	if len(node.Images) == 0 {
-		m.Notification = "No images attached to this node."
-		return m, nil
-	}
-
-	var s strings.Builder
-	s.WriteString("--- 🖼️  Attached Image Parameters ---\n\n")
-	for _, imgPath := range node.Images {
-		file, err := os.Open(imgPath)
-		if err != nil {
-			fmt.Fprintf(&s, "File: %s (Error opening file: %v)\n\n", imgPath, err)
-			continue
-		}
-		cfg, format, err := image.DecodeConfig(file)
-		if err != nil {
-			fmt.Fprintf(&s, "File: %s (Error parsing format: %v)\n\n", imgPath, err)
-			file.Close()
-			continue
-		}
-		fmt.Fprintf(&s, "File: %s\n", imgPath)
-		fmt.Fprintf(&s, "Format: %s\n", format)
-		fmt.Fprintf(&s, "Dimensions: %dx%d\n", cfg.Width, cfg.Height)
-
-		if strings.ToLower(format) == "png" {
-			_, _ = file.Seek(0, 0)
-			meta, err := engine.ExtractPNGMetadata(file)
-			if err == nil {
-				if params, exists := meta["parameters"]; exists {
-					fmt.Fprintf(&s, "\nStable Diffusion Parameters:\n%s\n", params)
-				} else {
-					fmt.Fprintf(&s, "\nStable Diffusion Parameters: None found\n")
-				}
-			} else {
-				fmt.Fprintf(&s, "\nMetadata parsing error: %v\n", err)
-			}
-		}
-		file.Close()
-		s.WriteString("\n------------------------------------\n\n")
-	}
-
-	m.ViewportOverride = s.String()
-	m.Viewport.SetContent(m.ViewportOverride)
-	m.Viewport.GotoTop()
 	return m, nil
 }
 

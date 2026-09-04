@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"os"
 	"path/filepath"
 
 	"github.com/google/uuid"
@@ -454,22 +453,7 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 		if len(node.Images) > 0 {
 			var textParts []string
 			for _, imgPath := range node.Images {
-				file, err := os.Open(imgPath)
-				var sdDetails map[string]string
-				if err == nil {
-					meta, err := ExtractPNGMetadata(file)
-					if err == nil {
-						if params, exists := meta["parameters"]; exists {
-							sdDetails = ParseSDParameters(params)
-						}
-					}
-					file.Close()
-				}
-				if sdDetails != nil && sdDetails["sd_prompt"] != "" {
-					textParts = append(textParts, fmt.Sprintf("[Attached Image: %s | SD Prompt: %s | Seed: %s | Model: %s]", filepath.Base(imgPath), sdDetails["sd_prompt"], sdDetails["sd_seed"], sdDetails["sd_model"]))
-				} else {
-					textParts = append(textParts, fmt.Sprintf("[Attached Image: %s (No SD metadata available)]", filepath.Base(imgPath)))
-				}
+				textParts = append(textParts, fmt.Sprintf("[Attached Image: %s]", filepath.Base(imgPath)))
 			}
 			if len(textParts) > 0 {
 				metadataText = "\n\n" + strings.Join(textParts, "\n")
@@ -805,22 +789,4 @@ func (m *Manager) GetAllNodeIDs() []string {
 
 func (m *Manager) AttachImages(node *Node, images []string) {
 	node.Images = images
-	if node.Metadata == nil {
-		node.Metadata = make(map[string]string)
-	}
-	for _, imgPath := range images {
-		file, err := os.Open(imgPath)
-		if err == nil {
-			meta, err := ExtractPNGMetadata(file)
-			if err == nil {
-				if params, exists := meta["parameters"]; exists {
-					sdDetails := ParseSDParameters(params)
-					for k, v := range sdDetails {
-						node.Metadata[k] = v
-					}
-				}
-			}
-			file.Close()
-		}
-	}
 }

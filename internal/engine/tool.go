@@ -74,7 +74,6 @@ var toolFamilyPriority = map[string]int{
 	"list_directory":       11,
 	"list_files_recursive": 12,
 	"grep_search":          13,
-	"inspect_image":        14,
 	"write_file":           20,
 	"append_file":          21,
 	"edit_file":            22,

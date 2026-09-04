@@ -160,6 +160,46 @@ func simulateTurn(t *testing.T, ctx context.Context, mgr *Manager, provider LLMP
 	return assistantNode
 }
 
+func simulateImageTurn(t *testing.T, ctx context.Context, mgr *Manager, provider LLMProvider, input string, imagePaths []string, parentID string) *Node {
+	userNode, err := mgr.CreateNode(parentID, RoleUser, input, false)
+	if err != nil {
+		t.Fatalf("failed to create user node: %v", err)
+	}
+	mgr.AttachImages(userNode, imagePaths)
+	t.Logf("### [Node ID: %s] User says: %s (Attached images: %v)", userNode.ID, input, imagePaths)
+
+	supportsVision := false
+	if op, ok := provider.(*OllamaProvider); ok {
+		modelLower := strings.ToLower(op.Model)
+		keywords := []string{"vision", "llava", "pixtral", "minicpm", "mplug", "bakllava", "llama3.2-vision", "llama-3.2-vision", "llama3-vision", "gemma4"}
+		for _, kw := range keywords {
+			if strings.Contains(modelLower, kw) {
+				supportsVision = true
+				break
+			}
+		}
+	} else if _, ok := provider.(*OpenAIProvider); ok {
+		supportsVision = true
+	}
+	messages, err := mgr.BuildLLMContext(userNode.ID, supportsVision)
+	if err != nil {
+		t.Fatalf("failed to build LLM context: %v", err)
+	}
+
+	resp, err := provider.GenerateResponse(ctx, messages, nil)
+	if err != nil {
+		t.Fatalf("failed to generate response: %v", err)
+	}
+
+	assistantNode, err := mgr.CreateAssistantNode(userNode.ID, resp.Content, resp.Thought, resp.ToolCalls, false)
+	if err != nil {
+		t.Fatalf("failed to create assistant node: %v", err)
+	}
+	t.Logf("### [Node ID: %s] Assistant says: %s", assistantNode.ID, resp.Content)
+
+	return assistantNode
+}
+
 func executeToolTurn(t *testing.T, ctx context.Context, mgr *Manager, provider LLMProvider, tools []Tool, input string, parentID string) *Node {
 	userNode, err := mgr.CreateNode(parentID, RoleUser, input, false)
 	if err != nil {
@@ -340,8 +380,15 @@ func TestLLM_ToolExecution(t *testing.T) {
 	turn8 := executeToolTurn(t, ctx, mgr, provider, tools, input, turn7.ID)
 
 	// Feedback
-	input = "We just tested write_file, list_directory, list_files_recursive, grep_search, patch_file, edit_file, search_and_replace, and execute_command. Summarize your experience with these tools and their ease of use."
-	simulateTurn(t, ctx, mgr, provider, input, turn8.ID)
+	input = "We just tested write_file, list_directory, list_files_recursive, grep_search, edit_file, and execute_command. Summarize your experience with these tools and their ease of use."
+	summaryTurn := simulateTurn(t, ctx, mgr, provider, input, turn8.ID)
+
+	// Image Reflection: Ask George to reflect on his portrait in Lore/George_image.png
+	portraitPath := filepath.Join("Lore", "George_image.png")
+	if _, err := os.Stat(portraitPath); err == nil {
+		imagePrompt := "I found this portrait of you in Lore/George_image.png. Would you please take a look and describe the image to me?"
+		simulateImageTurn(t, ctx, mgr, provider, imagePrompt, []string{portraitPath}, summaryTurn.ID)
+	}
 }
 
 func executeAutonomousTurn(t *testing.T, ctx context.Context, mgr *Manager, provider LLMProvider, tools []Tool, input string, parentID string) *Node {
