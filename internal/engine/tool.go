@@ -23,7 +23,7 @@ type Tool struct {
 	Description string       `json:"description"`
 	Parameters  interface{}  `json:"parameters"` // JSON Schema for the tool's arguments
 	Function    func(ctx context.Context, args map[string]interface{}) (string, error)
-	Interactive bool         `json:"interactive"` // If true, requires user approval before execution
+	Interactive bool `json:"interactive"` // If true, requires user approval before execution
 }
 
 // ToolCall represents a specific request from the LLM to run a tool

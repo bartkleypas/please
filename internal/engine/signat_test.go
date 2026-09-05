@@ -7,10 +7,10 @@ import (
 
 func TestExtractSignat(t *testing.T) {
 	tests := []struct {
-		name         string
-		input        string
-		wantClean    string
-		wantSignat   string
+		name       string
+		input      string
+		wantClean  string
+		wantSignat string
 	}{
 		{
 			name:       "Trailing emojis with space",

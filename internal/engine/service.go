@@ -29,16 +29,22 @@ type AssistantSegment struct {
 // Layered ephemerally onto the Genesis root node (RoleSystem) when signat_steering is enabled.
 const SignatSteeringContract = "To anchor your trajectory in the conversation map, conclude the text of each turn with a 1-3 emoji signature (signat) on the final line reflecting your active posture (e.g. 🛠️💻 for code/impl, 🧠📐 for logic/math, 🔍📜 for research/inspection, 🎨✨ for design/styling, 📝💡 for ideation, 🦉☕ for reflection)."
 
+// AmbientTelemetryContract defines the attentional de-weighting instruction for peripheral environment data.
+// Layered ephemerally onto the Genesis root node (RoleSystem) when ambient_telemetry is enabled.
+const AmbientTelemetryContract = "You may receive peripheral environmental telemetry wrapped in <ADDITIONAL_METADATA> alongside user turns (such as current working directory, active git branch, or local timestamps). This metadata provides passive situational context. Do not recite, quote, or acknowledge this metadata in your responses unless the user explicitly asks about it."
+
 // Manager is the central coordinator for the application engine. It provides
 // a high-level API that combines graph operations (traversal, branching)
 // with storage persistence, ensuring that all narrative changes are saved.
 type Manager struct {
-	Graph          *Graph
-	Storage        Storage
-	Registry       *ToolRegistry
-	WorkspaceDir   string
-	NumCtx         int
-	SignatSteering bool
+	Graph            *Graph
+	Storage          Storage
+	Registry         *ToolRegistry
+	WorkspaceDir     string
+	NumCtx           int
+	SignatSteering   bool
+	AmbientTelemetry bool
+	clientContext    map[string]string
 }
 
 // NewManager creates a new Manager instance
@@ -50,6 +56,16 @@ func NewManager(g *Graph, s Storage) *Manager {
 		WorkspaceDir: ".",
 		NumCtx:       32768,
 	}
+}
+
+// SetClientContext sets temporary client editor context (e.g. active_file, cursor_line).
+func (m *Manager) SetClientContext(ctx map[string]string) {
+	m.clientContext = ctx
+}
+
+// GetClientContext returns the currently configured client editor context.
+func (m *Manager) GetClientContext() map[string]string {
+	return m.clientContext
 }
 
 // CreateNode handles the full lifecycle of creating a new node:
@@ -444,6 +460,45 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 						})
 					}
 				}
+
+				// Defensive fallback: if there are more ToolCalls/Observations than segments,
+				// emit them sequentially so the model is never blinded to tool execution results.
+				for j := len(segments); j < len(node.ToolCalls); j++ {
+					tCalls := []ToolCall{node.ToolCalls[j]}
+					messages = append(messages, Message{
+						Role:      RoleAssistant,
+						Content:   "",
+						Internal:  node.Internal,
+						ToolCalls: tCalls,
+					})
+
+					if j < len(node.Observations) {
+						obs := node.Observations[j]
+						truncatedResult := obs.Result
+						toolName := node.ToolCalls[j].Function.Name
+						if distance >= 2 && len(truncatedResult) > 1000 {
+							truncatedResult = fmt.Sprintf("[Tool '%s' execution completed. Detailed results omitted. Total size: %d bytes.]", toolName, len(obs.Result))
+						} else if v > 5.0 {
+							if fillRatio >= 0.60 && len(truncatedResult) > 8000 {
+								truncatedResult = truncatedResult[:8000] + "... [truncated]"
+							}
+						} else if v > 0.5 {
+							if len(truncatedResult) > 2000 {
+								truncatedResult = truncatedResult[:2000] + "... [truncated]"
+							}
+						} else {
+							truncatedResult = fmt.Sprintf("[Tool '%s' execution completed. Detailed results omitted. Total size: %d bytes.]", toolName, len(obs.Result))
+						}
+
+						messages = append(messages, Message{
+							Role:       RoleTool,
+							Content:    truncatedResult,
+							ToolCallID: obs.ToolCallID,
+							Internal:   node.Internal,
+						})
+					}
+				}
+
 				continue
 			}
 		}
@@ -472,10 +527,27 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 		// Layered Genesis Prompt (ADR 003 refined):
 		// Dynamically layer the signat formatting contract onto the root node (messages[0])
 		// if signat_steering is enabled, keeping SQLite storage 100% pure persona.
-		if m.SignatSteering && (node.Role == RoleSystem || i == 0) {
+		if m.SignatSteering && (node.Role == RoleSystem || (i == 0 && node.Role != RoleUser)) {
 			if !strings.Contains(content, "signat") && !strings.Contains(content, "emoji signature") {
 				content += "\n\n" + SignatSteeringContract
 			}
+		}
+
+		// Layered Genesis Prompt for Ambient Telemetry (ADR 003 Synthesis):
+		// Dynamically layer the attentional de-weighting contract onto the root node (messages[0])
+		// if ambient_telemetry is enabled, keeping SQLite storage 100% pure persona.
+		if m.AmbientTelemetry && (node.Role == RoleSystem || (i == 0 && node.Role != RoleUser)) {
+			if !strings.Contains(content, "ADDITIONAL_METADATA") && !strings.Contains(content, "peripheral environmental telemetry") {
+				content += "\n\n" + AmbientTelemetryContract
+			}
+		}
+
+		// Ephemeral Leaf Telemetry Envelope (ADR 003 Synthesis):
+		// Wrap only the active user turn (distance == 0 && RoleUser) in <USER_REQUEST> and <ADDITIONAL_METADATA>.
+		// Historical user turns (distance > 0) remain 100% clean, un-bumpered user text.
+		if m.AmbientTelemetry && distance == 0 && node.Role == RoleUser {
+			telem := DeriveAmbientTelemetry(m.WorkspaceDir, m.clientContext)
+			content = FormatTelemetryEnvelope(content, telem)
 		}
 
 		msg := Message{

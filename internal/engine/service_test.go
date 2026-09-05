@@ -819,3 +819,143 @@ func TestManager_DeriveSilentSignat(t *testing.T) {
 		t.Errorf("expected explicit signat '🦉☕' to override silent derivation, got %q", explicitNode.Metadata["signat"])
 	}
 }
+
+func TestBuildLLMContext_AmbientTelemetrySynthesis(t *testing.T) {
+	storage := &MockStorage{}
+	mgr := NewManager(NewGraph(), storage)
+	mgr.WorkspaceDir = "/Users/bart/Code/please"
+
+	// 1. Setup multi-turn thread
+	rootPrompt := "You are George the Archivist."
+	rootNode, _ := mgr.CreateNode("", RoleSystem, rootPrompt, false)
+	user1, _ := mgr.CreateNode(rootNode.ID, RoleUser, "Historical Turn 1", false)
+	asst1, _ := mgr.CreateNode(user1.ID, RoleAssistant, "Historical Assistant 1", false)
+	user2, _ := mgr.CreateNode(asst1.ID, RoleUser, "Active Leaf Turn 2", false)
+
+	// Mode A: AmbientTelemetry = false (Default)
+	mgr.AmbientTelemetry = false
+	msgsClean, err := mgr.BuildLLMContext(user2.ID, false)
+	if err != nil {
+		t.Fatalf("failed to build clean context: %v", err)
+	}
+	if msgsClean[0].Content != rootPrompt {
+		t.Errorf("expected clean root, got: %q", msgsClean[0].Content)
+	}
+	if msgsClean[1].Content != "Historical Turn 1" {
+		t.Errorf("expected clean turn 1, got: %q", msgsClean[1].Content)
+	}
+	if msgsClean[len(msgsClean)-1].Content != "Active Leaf Turn 2" {
+		t.Errorf("expected clean leaf, got: %q", msgsClean[len(msgsClean)-1].Content)
+	}
+
+	// Mode B: AmbientTelemetry = true (Opt-in)
+	mgr.AmbientTelemetry = true
+	mgr.SetClientContext(map[string]string{
+		"active_file": "/Users/bart/Code/please/log.md",
+		"cursor_line": "10",
+	})
+
+	msgsTelem, err := mgr.BuildLLMContext(user2.ID, false)
+	if err != nil {
+		t.Fatalf("failed to build telem context: %v", err)
+	}
+
+	// Check Genesis contract layering
+	if !strings.Contains(msgsTelem[0].Content, AmbientTelemetryContract) {
+		t.Errorf("expected root to contain AmbientTelemetryContract, got: %q", msgsTelem[0].Content)
+	}
+	if !strings.HasPrefix(msgsTelem[0].Content, rootPrompt) {
+		t.Errorf("expected root to start with pure rootPrompt, got: %q", msgsTelem[0].Content)
+	}
+
+	// Check Historical Turn remains 100% sacred and un-bumpered
+	if msgsTelem[1].Content != "Historical Turn 1" {
+		t.Errorf("expected historical user turn 1 to remain pure, got: %q", msgsTelem[1].Content)
+	}
+
+	// Check Active Leaf has <USER_REQUEST> and <ADDITIONAL_METADATA>
+	leafContent := msgsTelem[len(msgsTelem)-1].Content
+	if !strings.Contains(leafContent, "<USER_REQUEST>\nActive Leaf Turn 2\n</USER_REQUEST>") {
+		t.Errorf("expected leaf to contain USER_REQUEST envelope, got: %q", leafContent)
+	}
+	if !strings.Contains(leafContent, "<ADDITIONAL_METADATA>") {
+		t.Errorf("expected leaf to contain ADDITIONAL_METADATA tag, got: %q", leafContent)
+	}
+	if !strings.Contains(leafContent, "cwd: /Users/bart/Code/please") {
+		t.Errorf("expected leaf to contain cwd, got: %q", leafContent)
+	}
+	if !strings.Contains(leafContent, "active_file: /Users/bart/Code/please/log.md") {
+		t.Errorf("expected leaf to contain active_file, got: %q", leafContent)
+	}
+	if !strings.Contains(leafContent, "cursor_line: 10") {
+		t.Errorf("expected leaf to contain cursor_line, got: %q", leafContent)
+	}
+
+	// Check Storage Invariant: SQLite/MockStorage holds pure un-bumpered text
+	storedNode, err := mgr.GetNode(user2.ID)
+	if err != nil {
+		t.Fatalf("failed to get stored node: %v", err)
+	}
+	if storedNode.Content != "Active Leaf Turn 2" {
+		t.Errorf("expected stored node to be pure user text, got: %q", storedNode.Content)
+	}
+
+	// Mode C: Mid-Stream Toggle Test (Graceful Switch)
+	// Toggle back to false mid-conversation
+	mgr.AmbientTelemetry = false
+	msgsToggledOff, err := mgr.BuildLLMContext(user2.ID, false)
+	if err != nil {
+		t.Fatalf("failed to build toggled context: %v", err)
+	}
+	if strings.Contains(msgsToggledOff[0].Content, AmbientTelemetryContract) {
+		t.Errorf("expected Genesis contract to disappear after toggle off, got: %q", msgsToggledOff[0].Content)
+	}
+	if strings.Contains(msgsToggledOff[len(msgsToggledOff)-1].Content, "<USER_REQUEST>") {
+		t.Errorf("expected leaf envelope to disappear after toggle off, got: %q", msgsToggledOff[len(msgsToggledOff)-1].Content)
+	}
+}
+
+func TestBuildLLMContext_TrailingToolCallsWithoutSegments(t *testing.T) {
+	storage := &MockStorage{}
+	mgr := NewManager(NewGraph(), storage)
+
+	root, _ := mgr.CreateNode("", RoleSystem, "You are an assistant.", false)
+	user, _ := mgr.CreateNode(root.ID, RoleUser, "Find the garden file", false)
+
+	// Assistant turn initialized with 1 tool call
+	tc1 := ToolCall{ID: "call_1"}
+	tc1.Function.Name = "list_directory"
+	asst, _ := mgr.CreateAssistantNode(user.ID, "Listing directory", "", []ToolCall{tc1}, false)
+	_ = mgr.UpdateAssistantObservations(asst.ID, "call_1", "DigitalGarden.md")
+
+	// Simulate follow-up tool call without updating segments metadata (the failure mode)
+	tc2 := ToolCall{ID: "call_2"}
+	tc2.Function.Name = "read_file"
+	asst.ToolCalls = append(asst.ToolCalls, tc2)
+	_ = mgr.Storage.SaveNode(asst)
+	_ = mgr.UpdateAssistantObservations(asst.ID, "call_2", "# The Digital Garden Content")
+
+	messages, err := mgr.BuildLLMContext(asst.ID, false)
+	if err != nil {
+		t.Fatalf("failed to build context: %v", err)
+	}
+
+	// Verify both tool calls and both observations are emitted
+	var toolMsgs []Message
+	for _, m := range messages {
+		if m.Role == RoleTool {
+			toolMsgs = append(toolMsgs, m)
+		}
+	}
+
+	if len(toolMsgs) != 2 {
+		t.Fatalf("expected 2 tool observation messages emitted, got %d", len(toolMsgs))
+	}
+	if toolMsgs[0].ToolCallID != "call_1" || !strings.Contains(toolMsgs[0].Content, "DigitalGarden.md") {
+		t.Errorf("expected first tool observation for call_1, got: %+v", toolMsgs[0])
+	}
+	if toolMsgs[1].ToolCallID != "call_2" || !strings.Contains(toolMsgs[1].Content, "Digital Garden Content") {
+		t.Errorf("expected second tool observation for call_2, got: %+v", toolMsgs[1])
+	}
+}
+

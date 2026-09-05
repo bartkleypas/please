@@ -169,5 +169,29 @@ func TestConfig_EnableSignatSteering(t *testing.T) {
 	}
 }
 
+func TestConfig_EnableAmbientTelemetry(t *testing.T) {
+	// 1. Default: disabled
+	cfg := &Config{
+		Server: &ServerConfig{},
+	}
+	if cfg.EnableAmbientTelemetry() {
+		t.Errorf("expected default ambient telemetry to be disabled")
+	}
 
+	// 2. Explicitly enabled
+	enabled := true
+	cfg.Server.AmbientTelemetry = &enabled
+	if !cfg.EnableAmbientTelemetry() {
+		t.Errorf("expected ambient telemetry to be enabled")
+	}
 
+	// 3. Nil receiver safety
+	var nilConfig *Config
+	if nilConfig.EnableAmbientTelemetry() {
+		t.Errorf("expected nil config to return false")
+	}
+	var nilServer *ServerConfig
+	if nilServer.EnableAmbientTelemetry() {
+		t.Errorf("expected nil server to return false")
+	}
+}

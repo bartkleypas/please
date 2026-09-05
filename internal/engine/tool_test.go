@@ -443,5 +443,3 @@ func TestToolCategory_TaxonomyAndPolicyFiltering(t *testing.T) {
 		t.Errorf("expected standard policy to retain all tools (%d vs %d)", len(standardTools), len(tools))
 	}
 }
-
-

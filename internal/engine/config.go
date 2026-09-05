@@ -26,23 +26,24 @@ type ModelOptions struct {
 
 // ServerConfig holds settings for running the engine daemon / standalone backend
 type ServerConfig struct {
-	Host          string        `json:"host,omitempty"`
-	Port          int           `json:"port,omitempty"`
-	Provider      string        `json:"provider,omitempty"`
-	APIKey        string        `json:"api_key,omitempty"`
-	Model         string        `json:"model,omitempty"`
-	Endpoint      string        `json:"endpoint,omitempty"`
-	VaultPath     string        `json:"vault_path,omitempty"`
-	StorageType   string        `json:"storage_type,omitempty"` // "jsonl" or "sqlite"
-	EncryptionKey string        `json:"encryption_key,omitempty"`
-	WorkspaceDir  string        `json:"workspace_dir,omitempty"`
-	AuthToken     string        `json:"auth_token,omitempty"`
-	TLSCertFile   string        `json:"tls_cert_file,omitempty"`
-	TLSKeyFile    string        `json:"tls_key_file,omitempty"`
-	SandboxPolicy string        `json:"sandbox_policy,omitempty"` // "strict", "standard", "permissive"
-	MaxToolDepth  *int          `json:"max_tool_depth,omitempty"`
-	SignatSteering *bool        `json:"signat_steering,omitempty"`
-	Options       *ModelOptions `json:"options,omitempty"`
+	Host             string        `json:"host,omitempty"`
+	Port             int           `json:"port,omitempty"`
+	Provider         string        `json:"provider,omitempty"`
+	APIKey           string        `json:"api_key,omitempty"`
+	Model            string        `json:"model,omitempty"`
+	Endpoint         string        `json:"endpoint,omitempty"`
+	VaultPath        string        `json:"vault_path,omitempty"`
+	StorageType      string        `json:"storage_type,omitempty"` // "jsonl" or "sqlite"
+	EncryptionKey    string        `json:"encryption_key,omitempty"`
+	WorkspaceDir     string        `json:"workspace_dir,omitempty"`
+	AuthToken        string        `json:"auth_token,omitempty"`
+	TLSCertFile      string        `json:"tls_cert_file,omitempty"`
+	TLSKeyFile       string        `json:"tls_key_file,omitempty"`
+	SandboxPolicy    string        `json:"sandbox_policy,omitempty"` // "strict", "standard", "permissive"
+	MaxToolDepth     *int          `json:"max_tool_depth,omitempty"`
+	SignatSteering   *bool         `json:"signat_steering,omitempty"`
+	AmbientTelemetry *bool         `json:"ambient_telemetry,omitempty"`
+	Options          *ModelOptions `json:"options,omitempty"`
 }
 
 // ClientConfig holds settings for connecting the TUI to a remote daemon
@@ -172,6 +173,23 @@ func (s *ServerConfig) EnableSignatSteering() bool {
 func (c *Config) EnableSignatSteering() bool {
 	if c != nil && c.Server != nil {
 		return c.Server.EnableSignatSteering()
+	}
+	return false
+}
+
+// EnableAmbientTelemetry returns whether ambient environmental telemetry is enabled.
+// Defaults to false (clean, un-bumpered human turns).
+func (s *ServerConfig) EnableAmbientTelemetry() bool {
+	if s == nil || s.AmbientTelemetry == nil {
+		return false
+	}
+	return *s.AmbientTelemetry
+}
+
+// EnableAmbientTelemetry returns whether ambient environmental telemetry is enabled from ServerConfig.
+func (c *Config) EnableAmbientTelemetry() bool {
+	if c != nil && c.Server != nil {
+		return c.Server.EnableAmbientTelemetry()
 	}
 	return false
 }

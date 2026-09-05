@@ -13,12 +13,15 @@ import (
 
 // ChatStreamRequest defines the JSON payload sent by clients to initiate a generation turn.
 type ChatStreamRequest struct {
-	NodeID       string   `json:"node_id,omitempty"`
-	ParentID     string   `json:"parent_id,omitempty"`
-	Message      string   `json:"message"`
-	Role         string   `json:"role,omitempty"` // default "user"
-	Images       []string `json:"images,omitempty"`
-	MaxToolDepth int      `json:"max_tool_depth,omitempty"` // default 10
+	NodeID       string            `json:"node_id,omitempty"`
+	ParentID     string            `json:"parent_id,omitempty"`
+	Message      string            `json:"message"`
+	Role         string            `json:"role,omitempty"` // default "user"
+	Images       []string          `json:"images,omitempty"`
+	MaxToolDepth int               `json:"max_tool_depth,omitempty"` // default 10
+	ActiveFile   string            `json:"active_file,omitempty"`
+	CursorLine   int               `json:"cursor_line,omitempty"`
+	Context      map[string]string `json:"context,omitempty"`
 }
 
 // Event types for SSE protocol
@@ -121,6 +124,26 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 	flusher.Flush()
+
+	// Ingest optional client context for ambient telemetry
+	if s.Manager != nil {
+		clientCtx := make(map[string]string)
+		if req.Context != nil {
+			for k, v := range req.Context {
+				clientCtx[k] = v
+			}
+		}
+		if req.ActiveFile != "" {
+			clientCtx["active_file"] = req.ActiveFile
+		}
+		if req.CursorLine > 0 {
+			clientCtx["cursor_line"] = fmt.Sprintf("%d", req.CursorLine)
+		}
+		if len(clientCtx) > 0 {
+			s.Manager.SetClientContext(clientCtx)
+			defer s.Manager.SetClientContext(nil)
+		}
+	}
 
 	// 1. Resolve existing user node if specified (e.g. created by client beforehand)
 	var userNode *engine.Node

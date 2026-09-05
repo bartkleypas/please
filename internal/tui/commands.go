@@ -309,7 +309,12 @@ func (m *Model) renderConfigString() string {
 	if m.Config.EnableSignatSteering() {
 		signatStr = "enabled (layered Genesis prompt steering)"
 	}
-	fmt.Fprintf(&s, "    Signat Steering: %s\n", signatStr)
+	fmt.Fprintf(&s, "    Signat Steering:    %s\n", signatStr)
+	telemStr := "disabled (pure human turns)"
+	if m.Config.EnableAmbientTelemetry() {
+		telemStr = "enabled (bounded XML leaf envelope)"
+	}
+	fmt.Fprintf(&s, "    Ambient Telemetry:  %s\n", telemStr)
 
 	s.WriteString("\n    Inference Parameters:\n")
 	if srv.Options != nil {
@@ -393,6 +398,7 @@ func (m *Model) renderConfigString() string {
 	s.WriteString("  /config freq <val|default>    Set frequency penalty (e.g. 0.15)\n")
 	s.WriteString("  /config sandbox <policy>      Set sandbox policy (strict|standard|permissive)\n")
 	s.WriteString("  /config signats <on|off>      Toggle signat emoji steering\n")
+	s.WriteString("  /config telemetry <on|off>    Toggle ambient environmental telemetry\n")
 
 	return s.String()
 }
@@ -408,7 +414,7 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	}
 
 	if len(args) < 2 {
-		m.Notification = "Usage: /config <model|endpoint|workspace|key|pacing|remote|temp|top_p|top_k|min_p|ctx|max_tokens|penalty|last_n|freq|sandbox|signats> <value>"
+		m.Notification = "Usage: /config <model|endpoint|workspace|key|pacing|remote|temp|top_p|top_k|min_p|ctx|max_tokens|penalty|last_n|freq|sandbox|signats|telemetry> <value>"
 		return m, nil
 	}
 
@@ -663,6 +669,26 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 			m.Notification = "Signat emoji steering disabled."
 		default:
 			m.Notification = "Usage: /config signats <on|off>"
+			return m, nil
+		}
+	case "telemetry", "ambient_telemetry":
+		switch strings.ToLower(value) {
+		case "on", "true", "yes", "enable":
+			enabled := true
+			m.Config.Server.AmbientTelemetry = &enabled
+			if m.Manager != nil {
+				m.Manager.AmbientTelemetry = true
+			}
+			m.Notification = "Ambient environmental telemetry enabled."
+		case "off", "false", "no", "disable":
+			enabled := false
+			m.Config.Server.AmbientTelemetry = &enabled
+			if m.Manager != nil {
+				m.Manager.AmbientTelemetry = false
+			}
+			m.Notification = "Ambient environmental telemetry disabled."
+		default:
+			m.Notification = "Usage: /config telemetry <on|off>"
 			return m, nil
 		}
 	default:

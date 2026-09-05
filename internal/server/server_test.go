@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -588,5 +589,92 @@ func TestRemoteDaemonStorage_CreateSupernode(t *testing.T) {
 	}
 	if !strings.Contains(superNode.Content, "🎯 Trajectory: 🔍📜") {
 		t.Errorf("expected supernode to contain trajectory, got: %s", superNode.Content)
+	}
+}
+
+func TestChatStream_WithAmbientTelemetryContext(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+	storage, _ := engine.NewSQLiteStorage(dbPath, "")
+	mgr := engine.NewManager(engine.NewGraph(), storage)
+	mgr.AmbientTelemetry = true
+	mgr.WorkspaceDir = tmpDir
+	rootNode, _ := mgr.CreateNode("", engine.RoleSystem, "You are George the Archivist.", false)
+
+	var capturedMessages []engine.Message
+	mockProvider := &engine.MockLLMProvider{
+		StreamHandler: func(messages []engine.Message, tools []engine.Tool) (string, string, []engine.ToolCall, error) {
+			capturedMessages = messages
+			return "I received your telemetry.", "", nil, nil
+		},
+	}
+
+	pacing := false
+	enabled := true
+	cfg := &engine.Config{
+		Server: &engine.ServerConfig{
+			Provider:         "mock",
+			Model:            "mock-model",
+			AmbientTelemetry: &enabled,
+		},
+		Client: &engine.ClientConfig{
+			NaturalPacing: &pacing,
+		},
+	}
+	srv := NewServerWithProvider(mgr, mockProvider, cfg)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Issue SSE request with active_file and cursor_line
+	reqBody := fmt.Sprintf(`{
+		"parent_id": %q,
+		"message": "Where are we?",
+		"role": "user",
+		"active_file": "internal/engine/service.go",
+		"cursor_line": 42
+	}`, rootNode.ID)
+	resp, err := http.Post(ts.URL+"/api/v1/chat/stream", "application/json", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("failed to post chat stream: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK from SSE endpoint, got %d", resp.StatusCode)
+	}
+
+	// Drain response
+	_, _ = io.ReadAll(resp.Body)
+
+	// Verify captured messages by mock LLM
+	if len(capturedMessages) == 0 {
+		t.Fatal("expected LLM provider to receive messages")
+	}
+
+	// Verify Genesis message received AmbientTelemetryContract
+	if !strings.Contains(capturedMessages[0].Content, engine.AmbientTelemetryContract) {
+		t.Errorf("expected Genesis root to contain AmbientTelemetryContract, got: %q", capturedMessages[0].Content)
+	}
+
+	leaf := capturedMessages[len(capturedMessages)-1]
+	if leaf.Role != engine.RoleUser {
+		t.Errorf("expected leaf to be RoleUser, got %s", leaf.Role)
+	}
+	if !strings.Contains(leaf.Content, "<USER_REQUEST>\nWhere are we?\n</USER_REQUEST>") {
+		t.Errorf("expected leaf to contain USER_REQUEST envelope, got: %q", leaf.Content)
+	}
+	if !strings.Contains(leaf.Content, "<ADDITIONAL_METADATA>") {
+		t.Errorf("expected leaf to contain ADDITIONAL_METADATA, got: %q", leaf.Content)
+	}
+	if !strings.Contains(leaf.Content, "active_file: internal/engine/service.go") {
+		t.Errorf("expected leaf to contain active_file, got: %q", leaf.Content)
+	}
+	if !strings.Contains(leaf.Content, "cursor_line: 42") {
+		t.Errorf("expected leaf to contain cursor_line, got: %q", leaf.Content)
+	}
+
+	// Invariant: After stream finishes, Manager's temporary clientContext is cleanly reset
+	if mgr.GetClientContext() != nil {
+		t.Errorf("expected Manager.clientContext to be reset to nil after turn completion, got: %v", mgr.GetClientContext())
 	}
 }

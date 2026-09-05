@@ -1100,3 +1100,45 @@ func TestAttachCommand_SpacesAndQuotes(t *testing.T) {
 	}
 }
 
+func TestConfigCommand_Telemetry(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
+	graph := engine.NewGraph()
+	storage := engine.NewJSONLStorage(filepath.Join(tmpDir, "vault.jsonl"), "")
+	m := NewModel(&engine.Config{}, graph, storage, &engine.MockLLMProvider{}, "")
+
+	// 1. Check default: disabled
+	if m.Config.EnableAmbientTelemetry() {
+		t.Fatal("expected ambient telemetry to default to disabled")
+	}
+
+	// 2. Toggle ON
+	m.HandleCommand("/config telemetry on")
+	if !m.Config.EnableAmbientTelemetry() {
+		t.Errorf("expected ambient telemetry to be enabled, got false")
+	}
+	if m.Manager != nil && !m.Manager.AmbientTelemetry {
+		t.Errorf("expected manager.AmbientTelemetry to be true, got false")
+	}
+
+	// 3. Verify in /config render output
+	m.HandleCommand("/config")
+	if !strings.Contains(m.ViewportOverride, "Ambient Telemetry:  enabled (bounded XML leaf envelope)") {
+		t.Errorf("expected /config to display enabled telemetry, got:\n%s", m.ViewportOverride)
+	}
+
+	// 4. Toggle OFF
+	m.HandleCommand("/config telemetry off")
+	if m.Config.EnableAmbientTelemetry() {
+		t.Errorf("expected ambient telemetry to be disabled, got true")
+	}
+	if m.Manager != nil && m.Manager.AmbientTelemetry {
+		t.Errorf("expected manager.AmbientTelemetry to be false, got true")
+	}
+
+	// 5. Verify updated /config render output
+	m.HandleCommand("/config")
+	if !strings.Contains(m.ViewportOverride, "Ambient Telemetry:  disabled (pure human turns)") {
+		t.Errorf("expected /config to display disabled telemetry, got:\n%s", m.ViewportOverride)
+	}
+}

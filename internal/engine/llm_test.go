@@ -66,11 +66,13 @@ func setupLiveFire(t *testing.T) (*Manager, LLMProvider) {
 	workspaceConfigPath := "livefire.json"
 	if data, err := os.ReadFile(workspaceConfigPath); err == nil {
 		var wsConfig struct {
-			Provider string        `json:"provider"`
-			Endpoint string        `json:"endpoint"`
-			Model    string        `json:"model"`
-			APIKey   string        `json:"api_key"`
-			Options  *ModelOptions `json:"options"`
+			Provider         string        `json:"provider"`
+			Endpoint         string        `json:"endpoint"`
+			Model            string        `json:"model"`
+			APIKey           string        `json:"api_key"`
+			SignatSteering   *bool         `json:"signat_steering"`
+			AmbientTelemetry *bool         `json:"ambient_telemetry"`
+			Options          *ModelOptions `json:"options"`
 		}
 		if json.Unmarshal(data, &wsConfig) == nil {
 			if wsConfig.Provider != "" {
@@ -85,6 +87,12 @@ func setupLiveFire(t *testing.T) (*Manager, LLMProvider) {
 			if wsConfig.APIKey != "" {
 				apiKey = wsConfig.APIKey
 			}
+			if wsConfig.SignatSteering != nil {
+				mgr.SignatSteering = *wsConfig.SignatSteering
+			}
+			if wsConfig.AmbientTelemetry != nil {
+				mgr.AmbientTelemetry = *wsConfig.AmbientTelemetry
+			}
 			if wsConfig.Options != nil {
 				options = wsConfig.Options
 			}
@@ -92,6 +100,8 @@ func setupLiveFire(t *testing.T) (*Manager, LLMProvider) {
 	} else {
 		// 3. Fall back to the user's global please config
 		if globalCfg, err := LoadConfig(); err == nil && globalCfg.Server != nil {
+			mgr.SignatSteering = globalCfg.EnableSignatSteering()
+			mgr.AmbientTelemetry = globalCfg.EnableAmbientTelemetry()
 			if globalCfg.Server.Provider != "" {
 				providerType = globalCfg.Server.Provider
 			}
@@ -291,6 +301,23 @@ func executeToolTurn(t *testing.T, ctx context.Context, mgr *Manager, provider L
 		assistantNode.Content += currentResp.Content
 		assistantNode.Thought += currentResp.Thought
 		assistantNode.ToolCalls = append(assistantNode.ToolCalls, currentResp.ToolCalls...)
+
+		// Update segments in metadata for causal history reconstruction (matching TUI streaming.go)
+		var segments []AssistantSegment
+		if assistantNode.Metadata == nil {
+			assistantNode.Metadata = make(map[string]string)
+		}
+		if segStr, ok := assistantNode.Metadata["segments"]; ok && segStr != "" {
+			_ = json.Unmarshal([]byte(segStr), &segments)
+		}
+		segments = append(segments, AssistantSegment{
+			Content: currentResp.Content,
+			Thought: currentResp.Thought,
+		})
+		if segJSON, err := json.Marshal(segments); err == nil {
+			assistantNode.Metadata["segments"] = string(segJSON)
+		}
+
 		if err := mgr.Storage.SaveNode(assistantNode); err != nil {
 			t.Fatalf("failed to update assistant node: %v", err)
 		}
@@ -485,6 +512,23 @@ func executeAutonomousTurn(t *testing.T, ctx context.Context, mgr *Manager, prov
 		assistantNode.Content += currentResp.Content
 		assistantNode.Thought += currentResp.Thought
 		assistantNode.ToolCalls = append(assistantNode.ToolCalls, currentResp.ToolCalls...)
+
+		// Update segments in metadata for causal history reconstruction (matching TUI streaming.go)
+		var segments []AssistantSegment
+		if assistantNode.Metadata == nil {
+			assistantNode.Metadata = make(map[string]string)
+		}
+		if segStr, ok := assistantNode.Metadata["segments"]; ok && segStr != "" {
+			_ = json.Unmarshal([]byte(segStr), &segments)
+		}
+		segments = append(segments, AssistantSegment{
+			Content: currentResp.Content,
+			Thought: currentResp.Thought,
+		})
+		if segJSON, err := json.Marshal(segments); err == nil {
+			assistantNode.Metadata["segments"] = string(segJSON)
+		}
+
 		if err := mgr.Storage.SaveNode(assistantNode); err != nil {
 			t.Fatalf("failed to update assistant node: %v", err)
 		}

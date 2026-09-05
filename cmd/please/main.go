@@ -189,6 +189,7 @@ func main() {
 	}
 	mgr := engine.NewManager(graph, storage)
 	mgr.SignatSteering = cfg.EnableSignatSteering()
+	mgr.AmbientTelemetry = cfg.EnableAmbientTelemetry()
 	mgr.RegisterDefaultTools(cfg.GetWorkspaceDir())
 	webServer := server.NewServerWithProvider(mgr, provider, cfg)
 
@@ -370,6 +371,7 @@ func runServe(args []string) {
 
 	mgr := engine.NewManager(graph, storage)
 	mgr.SignatSteering = cfg.EnableSignatSteering()
+	mgr.AmbientTelemetry = cfg.EnableAmbientTelemetry()
 	mgr.RegisterDefaultTools(cfg.GetWorkspaceDir())
 
 	srv := server.NewServerWithProvider(mgr, provider, cfg)
