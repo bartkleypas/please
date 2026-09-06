@@ -255,17 +255,10 @@ func (m *Manager) validateNode(node *Node) error {
 
 // ExecuteToolCall runs the function associated with a tool call
 func (m *Manager) ExecuteToolCall(ctx context.Context, call ToolCall) (string, error) {
-	tool, ok := m.Registry.Tools[call.Function.Name]
-	if !ok {
-		return "", fmt.Errorf("tool not found: %s", call.Function.Name)
+	if m.Registry == nil {
+		return "", fmt.Errorf("tool registry is nil")
 	}
-
-	var args map[string]interface{}
-	if err := json.Unmarshal(call.Function.Arguments, &args); err != nil {
-		return "", fmt.Errorf("failed to parse tool arguments: %w", err)
-	}
-
-	return tool.Function(ctx, args)
+	return m.Registry.Execute(ctx, call.Function.Name, call.Function.Arguments)
 }
 
 // Sync reloads the graph from storage, effectively synchronizing the in-memory state
