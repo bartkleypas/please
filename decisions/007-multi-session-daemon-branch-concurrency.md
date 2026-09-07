@@ -78,10 +78,64 @@ Evolve the daemon into a multi-session host with branch isolation:
 2. **Branch-Scoped Compaction (Localized Supernodes)**:
    - Supernodes must behave like Git squash merges rather than destructive global rewires.
    - Shared historical nodes remain reachable as long as any active session head descends from them. Compactions create branch-local supernodes that do not orphan concurrent sibling branches.
-3. **Branch-Aware Workspace Sandboxing**:
-   - When tools perform disk writes or shell execution, provide isolated Git worktrees (e.g. `.please/worktrees/<session-id>`) so conflicting edits do not contaminate parallel branches.
+3. **Branch-Aware Workspace Sandboxing via Git Worktrees**:
+   - Instead of running tools against a single shared checkout, the daemon provisions an isolated Git worktree per active branch or session (e.g. `.please/worktrees/<session-id>/`).
+   - Detailed in the [Git Worktree Lifecycle & Mechanics](#git-worktree-lifecycle--mechanics) section below.
 4. **Provider Multiplexing**:
    - Implement an engine request queue that arbitrates streaming slots and manages inference context windows per session.
+
+---
+
+### Git Worktree Lifecycle & Mechanics
+
+#### What is a Git Worktree?
+In standard Git usage, a repository has a single working tree (the checkout directory) connected to `.git`. Switching branches (`git checkout`) rewrites files on disk in-place. If two concurrent processes attempt to modify or test code on different branches in the same directory, they immediately overwrite each other's work and fail.
+
+**Git Worktrees (`git worktree`)** allow a single repository to have **multiple checkout directories simultaneously attached to the same `.git` object store**.
+* **Zero Cloning / Shared Object Store**: Worktrees do not clone the repo or duplicate git history. All commits, blobs, and trees live in the root `.git` folder. Each worktree simply gets a tiny `.git` file with a pointer back to `.git/worktrees/<name>/`.
+* **Independent `HEAD` and Index**: Each worktree has its own branch checkout, its own staging index, and its own physical file tree on disk.
+* **Instantaneous**: Creating a worktree takes milliseconds because Git merely checks out files locally without network or packing overhead.
+
+#### Proposed Lifecycle in `Please`
+
+```
+/Users/bart/Code/please/               <-- Root Repository (Operator's working directory)
+├── .git/
+│   └── worktrees/
+│       ├── session-alpha/             <-- Git metadata for session Alpha
+│       └── session-beta/              <-- Git metadata for session Beta
+└── .please/
+    └── worktrees/
+        ├── session-alpha/             <-- Checked out on 'please/session-alpha'
+        │   ├── cmd/
+        │   ├── internal/
+        │   └── go.mod
+        └── session-beta/              <-- Checked out on 'please/session-beta'
+            ├── cmd/
+            ├── internal/
+            └── go.mod
+```
+
+1. **Session Initialization**:
+   When a client initiates an isolated branch trajectory, the daemon executes:
+   ```bash
+   git worktree add -b please/session-<id> .please/worktrees/<id> HEAD
+   ```
+2. **Tool Execution Redirection**:
+   The engine passes the worktree path (`.please/worktrees/<id>`) as the `WorkingDir` for all tool executions (`tools.ExecTool`, `tools.FileWrite`, `tools.SearchTool`).
+   * Client Alpha's agent can edit files, run tests, and introduce build breaks in `session-alpha` without disturbing the operator or Client Beta.
+   * Client Beta runs against clean, unaffected files in `session-beta`.
+3. **Branch Commit & Merge / Squash**:
+   As the agent completes milestones, changes can be committed directly within the worktree:
+   ```bash
+   git -C .please/worktrees/<id> add -A && git -C .please/worktrees/<id> commit -m "agent: implement feature"
+   ```
+4. **Teardown & Cleanup**:
+   When the session terminates, is merged back, or is abandoned:
+   ```bash
+   git worktree remove --force .please/worktrees/<id>
+   git branch -D please/session-<id>
+   ```
 
 ---
 
