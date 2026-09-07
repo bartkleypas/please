@@ -115,3 +115,41 @@ func TestResolveCACert(t *testing.T) {
 		t.Errorf("expected empty cert for http, got '%s'", res)
 	}
 }
+
+func TestRemoteDaemonProvider_SessionIDHeader(t *testing.T) {
+	var receivedSessionID string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedSessionID = r.Header.Get("X-Please-Session-ID")
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(w, "event: token\ndata: {\"chunk\":\"test\"}\n\n")
+	}))
+	defer ts.Close()
+
+	provider, err := NewRemoteDaemonProvider(ts.URL, "test-token", "")
+	if err != nil {
+		t.Fatalf("failed to create provider: %v", err)
+	}
+
+	if provider.SessionID == "" {
+		t.Error("expected NewRemoteDaemonProvider to generate non-empty SessionID")
+	}
+
+	messages := []Message{{Role: RoleUser, Content: "ping"}}
+	contentChan, _, _, errChan := provider.GenerateResponseStream(context.Background(), messages, nil)
+	for contentChan != nil || errChan != nil {
+		select {
+		case _, ok := <-contentChan:
+			if !ok {
+				contentChan = nil
+			}
+		case _, ok := <-errChan:
+			if !ok {
+				errChan = nil
+			}
+		}
+	}
+
+	if receivedSessionID != provider.SessionID {
+		t.Errorf("expected daemon to receive session ID '%s', got '%s'", provider.SessionID, receivedSessionID)
+	}
+}

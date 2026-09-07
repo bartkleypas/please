@@ -14,12 +14,14 @@ import (
 	"time"
 
 	"github.com/bartkleypas/please/internal/providers"
+	"github.com/google/uuid"
 )
 
 // RemoteDaemonStorage implements Storage by proxying node mutations and queries to a Please engine daemon.
 type RemoteDaemonStorage struct {
 	BaseURL    string
 	AuthToken  string
+	SessionID  string
 	HTTPClient *http.Client
 }
 
@@ -49,8 +51,18 @@ func NewRemoteDaemonStorage(baseURL, authToken, caCertPath string) (*RemoteDaemo
 	return &RemoteDaemonStorage{
 		BaseURL:    baseURL,
 		AuthToken:  authToken,
+		SessionID:  uuid.New().String(),
 		HTTPClient: &http.Client{Transport: transport},
 	}, nil
+}
+
+func (s *RemoteDaemonStorage) applyHeaders(req *http.Request) {
+	if s.AuthToken != "" {
+		req.Header.Set("Authorization", "Bearer "+s.AuthToken)
+	}
+	if s.SessionID != "" {
+		req.Header.Set("X-Please-Session-ID", s.SessionID)
+	}
 }
 
 // SaveNode persists a node into the remote daemon's vault.
@@ -64,9 +76,7 @@ func (s *RemoteDaemonStorage) SaveNode(node *Node) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if s.AuthToken != "" {
-		req.Header.Set("Authorization", "Bearer "+s.AuthToken)
-	}
+	s.applyHeaders(req)
 	resp, err := s.HTTPClient.Do(req)
 	if err != nil {
 		return err
@@ -86,9 +96,7 @@ func (s *RemoteDaemonStorage) LoadGraph() (*Graph, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	if s.AuthToken != "" {
-		req.Header.Set("Authorization", "Bearer "+s.AuthToken)
-	}
+	s.applyHeaders(req)
 	resp, err := s.HTTPClient.Do(req)
 	if err != nil {
 		return nil, "", err
@@ -121,9 +129,7 @@ func (s *RemoteDaemonStorage) GarbageCollect() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	if s.AuthToken != "" {
-		req.Header.Set("Authorization", "Bearer "+s.AuthToken)
-	}
+	s.applyHeaders(req)
 	resp, err := s.HTTPClient.Do(req)
 	if err != nil {
 		return 0, err
@@ -169,9 +175,7 @@ func (s *RemoteDaemonStorage) CreateSupernode(ctx context.Context, nodeIDs []str
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if s.AuthToken != "" {
-		req.Header.Set("Authorization", "Bearer "+s.AuthToken)
-	}
+	s.applyHeaders(req)
 	if s.HTTPClient == nil {
 		s.HTTPClient = &http.Client{}
 	}

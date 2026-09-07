@@ -6,6 +6,7 @@ import (
 
 	"github.com/bartkleypas/please/internal/engine"
 	"github.com/bartkleypas/please/internal/server"
+	"github.com/google/uuid"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -97,6 +98,9 @@ type Model struct {
 	RemoteEventsChan   <-chan server.DaemonEvent
 	RemoteEventsCancel context.CancelFunc
 
+	// Session identification
+	SessionID string
+
 	// Thought folding state
 	ExpandedThoughts    map[string]bool
 	DefaultFoldThoughts bool
@@ -143,11 +147,21 @@ func NewModel(cfg *engine.Config, g *engine.Graph, s engine.Storage, p engine.LL
 	si.Placeholder = "Fuzzy search content..."
 	si.Prompt = " / "
 
+	sessionID := ""
+	if rdp, ok := p.(*engine.RemoteDaemonProvider); ok && rdp.SessionID != "" {
+		sessionID = rdp.SessionID
+	} else if rds, ok := s.(*engine.RemoteDaemonStorage); ok && rds.SessionID != "" {
+		sessionID = rds.SessionID
+	} else {
+		sessionID = uuid.New().String()
+	}
+
 	m := Model{
 		Config:              cfg,
 		Manager:             mgr,
 		Provider:            p,
 		CurrentID:           currentID,
+		SessionID:           sessionID,
 		TextInput:           ti,
 		SearchInput:         si,
 		Ready:               true,

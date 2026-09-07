@@ -771,7 +771,7 @@ func TestContextStats_DynamicColoring(t *testing.T) {
 	}
 }
 
-func TestRemoteDaemonEvents_LiveSync(t *testing.T) {
+func TestRemoteDaemonEvents_LiveSync_EmptyCurrentID(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "vault.db")
 	storage, _ := engine.NewSQLiteStorage(dbPath, "")
@@ -785,11 +785,47 @@ func TestRemoteDaemonEvents_LiveSync(t *testing.T) {
 	}
 
 	cfg := engine.NewDefaultConfig()
+	m := NewModel(cfg, graph, storage, nil, "")
+	m.RemoteURL = "http://127.0.0.1:8443"
+
+	// Simulate receiving a node_saved event on initial sync
+	eventMsg := remoteDaemonEventMsg{
+		Event: server.DaemonEvent{
+			Type: server.EventNodeSaved,
+			Payload: map[string]interface{}{
+				"node_id":   rootNode.ID,
+				"parent_id": "",
+				"role":      "system",
+			},
+		},
+	}
+
+	updatedModel, _ := m.handleRemoteDaemonEvent(eventMsg)
+	updatedM := updatedModel.(*Model)
+
+	if updatedM.CurrentID != rootNode.ID {
+		t.Errorf("expected empty CurrentID to initialize to %s, got %s", rootNode.ID, updatedM.CurrentID)
+	}
+}
+
+func TestRemoteDaemonEvents_CameraNotHijacked(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	storage, _ := engine.NewSQLiteStorage(dbPath, "")
+	graph := engine.NewGraph()
+	mgr := engine.NewManager(graph, storage)
+
+	rootNode, err := mgr.CreateNode("", engine.RoleSystem, "You are a helpful assistant.", false)
+	if err != nil {
+		t.Fatalf("failed to create root node: %v", err)
+	}
+
+	cfg := engine.NewDefaultConfig()
 	m := NewModel(cfg, graph, storage, nil, rootNode.ID)
 	m.RemoteURL = "http://127.0.0.1:8443"
 
-	// Simulate receiving a node_saved event from Terminal 1
-	newNode, err := mgr.CreateNode(rootNode.ID, engine.RoleUser, "Message from Terminal 1", false)
+	// Simulate receiving a remote node_saved event from another connected terminal
+	newNode, err := mgr.CreateNode(rootNode.ID, engine.RoleUser, "Message from Terminal 2", false)
 	if err != nil {
 		t.Fatalf("failed to create new node: %v", err)
 	}
@@ -808,8 +844,14 @@ func TestRemoteDaemonEvents_LiveSync(t *testing.T) {
 	updatedModel, _ := m.handleRemoteDaemonEvent(eventMsg)
 	updatedM := updatedModel.(*Model)
 
-	if updatedM.CurrentID != newNode.ID {
-		t.Errorf("expected CurrentID to advance to %s, got %s", newNode.ID, updatedM.CurrentID)
+	// User's active cursor must NOT be yanked forward
+	if updatedM.CurrentID != rootNode.ID {
+		t.Errorf("expected CurrentID to remain on active node %s, but got hijacked to %s", rootNode.ID, updatedM.CurrentID)
+	}
+
+	// But the local graph should be synced with the new node
+	if _, getErr := updatedM.Manager.GetNode(newNode.ID); getErr != nil {
+		t.Errorf("expected graph to contain new remote node %s, but got error: %v", newNode.ID, getErr)
 	}
 }
 

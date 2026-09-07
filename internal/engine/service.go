@@ -676,6 +676,11 @@ func (m *Manager) PruneBranch(nodeID string) error {
 		return nil
 	}
 
+	// Guard against pruning system root node
+	if node.ParentID == "" && node.Role == RoleSystem {
+		return fmt.Errorf("cannot prune system root node %s", nodeID)
+	}
+
 	// Recursive helper to flag and persist
 	var flagDeleted func(n *Node) error
 	flagDeleted = func(n *Node) error {

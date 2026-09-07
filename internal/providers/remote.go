@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/bartkleypas/please/internal/tools"
 )
 
@@ -22,6 +24,7 @@ type RemoteDaemonProvider struct {
 	BaseURL    string
 	AuthToken  string
 	CACertPath string
+	SessionID  string
 	client     *http.Client
 }
 
@@ -86,6 +89,7 @@ func NewRemoteDaemonProvider(baseURL, authToken, caCertPath string) (*RemoteDaem
 		BaseURL:    baseURL,
 		AuthToken:  authToken,
 		CACertPath: caCertPath,
+		SessionID:  uuid.New().String(),
 		client:     client,
 	}, nil
 }
@@ -186,6 +190,9 @@ func (p *RemoteDaemonProvider) GenerateResponseStream(ctx context.Context, messa
 		req.Header.Set("Accept", "text/event-stream")
 		if p.AuthToken != "" {
 			req.Header.Set("Authorization", "Bearer "+p.AuthToken)
+		}
+		if p.SessionID != "" {
+			req.Header.Set("X-Please-Session-ID", p.SessionID)
 		}
 
 		resp, err := p.client.Do(req)
