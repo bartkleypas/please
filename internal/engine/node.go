@@ -1,23 +1,24 @@
 package engine
 
-import "time"
+import (
+	"time"
 
-// Role defines the speaker of the message
-type Role string
+	"github.com/bartkleypas/please/internal/providers"
+)
+
+// Re-export provider types for backward compatibility
+type Role = providers.Role
 
 const (
-	RoleSystem    Role = "system"
-	RoleUser      Role = "user"
-	RoleAssistant Role = "assistant"
-	RoleTool      Role = "tool"
-	RoleSummary   Role = "summary"
+	RoleSystem    = providers.RoleSystem
+	RoleUser      = providers.RoleUser
+	RoleAssistant = providers.RoleAssistant
+	RoleTool      = providers.RoleTool
+	RoleSummary   = providers.RoleSummary
 )
 
 // ToolObservation represents the result of a side-channel tool execution
-type ToolObservation struct {
-	ToolCallID string `json:"tool_call_id"`
-	Result     string `json:"result"`
-}
+type ToolObservation = providers.ToolObservation
 
 // Node represents a single point in the conversation graph
 type Node struct {

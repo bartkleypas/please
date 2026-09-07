@@ -1,4 +1,4 @@
-package engine
+package providers
 
 import (
 	"bufio"
@@ -13,7 +13,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
+
+	"github.com/bartkleypas/please/internal/tools"
 )
 
 // RemoteDaemonProvider connects to a running Please engine daemon over HTTP/HTTPS and SSE.
@@ -24,7 +25,7 @@ type RemoteDaemonProvider struct {
 	client     *http.Client
 }
 
-// ResolveCACert determines the effective CA certificate path with auto-discovery
+// ResolveCACert determines the effective CA certificate path with auto-discovery.
 func ResolveCACert(caCertPath string, baseURL string) string {
 	if caCertPath != "" {
 		if strings.HasPrefix(caCertPath, "~/") || caCertPath == "~" {
@@ -37,10 +38,15 @@ func ResolveCACert(caCertPath string, baseURL string) string {
 
 	// Auto-discovery if connecting via HTTPS
 	if strings.HasPrefix(baseURL, "https://") {
-		if cfgDir, err := GetConfigDir(); err == nil {
-			defaultCA := filepath.Join(cfgDir, "certs", "ca.crt")
-			if _, err := os.Stat(defaultCA); err == nil {
-				return defaultCA
+		if home, err := os.UserHomeDir(); err == nil {
+			candidates := []string{
+				filepath.Join(home, "Library", "Application Support", "please", "certs", "ca.crt"),
+				filepath.Join(home, ".config", "please", "certs", "ca.crt"),
+			}
+			for _, c := range candidates {
+				if _, err := os.Stat(c); err == nil {
+					return c
+				}
 			}
 		}
 	}
@@ -84,9 +90,9 @@ func NewRemoteDaemonProvider(baseURL, authToken, caCertPath string) (*RemoteDaem
 	}, nil
 }
 
-// GenerateResponse generates a single synchronous message by consuming the stream.
-func (p *RemoteDaemonProvider) GenerateResponse(ctx context.Context, messages []Message, tools []Tool) (*Message, error) {
-	contentChan, thoughtChan, toolCallChan, errChan := p.GenerateResponseStream(ctx, messages, tools)
+// GenerateResponse generates a single synchronous message by consuming the daemon stream.
+func (p *RemoteDaemonProvider) GenerateResponse(ctx context.Context, messages []Message, availableTools []tools.Tool) (*Message, error) {
+	contentChan, thoughtChan, toolCallChan, errChan := p.GenerateResponseStream(ctx, messages, availableTools)
 
 	var fullContent strings.Builder
 	var fullThought strings.Builder
@@ -127,7 +133,7 @@ func (p *RemoteDaemonProvider) GenerateResponse(ctx context.Context, messages []
 }
 
 // GenerateResponseStream initiates a streaming request to /api/v1/chat/stream on the daemon.
-func (p *RemoteDaemonProvider) GenerateResponseStream(ctx context.Context, messages []Message, tools []Tool) (<-chan string, <-chan string, <-chan []ToolCall, <-chan error) {
+func (p *RemoteDaemonProvider) GenerateResponseStream(ctx context.Context, messages []Message, availableTools []tools.Tool) (<-chan string, <-chan string, <-chan []ToolCall, <-chan error) {
 	contentChan := make(chan string, 100)
 	thoughtChan := make(chan string, 100)
 	toolCallChan := make(chan []ToolCall, 10)
@@ -139,7 +145,6 @@ func (p *RemoteDaemonProvider) GenerateResponseStream(ctx context.Context, messa
 		defer close(toolCallChan)
 		defer close(errChan)
 
-		// Extract the latest user message, node ID, and history
 		var userNodeID string
 		var lastUserMessage string
 		var parentID string
@@ -274,7 +279,6 @@ func (p *RemoteDaemonProvider) GenerateResponseStream(ctx context.Context, messa
 					}
 
 				case "node_complete":
-					// Turn completed successfully
 					return
 				}
 			}
@@ -286,183 +290,4 @@ func (p *RemoteDaemonProvider) GenerateResponseStream(ctx context.Context, messa
 	}()
 
 	return contentChan, thoughtChan, toolCallChan, errChan
-}
-
-// RemoteDaemonStorage implements Storage by proxying node mutations and queries to a Please engine daemon
-type RemoteDaemonStorage struct {
-	BaseURL    string
-	AuthToken  string
-	HTTPClient *http.Client
-}
-
-// NewRemoteDaemonStorage initializes a storage instance connected to the Please engine daemon
-func NewRemoteDaemonStorage(baseURL, authToken, caCertPath string) (*RemoteDaemonStorage, error) {
-	baseURL = strings.TrimRight(baseURL, "/")
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		baseURL = "http://" + baseURL
-	}
-
-	caCertPath = ResolveCACert(caCertPath, baseURL)
-
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-
-	if caCertPath != "" {
-		caPEM, err := os.ReadFile(caCertPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read CA certificate: %w", err)
-		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(caPEM) {
-			return nil, fmt.Errorf("failed to parse CA certificate")
-		}
-		transport.TLSClientConfig = &tls.Config{RootCAs: pool}
-	}
-
-	return &RemoteDaemonStorage{
-		BaseURL:    baseURL,
-		AuthToken:  authToken,
-		HTTPClient: &http.Client{Transport: transport},
-	}, nil
-}
-
-// SaveNode persists a node into the remote daemon's vault
-func (s *RemoteDaemonStorage) SaveNode(node *Node) error {
-	data, err := json.Marshal(node)
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequest(http.MethodPost, s.BaseURL+"/api/v1/nodes", bytes.NewReader(data))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if s.AuthToken != "" {
-		req.Header.Set("Authorization", "Bearer "+s.AuthToken)
-	}
-	resp, err := s.HTTPClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		respBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("daemon error (%d): %s", resp.StatusCode, string(respBytes))
-	}
-	return nil
-}
-
-// LoadGraph fetches the full conversation graph from the remote daemon
-func (s *RemoteDaemonStorage) LoadGraph() (*Graph, string, error) {
-	req, err := http.NewRequest(http.MethodGet, s.BaseURL+"/api/v1/graph", nil)
-	if err != nil {
-		return nil, "", err
-	}
-	if s.AuthToken != "" {
-		req.Header.Set("Authorization", "Bearer "+s.AuthToken)
-	}
-	resp, err := s.HTTPClient.Do(req)
-	if err != nil {
-		return nil, "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, "", fmt.Errorf("daemon returned status %d", resp.StatusCode)
-	}
-
-	var graph Graph
-	if err := json.NewDecoder(resp.Body).Decode(&graph); err != nil {
-		return nil, "", err
-	}
-
-	var latestID string
-	var latestTime time.Time
-	for id, node := range graph.Nodes {
-		if latestID == "" || node.Timestamp.After(latestTime) {
-			latestTime = node.Timestamp
-			latestID = id
-		}
-	}
-	return &graph, latestID, nil
-}
-
-// GarbageCollect triggers database garbage collection on the remote daemon
-func (s *RemoteDaemonStorage) GarbageCollect() (int64, error) {
-	req, err := http.NewRequest(http.MethodPost, s.BaseURL+"/api/v1/gc", nil)
-	if err != nil {
-		return 0, err
-	}
-	if s.AuthToken != "" {
-		req.Header.Set("Authorization", "Bearer "+s.AuthToken)
-	}
-	resp, err := s.HTTPClient.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-
-	var result struct {
-		DeletedNodes int64 `json:"deleted_nodes"`
-	}
-	_ = json.NewDecoder(resp.Body).Decode(&result)
-	return result.DeletedNodes, nil
-}
-
-// UpdateNodeMetadata updates node attributes on the daemon
-func (s *RemoteDaemonStorage) UpdateNodeMetadata(node *Node) error {
-	return s.SaveNode(node)
-}
-
-// UpdateNodeParentID updates the parent link of a node
-func (s *RemoteDaemonStorage) UpdateNodeParentID(nodeID, newParentID string) error {
-	return nil
-}
-
-// UpdateNodeObservations updates tool execution observations on the daemon
-func (s *RemoteDaemonStorage) UpdateNodeObservations(nodeID string, obs []ToolObservation) error {
-	return nil
-}
-
-// CreateSupernode calls POST /api/v1/supernodes on the daemon
-func (s *RemoteDaemonStorage) CreateSupernode(ctx context.Context, nodeIDs []string, directive string) (*Node, error) {
-	payload := map[string]interface{}{
-		"node_ids":  nodeIDs,
-		"directive": directive,
-	}
-	bodyBytes, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("failed to serialize supernode payload: %w", err)
-	}
-
-	url := s.BaseURL + "/api/v1/supernodes"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if s.AuthToken != "" {
-		req.Header.Set("Authorization", "Bearer "+s.AuthToken)
-	}
-	if s.HTTPClient == nil {
-		s.HTTPClient = &http.Client{}
-	}
-
-	resp, err := s.HTTPClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("supernode request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("daemon error (%d): %s", resp.StatusCode, string(respBody))
-	}
-
-	var superNode Node
-	if err := json.NewDecoder(resp.Body).Decode(&superNode); err != nil {
-		return nil, fmt.Errorf("failed to decode supernode response: %w", err)
-	}
-
-	return &superNode, nil
 }

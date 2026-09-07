@@ -1,8 +1,7 @@
 package engine
 
 import (
-	"encoding/json"
-
+	"github.com/bartkleypas/please/internal/providers"
 	"github.com/bartkleypas/please/internal/tools"
 )
 
@@ -21,11 +20,4 @@ type ToolRegistry = tools.ToolRegistry
 var NewToolRegistry = tools.NewToolRegistry
 
 // ToolCall represents a specific request from the LLM to run a tool
-type ToolCall struct {
-	ID       string `json:"id"`
-	Type     string `json:"type"` // Usually "function"
-	Function struct {
-		Name      string          `json:"name"`
-		Arguments json.RawMessage `json:"arguments"` // Raw bytes of arguments
-	} `json:"function"`
-}
+type ToolCall = providers.ToolCall

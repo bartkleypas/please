@@ -1,22 +1,24 @@
-package engine
+package providers
 
 import (
 	"context"
 	"time"
+
+	"github.com/bartkleypas/please/internal/tools"
 )
 
-// MockLLMProvider allows us to control the LLM response in tests
+// MockLLMProvider allows deterministic control of LLM responses in test suites.
 type MockLLMProvider struct {
 	ResponseContent   string
 	ResponseThought   string
 	ResponseToolCalls []ToolCall
 	ResponseErr       error
 	Delay             time.Duration
-	StreamHandler     func(messages []Message, tools []Tool) (string, string, []ToolCall, error)
+	StreamHandler     func(messages []Message, availableTools []tools.Tool) (string, string, []ToolCall, error)
 }
 
-// GenerateResponse implements the LLMProvider interface for testing purposes
-func (m *MockLLMProvider) GenerateResponse(ctx context.Context, messages []Message, tools []Tool) (*Message, error) {
+// GenerateResponse implements the Provider interface for testing purposes.
+func (m *MockLLMProvider) GenerateResponse(ctx context.Context, messages []Message, availableTools []tools.Tool) (*Message, error) {
 	if m.Delay > 0 {
 		select {
 		case <-time.After(m.Delay):
@@ -26,7 +28,7 @@ func (m *MockLLMProvider) GenerateResponse(ctx context.Context, messages []Messa
 	}
 
 	if m.StreamHandler != nil {
-		content, thought, tCalls, err := m.StreamHandler(messages, tools)
+		content, thought, tCalls, err := m.StreamHandler(messages, availableTools)
 		if err != nil {
 			return nil, err
 		}
@@ -50,8 +52,8 @@ func (m *MockLLMProvider) GenerateResponse(ctx context.Context, messages []Messa
 	}, nil
 }
 
-// GenerateResponseStream implements the LLMProvider interface for testing purposes
-func (m *MockLLMProvider) GenerateResponseStream(ctx context.Context, messages []Message, tools []Tool) (<-chan string, <-chan string, <-chan []ToolCall, <-chan error) {
+// GenerateResponseStream implements the Provider interface for testing purposes.
+func (m *MockLLMProvider) GenerateResponseStream(ctx context.Context, messages []Message, availableTools []tools.Tool) (<-chan string, <-chan string, <-chan []ToolCall, <-chan error) {
 	contentChan := make(chan string)
 	thoughtChan := make(chan string)
 	toolCallChan := make(chan []ToolCall, 1)
@@ -73,7 +75,7 @@ func (m *MockLLMProvider) GenerateResponseStream(ctx context.Context, messages [
 		}
 
 		if m.StreamHandler != nil {
-			content, thought, tCalls, err := m.StreamHandler(messages, tools)
+			content, thought, tCalls, err := m.StreamHandler(messages, availableTools)
 			if err != nil {
 				errChan <- err
 				return

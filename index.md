@@ -16,9 +16,10 @@ timestamp: "2026-07-05T14:26:05-07:00"
 ## Subdirectories & Clients
 
 *   [decisions](decisions/index.md) - Architecture Decision Records (ADRs) tracking design debates and key trade-offs.
-*   [internal/engine](internal/engine/index.md) - Core engine package managing graph structures, SQLite storage, and LLM providers.
+*   [internal/engine](internal/engine/index.md) - Core engine package managing graph structures, SQLite storage, and conversation traversal.
+*   [internal/providers](internal/providers/) - LLM provider drivers (Ollama, OpenAI, Remote Daemon, Mock), wire protocols, and streaming parsers.
 *   [internal/server](internal/server/index.md) - Engine daemon, REST v1 API, SSE streaming protocol, and 20-year internal PKI cert generator.
-*   [internal/tools](internal/tools/) - Tool registry for the models to use in the harness.
+*   [internal/tools](internal/tools/) - Tool registry, execution sandboxing, and default system tools.
 *   [internal/tui](internal/tui/index.md) - Bubble Tea TUI state machine and handle rendering.
 *   [please-cli](cmd/please/index.md) - The primary CLI entry point, providing various operational modes including TUI, Daemon, and Remote Client.
 *   [please-swift](../please-swift/index.md) - Native macOS / iPadOS client application (Subway Map DAG visualizer, 3-tier LOD, express spine, Supernodes).

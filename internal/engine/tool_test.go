@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"testing"
 )
 
@@ -71,36 +70,5 @@ func TestManager_RegisterDefaultTools(t *testing.T) {
 
 	if _, ok := mgr.Registry.Tools["read_file"]; !ok {
 		t.Errorf("expected read_file in manager tool registry")
-	}
-}
-
-func TestRoleSummary_ProviderMapping(t *testing.T) {
-	summaryMsg := Message{
-		Role:    RoleSummary,
-		Content: "This is a compacted milestone summary.",
-	}
-
-	// Test Ollama message mapping
-	ollamaMsgs := mapToOllamaMessages([]Message{summaryMsg})
-	if len(ollamaMsgs) != 1 {
-		t.Fatalf("expected 1 ollama message, got %d", len(ollamaMsgs))
-	}
-	if ollamaMsgs[0].Role != "system" {
-		t.Errorf("expected mapped role 'system', got '%s'", ollamaMsgs[0].Role)
-	}
-	if !strings.Contains(ollamaMsgs[0].Content, "This is a compacted milestone summary.") {
-		t.Errorf("expected summary content in ollama message")
-	}
-
-	// Test OpenAI message mapping
-	openAIMsgs := mapToOpenAIMessages([]Message{summaryMsg})
-	if len(openAIMsgs) != 1 {
-		t.Fatalf("expected 1 openai message, got %d", len(openAIMsgs))
-	}
-	if openAIMsgs[0].Role != "system" {
-		t.Errorf("expected mapped role 'system', got '%s'", openAIMsgs[0].Role)
-	}
-	if !strings.Contains(openAIMsgs[0].Content.(string), "This is a compacted milestone summary.") {
-		t.Errorf("expected summary content in openai message")
 	}
 }

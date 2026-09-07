@@ -1,4 +1,4 @@
-package engine
+package providers
 
 import (
 	"bufio"
@@ -10,8 +10,11 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+
+	"github.com/bartkleypas/please/internal/tools"
 )
 
+// OpenAIProvider implements Provider for OpenAI and OpenAI-compatible API backends.
 type OpenAIProvider struct {
 	Endpoint string
 	Model    string
@@ -20,6 +23,7 @@ type OpenAIProvider struct {
 	client   *http.Client
 }
 
+// NewOpenAIProvider initializes an OpenAIProvider instance.
 func NewOpenAIProvider(endpoint, model, apiKey string, options *ModelOptions) *OpenAIProvider {
 	return &OpenAIProvider{
 		Endpoint: endpoint,
@@ -117,12 +121,13 @@ func (o *OpenAIProvider) doRequest(ctx context.Context, reqBody openAIRequest) (
 	return resp, nil
 }
 
-func (o *OpenAIProvider) GenerateResponse(ctx context.Context, messages []Message, tools []Tool) (*Message, error) {
+// GenerateResponse performs a synchronous, non-streaming request against the OpenAI-compatible API.
+func (o *OpenAIProvider) GenerateResponse(ctx context.Context, messages []Message, availableTools []tools.Tool) (*Message, error) {
 	reqBody := openAIRequest{
 		Model:    o.Model,
 		Messages: mapToOpenAIMessages(messages),
 		Stream:   false,
-		Tools:    mapToOpenAITools(tools),
+		Tools:    mapToOpenAITools(availableTools),
 	}
 	if o.Options != nil {
 		reqBody.Temperature = o.Options.Temperature
@@ -131,7 +136,6 @@ func (o *OpenAIProvider) GenerateResponse(ctx context.Context, messages []Messag
 		reqBody.FrequencyPenalty = o.Options.FrequencyPenalty
 	}
 
-	// OpenAI API drops empty tool arrays sometimes, best to omit if zero
 	if len(reqBody.Tools) == 0 {
 		reqBody.Tools = nil
 	}
@@ -184,7 +188,8 @@ func (o *OpenAIProvider) GenerateResponse(ctx context.Context, messages []Messag
 	return msg, nil
 }
 
-func (o *OpenAIProvider) GenerateResponseStream(ctx context.Context, messages []Message, tools []Tool) (<-chan string, <-chan string, <-chan []ToolCall, <-chan error) {
+// GenerateResponseStream performs a streaming request against the OpenAI-compatible API, emitting tokens and thoughts.
+func (o *OpenAIProvider) GenerateResponseStream(ctx context.Context, messages []Message, availableTools []tools.Tool) (<-chan string, <-chan string, <-chan []ToolCall, <-chan error) {
 	contentChan := make(chan string)
 	thoughtChan := make(chan string)
 	toolCallChan := make(chan []ToolCall, 1)
@@ -200,7 +205,7 @@ func (o *OpenAIProvider) GenerateResponseStream(ctx context.Context, messages []
 			Model:    o.Model,
 			Messages: mapToOpenAIMessages(messages),
 			Stream:   true,
-			Tools:    mapToOpenAITools(tools),
+			Tools:    mapToOpenAITools(availableTools),
 		}
 		if o.Options != nil {
 			reqBody.Temperature = o.Options.Temperature
@@ -222,7 +227,6 @@ func (o *OpenAIProvider) GenerateResponseStream(ctx context.Context, messages []
 
 		scanner := bufio.NewScanner(resp.Body)
 
-		// Map of index to tool call builder since tool calls arrive in chunks
 		type toolCallBuilder struct {
 			id        string
 			name      string
@@ -244,7 +248,7 @@ func (o *OpenAIProvider) GenerateResponseStream(ctx context.Context, messages []
 
 			var chunk openAIResponse
 			if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-				continue // sometimes comments or other things can be unparseable
+				continue
 			}
 
 			if len(chunk.Choices) == 0 {
@@ -267,7 +271,7 @@ func (o *OpenAIProvider) GenerateResponseStream(ctx context.Context, messages []
 				hasToolCalls = true
 				for _, tc := range delta.ToolCalls {
 					if tc.Index == nil {
-						continue // Malformed tool call delta without an index
+						continue
 					}
 
 					idx := *tc.Index
@@ -315,7 +319,6 @@ func mapToOpenAIMessages(messages []Message) []openAIMessage {
 	var out []openAIMessage
 
 	for _, m := range messages {
-		// Base message
 		var tCalls []openAIToolCall
 		for _, tc := range m.ToolCalls {
 			tCalls = append(tCalls, openAIToolCall{
@@ -385,9 +388,9 @@ func mapToOpenAIMessages(messages []Message) []openAIMessage {
 	return out
 }
 
-func mapToOpenAITools(tools []Tool) []openAITool {
+func mapToOpenAITools(availableTools []tools.Tool) []openAITool {
 	var oTools []openAITool
-	for _, t := range tools {
+	for _, t := range availableTools {
 		ot := openAITool{
 			Type: "function",
 		}
