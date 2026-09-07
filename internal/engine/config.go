@@ -75,8 +75,11 @@ type legacyV1Config struct {
 	Options       *ModelOptions `json:"options"`
 	WorkspaceDir  string        `json:"workspace_dir"`
 	AuthToken     string        `json:"auth_token"`
-	TLSCertFile   string        `json:"tls_cert_file"`
-	TLSKeyFile    string        `json:"tls_key_file"`
+	TLSCertFile      string        `json:"tls_cert_file"`
+	TLSKeyFile       string        `json:"tls_key_file"`
+	SandboxPolicy    string        `json:"sandbox_policy"`
+	SignatSteering   *bool         `json:"signat_steering"`
+	AmbientTelemetry *bool         `json:"ambient_telemetry"`
 }
 
 // GetWorkspaceDir returns the resolved absolute workspace directory from ServerConfig.
@@ -280,8 +283,11 @@ func migrateConfig(data []byte) (*Config, bool, error) {
 			WorkspaceDir:  v1.WorkspaceDir,
 			AuthToken:     v1.AuthToken,
 			TLSCertFile:   v1.TLSCertFile,
-			TLSKeyFile:    v1.TLSKeyFile,
-			Options:       v1.Options,
+			TLSKeyFile:       v1.TLSKeyFile,
+			SandboxPolicy:    v1.SandboxPolicy,
+			SignatSteering:   v1.SignatSteering,
+			AmbientTelemetry: v1.AmbientTelemetry,
+			Options:          v1.Options,
 		},
 		Client: &ClientConfig{
 			RemoteURL:     "http://127.0.0.1:8080",
@@ -291,6 +297,21 @@ func migrateConfig(data []byte) (*Config, bool, error) {
 	}
 
 	return cfg, true, nil
+}
+
+// LoadConfigFile attempts to load and parse configuration from a specific file path,
+// automatically migrating older or flat schemas (like livefire.json) to the modern v2 format.
+func LoadConfigFile(configPath string) (*Config, error) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	cfg, _, err := migrateConfig(data)
+	if err != nil {
+		return nil, err
+	}
+	return cfg, nil
 }
 
 // LoadConfig attempts to load the config from the user's config directory,

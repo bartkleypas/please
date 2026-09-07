@@ -105,3 +105,5 @@ All updates and modifications to this knowledge bundle are tracked chronological
 ## 2026-09-06
 
 *   **Alternate Screen Buffer TUI Lifecycle**: Enabled `tea.WithAltScreen()` for both standalone and connected client TUI sessions in [main.go](cmd/please/main.go). Restores the terminal scrollback buffer cleanly upon exit without leaving frozen TUI chrome or box drawing characters behind.
+*   **Custom Configuration File Flag (`-c, --config`) & Hermetic Isolation**: Reassigned the `-c` flag from the redundant TUI shorthand to `-config <path>` across standalone, `serve`, and `connect` commands in [main.go](cmd/please/main.go) (preserving `--chat` for backwards compatibility). Implemented `LoadConfigFile` in [config.go](internal/engine/config.go) with automatic schema migration for flat test configuration files (mapping `sandbox_policy`, `signat_steering`, and `ambient_telemetry`), enabling 100% hermetic isolation when pairing custom configs (`-c ./livefire.json`) with isolated database vaults (`-v ./test_vault/livefire.db`).
+

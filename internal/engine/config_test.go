@@ -195,3 +195,43 @@ func TestConfig_EnableAmbientTelemetry(t *testing.T) {
 		t.Errorf("expected nil server to return false")
 	}
 }
+
+func TestLoadConfigFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	customPath := filepath.Join(tmpDir, "custom.json")
+
+	// Test with a flat config (like livefire.json)
+	flatJSON := `{
+		"provider": "ollama",
+		"model": "gemma-test",
+		"endpoint": "http://127.0.0.1:11434/api/chat",
+		"signat_steering": true
+	}`
+	if err := os.WriteFile(customPath, []byte(flatJSON), 0644); err != nil {
+		t.Fatalf("failed to write custom config: %v", err)
+	}
+
+	cfg, err := LoadConfigFile(customPath)
+	if err != nil {
+		t.Fatalf("LoadConfigFile failed: %v", err)
+	}
+
+	if cfg.Server == nil {
+		t.Fatalf("expected Server block to be populated")
+	}
+	if cfg.Server.Model != "gemma-test" {
+		t.Errorf("expected model 'gemma-test', got '%s'", cfg.Server.Model)
+	}
+	if cfg.Server.Endpoint != "http://127.0.0.1:11434/api/chat" {
+		t.Errorf("expected endpoint 'http://127.0.0.1:11434/api/chat', got '%s'", cfg.Server.Endpoint)
+	}
+	if !cfg.EnableSignatSteering() {
+		t.Errorf("expected signat steering to be enabled")
+	}
+
+	// Test missing file
+	_, err = LoadConfigFile(filepath.Join(tmpDir, "missing.json"))
+	if err == nil {
+		t.Errorf("expected error loading missing config file, got nil")
+	}
+}

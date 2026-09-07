@@ -50,11 +50,13 @@ func main() {
 	}
 
 	// Default CLI / TUI flag parsing
-	chatFlag := flag.Bool("chat", false, "Start the TUI chat interface")
-	flag.BoolVar(chatFlag, "c", false, "Start the TUI chat interface (shorthand)")
+	_ = flag.Bool("chat", false, "Start the TUI chat interface (default)")
 
 	vaultPath := flag.String("vault", "", "Path to a custom vault.jsonl or .db file")
 	flag.StringVar(vaultPath, "v", "", "Path to a custom vault file (shorthand)")
+
+	configPath := flag.String("config", "", "Path to a custom configuration JSON file")
+	flag.StringVar(configPath, "c", "", "Path to a custom configuration JSON file (shorthand)")
 
 	workspacePath := flag.String("workspace", "", "Path to the project workspace directory")
 	flag.StringVar(workspacePath, "w", "", "Path to the project workspace directory (shorthand)")
@@ -93,6 +95,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  please cert generate      Generate 20-year internal Root CA and Server certificates\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		fmt.Fprintf(os.Stderr, "  -v, --vault <path>     Path to a custom vault file\n")
+		fmt.Fprintf(os.Stderr, "  -c, --config <path>    Path to a custom configuration JSON file\n")
 		fmt.Fprintf(os.Stderr, "  -w, --workspace <path> Path to project workspace directory\n")
 		fmt.Fprintf(os.Stderr, "  -p, --parent <id>      Parent node ID for new message\n")
 		fmt.Fprintf(os.Stderr, "  -j, --jump <id>        Node ID to jump to in interactive mode\n")
@@ -119,7 +122,13 @@ func main() {
 	}
 
 	// Load Configuration
-	cfg, err := engine.LoadConfig()
+	var cfg *engine.Config
+	var err error
+	if *configPath != "" {
+		cfg, err = engine.LoadConfigFile(*configPath)
+	} else {
+		cfg, err = engine.LoadConfig()
+	}
 	if err != nil {
 		fmt.Printf("Configuration error: %v\n", err)
 		os.Exit(1)
@@ -317,10 +326,18 @@ func runServe(args []string) {
 	tokenFlag := fs.String("token", "", "Pre-shared bearer token for authentication")
 	vaultPath := fs.String("vault", "", "Path to vault file")
 	workspacePath := fs.String("workspace", "", "Path to workspace directory")
+	configPath := fs.String("config", "", "Path to configuration file")
+	fs.StringVar(configPath, "c", "", "Path to configuration file (shorthand)")
 
 	_ = fs.Parse(args)
 
-	cfg, err := engine.LoadConfig()
+	var cfg *engine.Config
+	var err error
+	if *configPath != "" {
+		cfg, err = engine.LoadConfigFile(*configPath)
+	} else {
+		cfg, err = engine.LoadConfig()
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Configuration error: %v\n", err)
 		os.Exit(1)
@@ -451,6 +468,8 @@ func runConnect(args []string) {
 	caCertFlag := fs.String("ca-cert", "", "Path to root CA certificate for TLS verification")
 	jumpID := fs.String("jump", "", "Node ID to jump to in interactive mode")
 	fs.StringVar(jumpID, "j", "", "Node ID to jump to in interactive mode (shorthand)")
+	configPath := fs.String("config", "", "Path to configuration file")
+	fs.StringVar(configPath, "c", "", "Path to configuration file (shorthand)")
 
 	var flagArgs []string
 	var posArgs []string
@@ -469,7 +488,13 @@ func runConnect(args []string) {
 
 	_ = fs.Parse(flagArgs)
 
-	cfg, err := engine.LoadConfig()
+	var cfg *engine.Config
+	var err error
+	if *configPath != "" {
+		cfg, err = engine.LoadConfigFile(*configPath)
+	} else {
+		cfg, err = engine.LoadConfig()
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Configuration error: %v\n", err)
 		os.Exit(1)

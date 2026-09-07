@@ -13,7 +13,7 @@ build:
 	go build -ldflags "$(LDFLAGS)" -o please ./cmd/please
 
 run: build
-	./please -c
+	./please
 
 install: build
 	@echo "Installing please version $(VERSION) to $(BINDIR)..."
