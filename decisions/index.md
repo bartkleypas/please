@@ -22,4 +22,5 @@ This index tracks key architectural decisions and engineering conventions throug
 *   [004-swift-apple-ecosystem-evolution](004-swift-apple-ecosystem-evolution.md) - Swift port strategy, iPad Mini device jump, and Intel Mac development bridge strategy.
 *   [005-modular-tools-extraction](005-modular-tools-extraction.md) - Extraction and decomposition of tool execution, sandboxing, and default tools from internal/engine into internal/tools.
 *   [006-modular-providers-extraction](006-modular-providers-extraction.md) - Extraction of LLM provider drivers, wire serialization protocols, and message contracts from internal/engine into internal/providers.
+*   [007-multi-session-daemon-branch-concurrency](007-multi-session-daemon-branch-concurrency.md) - Multi-session daemon architecture, cursor decoupling, branch-isolated compactions, and workspace sandboxing.
 
