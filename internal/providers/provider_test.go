@@ -429,3 +429,50 @@ func TestMapToOpenAIMessages_SummaryRole(t *testing.T) {
 		t.Errorf("expected milestone header in summary content, got '%v'", mapped[0].Content)
 	}
 }
+
+func TestNormalizeOllamaEndpoint(t *testing.T) {
+	cases := []struct {
+		input    string
+		expected string
+	}{
+		{"", "http://localhost:11434/api/chat"},
+		{"http://localhost:11434", "http://localhost:11434/api/chat"},
+		{"http://localhost:11434/", "http://localhost:11434/api/chat"},
+		{"http://localhost:11434/api", "http://localhost:11434/api/chat"},
+		{"http://localhost:11434/api/", "http://localhost:11434/api/chat"},
+		{"http://localhost:11434/api/chat", "http://localhost:11434/api/chat"},
+		{"localhost:11434", "http://localhost:11434/api/chat"},
+		{"https://ollama.internal.net", "https://ollama.internal.net/api/chat"},
+	}
+
+	for _, tc := range cases {
+		got := NormalizeOllamaEndpoint(tc.input)
+		if got != tc.expected {
+			t.Errorf("NormalizeOllamaEndpoint(%q) = %q; expected %q", tc.input, got, tc.expected)
+		}
+	}
+}
+
+func TestNormalizeOpenAIEndpoint(t *testing.T) {
+	cases := []struct {
+		input    string
+		expected string
+	}{
+		{"", "https://api.openai.com/v1/chat/completions"},
+		{"https://api.openai.com", "https://api.openai.com/v1/chat/completions"},
+		{"https://api.openai.com/v1", "https://api.openai.com/v1/chat/completions"},
+		{"https://api.openai.com/v1/", "https://api.openai.com/v1/chat/completions"},
+		{"https://api.openai.com/v1/chat/completions", "https://api.openai.com/v1/chat/completions"},
+		{"http://localhost:1234/v1", "http://localhost:1234/v1/chat/completions"},
+		{"localhost:11434/v1", "http://localhost:11434/v1/chat/completions"},
+		{"127.0.0.1:8000/v1", "http://127.0.0.1:8000/v1/chat/completions"},
+		{"https://openrouter.ai/api/v1", "https://openrouter.ai/api/v1/chat/completions"},
+	}
+
+	for _, tc := range cases {
+		got := NormalizeOpenAIEndpoint(tc.input)
+		if got != tc.expected {
+			t.Errorf("NormalizeOpenAIEndpoint(%q) = %q; expected %q", tc.input, got, tc.expected)
+		}
+	}
+}

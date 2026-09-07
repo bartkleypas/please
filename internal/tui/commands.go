@@ -438,12 +438,14 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		}
 		m.Notification = "Model updated to " + value
 	case "endpoint":
-		m.Config.Server.Endpoint = value
 		if op, ok := m.Provider.(*engine.OllamaProvider); ok {
+			value = engine.NormalizeOllamaEndpoint(value)
 			op.Endpoint = value
 		} else if op, ok := m.Provider.(*engine.OpenAIProvider); ok {
+			value = engine.NormalizeOpenAIEndpoint(value)
 			op.Endpoint = value
 		}
+		m.Config.Server.Endpoint = value
 		m.Notification = "Endpoint updated to " + value
 	case "workspace", "dir", "root", "workdir":
 		if strings.ToLower(value) == "default" || strings.ToLower(value) == "reset" || strings.ToLower(value) == "none" || value == "." {

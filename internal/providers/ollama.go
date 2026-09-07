@@ -9,9 +9,29 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/bartkleypas/please/internal/tools"
 )
+
+// NormalizeOllamaEndpoint standardizes Ollama URLs, ensuring an HTTP scheme and routing to /api/chat.
+func NormalizeOllamaEndpoint(endpoint string) string {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
+		return "http://localhost:11434/api/chat"
+	}
+	if !strings.HasPrefix(endpoint, "http://") && !strings.HasPrefix(endpoint, "https://") {
+		endpoint = "http://" + endpoint
+	}
+	endpoint = strings.TrimRight(endpoint, "/")
+	if strings.HasSuffix(endpoint, "/api/chat") {
+		return endpoint
+	}
+	if strings.HasSuffix(endpoint, "/api") {
+		return endpoint + "/chat"
+	}
+	return endpoint + "/api/chat"
+}
 
 // OllamaProvider implements Provider for local or self-hosted Ollama instances.
 type OllamaProvider struct {
@@ -21,10 +41,10 @@ type OllamaProvider struct {
 	client   *http.Client
 }
 
-// NewOllamaProvider initializes an OllamaProvider instance.
+// NewOllamaProvider initializes an OllamaProvider instance with normalized endpoint.
 func NewOllamaProvider(endpoint, model string, options *ModelOptions) *OllamaProvider {
 	return &OllamaProvider{
-		Endpoint: endpoint,
+		Endpoint: NormalizeOllamaEndpoint(endpoint),
 		Model:    model,
 		Options:  options,
 		client:   &http.Client{},

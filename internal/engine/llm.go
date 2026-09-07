@@ -12,10 +12,12 @@ type Message = providers.Message
 type OllamaProvider = providers.OllamaProvider
 
 var NewOllamaProvider = providers.NewOllamaProvider
+var NormalizeOllamaEndpoint = providers.NormalizeOllamaEndpoint
 
 type OpenAIProvider = providers.OpenAIProvider
 
 var NewOpenAIProvider = providers.NewOpenAIProvider
+var NormalizeOpenAIEndpoint = providers.NormalizeOpenAIEndpoint
 
 type RemoteDaemonProvider = providers.RemoteDaemonProvider
 

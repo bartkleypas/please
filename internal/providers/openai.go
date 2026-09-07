@@ -14,6 +14,29 @@ import (
 	"github.com/bartkleypas/please/internal/tools"
 )
 
+// NormalizeOpenAIEndpoint standardizes OpenAI-compatible URLs, ensuring a scheme and routing to /chat/completions.
+func NormalizeOpenAIEndpoint(endpoint string) string {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
+		return "https://api.openai.com/v1/chat/completions"
+	}
+	if !strings.HasPrefix(endpoint, "http://") && !strings.HasPrefix(endpoint, "https://") {
+		if strings.HasPrefix(endpoint, "localhost") || strings.HasPrefix(endpoint, "127.0.0.1") {
+			endpoint = "http://" + endpoint
+		} else {
+			endpoint = "https://" + endpoint
+		}
+	}
+	endpoint = strings.TrimRight(endpoint, "/")
+	if strings.HasSuffix(endpoint, "/chat/completions") {
+		return endpoint
+	}
+	if strings.HasSuffix(endpoint, "/v1") {
+		return endpoint + "/chat/completions"
+	}
+	return endpoint + "/v1/chat/completions"
+}
+
 // OpenAIProvider implements Provider for OpenAI and OpenAI-compatible API backends.
 type OpenAIProvider struct {
 	Endpoint string
@@ -23,10 +46,10 @@ type OpenAIProvider struct {
 	client   *http.Client
 }
 
-// NewOpenAIProvider initializes an OpenAIProvider instance.
+// NewOpenAIProvider initializes an OpenAIProvider instance with normalized endpoint.
 func NewOpenAIProvider(endpoint, model, apiKey string, options *ModelOptions) *OpenAIProvider {
 	return &OpenAIProvider{
-		Endpoint: endpoint,
+		Endpoint: NormalizeOpenAIEndpoint(endpoint),
 		Model:    model,
 		APIKey:   apiKey,
 		Options:  options,
