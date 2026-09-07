@@ -96,46 +96,73 @@ In standard Git usage, a repository has a single working tree (the checkout dire
 * **Independent `HEAD` and Index**: Each worktree has its own branch checkout, its own staging index, and its own physical file tree on disk.
 * **Instantaneous**: Creating a worktree takes milliseconds because Git merely checks out files locally without network or packing overhead.
 
-#### Proposed Lifecycle in `Please`
+#### Location Strategy: Out-of-Tree in Application Support
+
+A critical design choice is **where** ephemeral worktrees reside on the filesystem.
+
+Nesting worktrees inside the project root (e.g. `.please/worktrees/`) introduces significant hazards:
+* **Repository & Tooling Pollution**: Language servers (gopls, rust-analyzer, tsserver), IDE file watchers, linters, and recursive grep tools will traverse and index duplicate copies of the entire codebase.
+* **Git Status Contamination**: Unless meticulously guarded with `.gitignore` or `.git/info/exclude`, local status checks show hundreds of untracked files.
+
+**Decision for Worktree Storage**: Store all ephemeral session worktrees **out-of-tree** in the application data directory already resolved by `GetConfigDir()` in [internal/engine/config.go](file:///Users/bart/Code/please/internal/engine/config.go#L193) (`os.UserConfigDir()`).
+
+* On macOS: `~/Library/Application Support/please/worktrees/<repo-hash>/<session-id>/`
+* On Linux: `~/.config/please/worktrees/<repo-hash>/<session-id>/` (or `$XDG_DATA_HOME`)
+* Overridable via `PLEASE_CONFIG_DIR`
+
+#### Proposed Directory Hierarchy
 
 ```
-/Users/bart/Code/please/               <-- Root Repository (Operator's working directory)
+[Operator's Workspace - 100% Unmodified & Pure]
+/Users/bart/Code/please/
 ├── .git/
 │   └── worktrees/
-│       ├── session-alpha/             <-- Git metadata for session Alpha
-│       └── session-beta/              <-- Git metadata for session Beta
-└── .please/
-    └── worktrees/
-        ├── session-alpha/             <-- Checked out on 'please/session-alpha'
+│       ├── session-alpha/             <-- Git administrative metadata
+│       └── session-beta/
+├── cmd/
+└── internal/
+
+[System Data Directory - Derived via GetConfigDir()]
+~/Library/Application Support/please/
+├── certs/
+├── config.json
+├── history.sqlite
+└── worktrees/
+    └── please-7a8b9c/                 <-- Namespaced by repo name + path hash
+        ├── session-alpha/             <-- Isolated checkout on 'please/session-alpha'
+        │   ├── .git                   <-- Text pointer back to main .git/worktrees
         │   ├── cmd/
         │   ├── internal/
         │   └── go.mod
-        └── session-beta/              <-- Checked out on 'please/session-beta'
+        └── session-beta/              <-- Isolated checkout on 'please/session-beta'
             ├── cmd/
             ├── internal/
             └── go.mod
 ```
 
-1. **Session Initialization**:
-   When a client initiates an isolated branch trajectory, the daemon executes:
+#### Lifecycle & Workflow
+
+1. **Session Provisioning**:
+   When a client requests branch isolation, the daemon resolves the out-of-tree path and initializes the worktree:
    ```bash
-   git worktree add -b please/session-<id> .please/worktrees/<id> HEAD
+   TARGET_DIR="$HOME/Library/Application Support/please/worktrees/please-7a8b9c/session-alpha"
+   git worktree add -b please/session-alpha "$TARGET_DIR" HEAD
    ```
-2. **Tool Execution Redirection**:
-   The engine passes the worktree path (`.please/worktrees/<id>`) as the `WorkingDir` for all tool executions (`tools.ExecTool`, `tools.FileWrite`, `tools.SearchTool`).
-   * Client Alpha's agent can edit files, run tests, and introduce build breaks in `session-alpha` without disturbing the operator or Client Beta.
-   * Client Beta runs against clean, unaffected files in `session-beta`.
-3. **Branch Commit & Merge / Squash**:
-   As the agent completes milestones, changes can be committed directly within the worktree:
+2. **Dynamic Tool Execution Scoping**:
+   The daemon binds `TARGET_DIR` as the execution root for all tool invocations (`tools.ExecTool`, `tools.FileWrite`, `tools.SearchTool`) associated with that session.
+   * Client Alpha can modify code, trigger compile errors, and run test suites in isolation.
+   * The operator's main repo and other connected sessions remain completely untouched.
+3. **Workspace Path Virtualization**:
+   To prevent sandbox violations when prompts reference absolute repository paths:
+   * [internal/tools/sandbox.go](file:///Users/bart/Code/please/internal/tools/sandbox.go)'s `ValidateSafePath` remaps paths prefixed with the repository root to the corresponding path within the active worktree root.
+   * DAG nodes, telemetry envelopes, and supernodes strictly persist **repo-relative paths** (`internal/tools/exec.go`), ensuring contextual resonance maps remain portable across branch merges.
+4. **Session Termination & Garbage Collection**:
+   When the session finishes, merges back, or is discarded:
    ```bash
-   git -C .please/worktrees/<id> add -A && git -C .please/worktrees/<id> commit -m "agent: implement feature"
+   git worktree remove --force "$TARGET_DIR"
+   git branch -D please/session-alpha
    ```
-4. **Teardown & Cleanup**:
-   When the session terminates, is merged back, or is abandoned:
-   ```bash
-   git worktree remove --force .please/worktrees/<id>
-   git branch -D please/session-<id>
-   ```
+   If a daemon terminates unexpectedly, recovery runs `git worktree prune`, safely removing stale worktree references from `.git` without risking repository data.
 
 ---
 
