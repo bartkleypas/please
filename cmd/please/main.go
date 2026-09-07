@@ -296,7 +296,7 @@ func main() {
 
 	m := tui.NewModel(cfg, graph, storage, provider, startID)
 	m.Server = webServer
-	p := tea.NewProgram(&m)
+	p := tea.NewProgram(&m, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Alas, there was an error running the TUI: %v\n", err)
 		os.Exit(1)
@@ -528,7 +528,7 @@ func runConnect(args []string) {
 
 	m := tui.NewModel(cfg, graph, storage, provider, startID)
 	m.RemoteURL = remoteURL
-	p := tea.NewProgram(&m)
+	p := tea.NewProgram(&m, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error running TUI: %v\n", err)
 		os.Exit(1)
