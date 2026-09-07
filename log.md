@@ -17,7 +17,7 @@ All updates and modifications to this knowledge bundle are tracked chronological
 
 *   **Initialized OKF Bundle**: Created the project-level [index.md](index.md) and [log.md](log.md).
 *   **Structured Decisions Index**: Created the [decisions/index.md](decisions/index.md) sub-index and initialized ADRs [001-tui-framework.md](decisions/001-tui-framework.md) (Bubble Tea/Lipgloss), [002-graph-sqlite-storage.md](decisions/002-graph-sqlite-storage.md) (SQLite WAL mode), and [003-embedded-visualizer.md](decisions/003-embedded-visualizer.md) (Embedded D3 server).
-*   **Documented Core Concepts**: Added [context_resonance.md](context_resonance.md) describing the exponential decay pruning algorithm, and [natural_pacing.md](natural_pacing.md) detailing the punctuation-sensitive stream streaming loop.
+*   **Documented Core Concepts**: Added [context_resonance.md](docs/context_resonance.md) describing the exponential decay pruning algorithm, and [natural_pacing.md](docs/natural_pacing.md) detailing the punctuation-sensitive stream streaming loop.
 *   **Documented Engine Package Structure**: Created the sub-index at [internal/engine/index.md](internal/engine/index.md) describing the core Go packages for the DAG graph model, database persistence, LLM client drivers, and JIT tools.
 *   **Documented TUI Package Structure**: Created the sub-index at [internal/tui/index.md](internal/tui/index.md) mapping Bubble Tea model states, TUI event handlers, visual view modules, keymaps, and streaming components.
 
@@ -110,5 +110,7 @@ All updates and modifications to this knowledge bundle are tracked chronological
 ## 2026-09-07
 
 *   **Modular LLM Providers Subsystem Extraction ([ADR 006](decisions/006-modular-providers-extraction.md))**: Extracted all LLM provider drivers (`OllamaProvider`, `OpenAIProvider`, `RemoteDaemonProvider`, `MockLLMProvider`), wire serialization protocols, and core message contracts from `internal/engine` into a dedicated [internal/providers](internal/providers/) package (`provider.go`, `options.go`, `ollama.go`, `openai.go`, `remote.go`, `mock.go`). Decoupled `RemoteDaemonStorage` into [storage_remote.go](internal/engine/storage_remote.go) to maintain strict separation between storage and provider runtimes. Replaced the 1,350-line provider footprint in `internal/engine` with zero-breaking Go type aliases (`LLMProvider`, `Message`, `Role`, `ToolCall`, `ModelOptions`), achieving a strict acyclic dependency hierarchy (`tools` $\rightarrow$ `providers` $\rightarrow$ `engine` $\rightarrow$ `server`/`tui`) with 100% test passage across all packages.
+*   **Documentation Relocation to `docs/`**: Moved [context_resonance.md](docs/context_resonance.md) and [natural_pacing.md](docs/natural_pacing.md) from the root workspace directory into `docs/`, updating navigation links in [index.md](index.md), [GEMINI.md](GEMINI.md), and autonomous test primers in [llm_test.go](internal/engine/llm_test.go).
+
 
 

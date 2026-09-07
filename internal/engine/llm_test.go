@@ -552,7 +552,7 @@ func TestLLM_AutonomousNarrativeVector(t *testing.T) {
 	}
 
 	// 2. Mission Primer
-	primerPrompt := "Greetings George! Over the next 5 turns, explore this workspace autonomously. On each turn, use the read_file tool to inspect a different core file (e.g. README.md, context_resonance.md, GEMINI.md, internal/engine/service.go, internal/tui/map.go) and weave your findings into the lore of Please. Conclude each message with your 1-3 emoji signat on the final line. Your continuation prompt will always be simply: 'Please proceed.'"
+	primerPrompt := "Greetings George! Over the next 5 turns, explore this workspace autonomously. On each turn, use the read_file tool to inspect a different core file (e.g. README.md, docs/context_resonance.md, GEMINI.md, internal/engine/service.go, internal/tui/map.go) and weave your findings into the lore of Please. Conclude each message with your 1-3 emoji signat on the final line. Your continuation prompt will always be simply: 'Please proceed.'"
 	primerTurn := executeAutonomousTurn(t, ctx, mgr, provider, tools, primerPrompt, sysNode.ID)
 
 	var turnIDs []string

@@ -22,8 +22,8 @@ For detailed and authoritative documentation, consult these dedicated files inst
 *   [Project Index](index.md) - The central directory of packages, concepts, and specifications.
 *   [Technical README](README.md) - Features list, CLI examples, setup, TUI controls table, and testing instructions.
 *   [Daemon Protocol Spec](docs/daemon_protocol_spec.md) - Authoritative REST v1 and SSE streaming wire protocol specification.
-*   [Context Resonance Spec](context_resonance.md) - Math formula and scoring mechanics for token decay.
-*   [Natural Pacing Spec](natural_pacing.md) - Stream buffering and punctuation-sensitive pacing rules.
+*   [Context Resonance Spec](docs/context_resonance.md) - Math formula and scoring mechanics for token decay.
+*   [Natural Pacing Spec](docs/natural_pacing.md) - Stream buffering and punctuation-sensitive pacing rules.
 *   [Architecture Decisions (ADRs)](decisions/index.md) - Historical record of TUI framework, SQLite storage, and visualization server.
 *   [Change Log](log.md) - Chronological ledger of all modifications.
 
