@@ -24,16 +24,16 @@ Proposed
 The `please serve` daemon and `please connect` client modes were originally designed as a **1:1 remote bridge**. The primary architectural goal was hardware bridging: offloading local inference, LLM provider drivers, and SQLite DAG persistence to a high-powered workstation or headless server, while allowing an operator to drive the terminal interface (`please connect`) from a thin laptop or mobile client over TLS and Server-Sent Events (SSE).
 
 Because a 1:1 operator relationship was implicitly assumed, the daemon and client subsystems share a singular, monolithic session state:
-* A single in-memory `Graph` with global root and child mappings ([internal/engine/graph.go](file:///Users/bart/Code/please/internal/engine/graph.go)).
-* A single global SQLite storage backend ([internal/engine/storage.go](file:///Users/bart/Code/please/internal/engine/storage.go)).
-* A shared physical working directory for tool execution (`exec`, `file_write`, `search`) via [internal/tools](file:///Users/bart/Code/please/internal/tools/).
+* A single in-memory `Graph` with global root and child mappings ([internal/engine/graph.go](../internal/engine/graph.go)).
+* A single global SQLite storage backend ([internal/engine/storage.go](../internal/engine/storage.go)).
+* A shared physical working directory for tool execution (`exec`, `file_write`, `search`) via [internal/tools](../internal/tools/).
 
 ### Problem Analysis: The Multi-Client Collision
 
 When multiple operators or terminal windows invoke `please connect` against the same running `please serve` daemon, three critical failure modes emerge:
 
 #### 1. TUI Cursor & Viewport Hijacking
-In [internal/tui/events.go](file:///Users/bart/Code/please/internal/tui/events.go):
+In [internal/tui/events.go](../internal/tui/events.go):
 ```go
 case server.EventNodeSaved:
     if lastID != "" && (m.CurrentID == "" || m.TextInput.Value() == "") {
@@ -104,7 +104,7 @@ Nesting worktrees inside the project root (e.g. `.please/worktrees/`) introduces
 * **Repository & Tooling Pollution**: Language servers (gopls, rust-analyzer, tsserver), IDE file watchers, linters, and recursive grep tools will traverse and index duplicate copies of the entire codebase.
 * **Git Status Contamination**: Unless meticulously guarded with `.gitignore` or `.git/info/exclude`, local status checks show hundreds of untracked files.
 
-**Decision for Worktree Storage**: Store all ephemeral session worktrees **out-of-tree** in the application data directory already resolved by `GetConfigDir()` in [internal/engine/config.go](file:///Users/bart/Code/please/internal/engine/config.go#L193) (`os.UserConfigDir()`).
+**Decision for Worktree Storage**: Store all ephemeral session worktrees **out-of-tree** in the application data directory already resolved by `GetConfigDir()` in [internal/engine/config.go](../internal/engine/config.go) (`os.UserConfigDir()`).
 
 * On macOS: `~/Library/Application Support/please/worktrees/<repo-hash>/<session-id>/`
 * On Linux: `~/.config/please/worktrees/<repo-hash>/<session-id>/` (or `$XDG_DATA_HOME`)
@@ -114,7 +114,7 @@ Nesting worktrees inside the project root (e.g. `.please/worktrees/`) introduces
 
 ```
 [Operator's Workspace - 100% Unmodified & Pure]
-/Users/bart/Code/please/
+/path/to/project/                      <-- Root repository (e.g. ~/Code/please/)
 ├── .git/
 │   └── worktrees/
 │       ├── session-alpha/             <-- Git administrative metadata
@@ -154,7 +154,7 @@ Nesting worktrees inside the project root (e.g. `.please/worktrees/`) introduces
    * The operator's main repo and other connected sessions remain completely untouched.
 3. **Workspace Path Virtualization**:
    To prevent sandbox violations when prompts reference absolute repository paths:
-   * [internal/tools/sandbox.go](file:///Users/bart/Code/please/internal/tools/sandbox.go)'s `ValidateSafePath` remaps paths prefixed with the repository root to the corresponding path within the active worktree root.
+   * [internal/tools/sandbox.go](../internal/tools/sandbox.go)'s `ValidateSafePath` remaps paths prefixed with the repository root to the corresponding path within the active worktree root.
    * DAG nodes, telemetry envelopes, and supernodes strictly persist **repo-relative paths** (`internal/tools/exec.go`), ensuring contextual resonance maps remain portable across branch merges.
 4. **Session Termination & Garbage Collection**:
    When the session finishes, merges back, or is discarded:
