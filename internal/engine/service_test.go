@@ -958,4 +958,3 @@ func TestBuildLLMContext_TrailingToolCallsWithoutSegments(t *testing.T) {
 		t.Errorf("expected second tool observation for call_2, got: %+v", toolMsgs[1])
 	}
 }
-

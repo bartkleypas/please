@@ -64,17 +64,17 @@ type Config struct {
 
 // legacyV1Config mirrors the flat v1 schema for migration
 type legacyV1Config struct {
-	Provider      string        `json:"provider"`
-	APIKey        string        `json:"api_key"`
-	Model         string        `json:"model"`
-	Endpoint      string        `json:"endpoint"`
-	VaultPath     string        `json:"vault_path"`
-	StorageType   string        `json:"storage_type"`
-	EncryptionKey string        `json:"encryption_key"`
-	NaturalPacing *bool         `json:"natural_pacing"`
-	Options       *ModelOptions `json:"options"`
-	WorkspaceDir  string        `json:"workspace_dir"`
-	AuthToken     string        `json:"auth_token"`
+	Provider         string        `json:"provider"`
+	APIKey           string        `json:"api_key"`
+	Model            string        `json:"model"`
+	Endpoint         string        `json:"endpoint"`
+	VaultPath        string        `json:"vault_path"`
+	StorageType      string        `json:"storage_type"`
+	EncryptionKey    string        `json:"encryption_key"`
+	NaturalPacing    *bool         `json:"natural_pacing"`
+	Options          *ModelOptions `json:"options"`
+	WorkspaceDir     string        `json:"workspace_dir"`
+	AuthToken        string        `json:"auth_token"`
 	TLSCertFile      string        `json:"tls_cert_file"`
 	TLSKeyFile       string        `json:"tls_key_file"`
 	SandboxPolicy    string        `json:"sandbox_policy"`
@@ -271,18 +271,18 @@ func migrateConfig(data []byte) (*Config, bool, error) {
 		Version: CurrentConfigVersion,
 		Mode:    "standalone",
 		Server: &ServerConfig{
-			Host:          "127.0.0.1",
-			Port:          8080,
-			Provider:      provider,
-			Model:         model,
-			Endpoint:      endpoint,
-			APIKey:        v1.APIKey,
-			VaultPath:     vaultPath,
-			StorageType:   storageType,
-			EncryptionKey: v1.EncryptionKey,
-			WorkspaceDir:  v1.WorkspaceDir,
-			AuthToken:     v1.AuthToken,
-			TLSCertFile:   v1.TLSCertFile,
+			Host:             "127.0.0.1",
+			Port:             8080,
+			Provider:         provider,
+			Model:            model,
+			Endpoint:         endpoint,
+			APIKey:           v1.APIKey,
+			VaultPath:        vaultPath,
+			StorageType:      storageType,
+			EncryptionKey:    v1.EncryptionKey,
+			WorkspaceDir:     v1.WorkspaceDir,
+			AuthToken:        v1.AuthToken,
+			TLSCertFile:      v1.TLSCertFile,
 			TLSKeyFile:       v1.TLSKeyFile,
 			SandboxPolicy:    v1.SandboxPolicy,
 			SignatSteering:   v1.SignatSteering,
