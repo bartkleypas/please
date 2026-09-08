@@ -678,3 +678,93 @@ func TestChatStream_WithAmbientTelemetryContext(t *testing.T) {
 		t.Errorf("expected Manager.clientContext to be reset to nil after turn completion, got: %v", mgr.GetClientContext())
 	}
 }
+
+func TestServer_Sessions(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+	storage, err := engine.NewSQLiteStorage(dbPath, "")
+	if err != nil {
+		t.Fatalf("failed to init storage: %v", err)
+	}
+	mgr := engine.NewManager(engine.NewGraph(), storage)
+	srv := NewServer(mgr)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// 1. Initial GET /api/v1/sessions -> empty map
+	resp, err := http.Get(ts.URL + "/api/v1/sessions")
+	if err != nil {
+		t.Fatalf("failed GET /api/v1/sessions: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var sessions map[string]string
+	_ = json.NewDecoder(resp.Body).Decode(&sessions)
+	resp.Body.Close()
+	if len(sessions) != 0 {
+		t.Fatalf("expected 0 sessions, got %v", sessions)
+	}
+
+	// 2. POST /api/v1/sessions -> create session head
+	payload := map[string]string{"session_id": "main", "head_node_id": "node-101"}
+	bodyBytes, _ := json.Marshal(payload)
+	resp, err = http.Post(ts.URL+"/api/v1/sessions", "application/json", bytes.NewReader(bodyBytes))
+	if err != nil {
+		t.Fatalf("failed POST /api/v1/sessions: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// 3. GET /api/v1/sessions/main -> returns node-101
+	resp, err = http.Get(ts.URL + "/api/v1/sessions/main")
+	if err != nil {
+		t.Fatalf("failed GET /api/v1/sessions/main: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var headResp struct {
+		SessionID  string `json:"session_id"`
+		HeadNodeID string `json:"head_node_id"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&headResp)
+	resp.Body.Close()
+	if headResp.HeadNodeID != "node-101" {
+		t.Fatalf("expected node-101, got %q", headResp.HeadNodeID)
+	}
+
+	// 4. GET /api/v1/sessions/missing -> 404
+	resp, err = http.Get(ts.URL + "/api/v1/sessions/missing")
+	if err != nil {
+		t.Fatalf("failed GET /api/v1/sessions/missing: %v", err)
+	}
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// 5. Test RemoteDaemonStorage proxying session calls
+	remoteStorage, err := engine.NewRemoteDaemonStorage(ts.URL, "", "")
+	if err != nil {
+		t.Fatalf("failed to init RemoteDaemonStorage: %v", err)
+	}
+
+	if err := remoteStorage.SaveSessionHead("experiment", "node-999"); err != nil {
+		t.Fatalf("RemoteDaemonStorage.SaveSessionHead failed: %v", err)
+	}
+	head, err := remoteStorage.GetSessionHead("experiment")
+	if err != nil || head != "node-999" {
+		t.Fatalf("expected node-999, got %q (err: %v)", head, err)
+	}
+
+	list, err := remoteStorage.ListSessions()
+	if err != nil {
+		t.Fatalf("RemoteDaemonStorage.ListSessions failed: %v", err)
+	}
+	if len(list) != 2 || list["main"] != "node-101" || list["experiment"] != "node-999" {
+		t.Fatalf("unexpected list: %v", list)
+	}
+}

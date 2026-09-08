@@ -81,6 +81,7 @@ func main() {
 	ctxFlag := flag.Int("num-ctx", 0, "Context window size in tokens (e.g., 16384)")
 	flag.IntVar(ctxFlag, "ctx", 0, "Context window size in tokens (shorthand)")
 	maxTokensFlag := flag.Int("max-tokens", 0, "Maximum response tokens to generate (e.g., 2048)")
+	sessionFlag := flag.String("session", "", "Named session identifier (default: from config or 'main')")
 
 	var images arrayFlags
 	flag.Var(&images, "image", "Path to an image to attach (can be specified multiple times)")
@@ -99,6 +100,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  -w, --workspace <path> Path to project workspace directory\n")
 		fmt.Fprintf(os.Stderr, "  -p, --parent <id>      Parent node ID for new message\n")
 		fmt.Fprintf(os.Stderr, "  -j, --jump <id>        Node ID to jump to in interactive mode\n")
+		fmt.Fprintf(os.Stderr, "      --session <name>   Named session identifier (default: 'main')\n")
 		fmt.Fprintf(os.Stderr, "  -s, --server <port>    Start API & visualization server on port alongside TUI\n")
 		fmt.Fprintf(os.Stderr, "  -t, --temperature <f>  Sampling temperature (0.0 - 2.0)\n")
 		fmt.Fprintf(os.Stderr, "      --top-p <f>        Top-p nucleus sampling (0.0 - 1.0)\n")
@@ -223,6 +225,11 @@ func main() {
 		pipedRole = engine.Role(*roleStr)
 	}
 
+	sessionName := cfg.GetSession()
+	if *sessionFlag != "" {
+		sessionName = *sessionFlag
+	}
+
 	// Handle Message Mode
 	if pipedContent != "" || argContent != "" {
 		parentID := *parent
@@ -230,7 +237,11 @@ func main() {
 			if pipedContent != "" && pipedRole == engine.RoleSystem {
 				parentID = ""
 			} else {
-				parentID = lastID
+				if headID, err := storage.GetSessionHead(sessionName); err == nil && headID != "" {
+					parentID = headID
+				} else {
+					parentID = lastID
+				}
 			}
 		}
 
@@ -284,6 +295,7 @@ func main() {
 			finalID = assistantNode.ID
 		}
 
+		_ = storage.SaveSessionHead(sessionName, finalID)
 		fmt.Println(finalID)
 		os.Exit(0)
 	}
@@ -299,11 +311,17 @@ func main() {
 
 	// Start Standalone TUI
 	startID := lastID
+	if headID, err := storage.GetSessionHead(sessionName); err == nil && headID != "" {
+		if _, err := graph.GetNode(headID); err == nil {
+			startID = headID
+		}
+	}
 	if *jumpID != "" {
 		startID = *jumpID
 	}
 
 	m := tui.NewModel(cfg, graph, storage, provider, startID)
+	m.SessionID = sessionName
 	m.Server = webServer
 	p := tea.NewProgram(&m, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
@@ -468,6 +486,7 @@ func runConnect(args []string) {
 	caCertFlag := fs.String("ca-cert", "", "Path to root CA certificate for TLS verification")
 	jumpID := fs.String("jump", "", "Node ID to jump to in interactive mode")
 	fs.StringVar(jumpID, "j", "", "Node ID to jump to in interactive mode (shorthand)")
+	sessionFlag := fs.String("session", "", "Named session identifier (default: from config or 'main')")
 	configPath := fs.String("config", "", "Path to configuration file")
 	fs.StringVar(configPath, "c", "", "Path to configuration file (shorthand)")
 
@@ -500,6 +519,11 @@ func runConnect(args []string) {
 		os.Exit(1)
 	}
 
+	sessionName := cfg.GetSession()
+	if *sessionFlag != "" {
+		sessionName = *sessionFlag
+	}
+
 	remoteURL := "http://127.0.0.1:8080"
 	if cfg.Client != nil && cfg.Client.RemoteURL != "" {
 		remoteURL = cfg.Client.RemoteURL
@@ -530,6 +554,7 @@ func runConnect(args []string) {
 		fmt.Fprintf(os.Stderr, "Failed to initialize remote provider: %v\n", err)
 		os.Exit(1)
 	}
+	provider.SessionID = sessionName
 
 	// 2. Initialize RemoteDaemonStorage
 	storage, err := engine.NewRemoteDaemonStorage(remoteURL, token, caCert)
@@ -537,6 +562,7 @@ func runConnect(args []string) {
 		fmt.Fprintf(os.Stderr, "Failed to initialize remote storage: %v\n", err)
 		os.Exit(1)
 	}
+	storage.SessionID = sessionName
 
 	// 3. Pull initial graph from daemon
 	graph, lastID, err := storage.LoadGraph()
@@ -547,11 +573,17 @@ func runConnect(args []string) {
 	}
 
 	startID := lastID
+	if headID, err := storage.GetSessionHead(sessionName); err == nil && headID != "" {
+		if _, err := graph.GetNode(headID); err == nil {
+			startID = headID
+		}
+	}
 	if *jumpID != "" {
 		startID = *jumpID
 	}
 
 	m := tui.NewModel(cfg, graph, storage, provider, startID)
+	m.SessionID = sessionName
 	m.RemoteURL = remoteURL
 	p := tea.NewProgram(&m, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {

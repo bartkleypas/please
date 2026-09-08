@@ -45,6 +45,7 @@ type ClientConfig struct {
 	AuthToken     string `json:"auth_token,omitempty"`
 	CACertPath    string `json:"ca_cert_path,omitempty"`
 	NaturalPacing *bool  `json:"natural_pacing,omitempty"`
+	Session       string `json:"session,omitempty"`
 }
 
 // Config is the top-level configuration container (v2 schema)
@@ -134,6 +135,25 @@ func (c *Config) EnableNaturalPacing() bool {
 // IsPacingEnabled is a backward-compatible alias for EnableNaturalPacing.
 func (c *Config) IsPacingEnabled() bool {
 	return c.EnableNaturalPacing()
+}
+
+// DefaultSessionName is the default session identifier used when no session is explicitly specified.
+const DefaultSessionName = "main"
+
+// GetSession returns the configured session name on ClientConfig, defaulting to "main".
+func (cl *ClientConfig) GetSession() string {
+	if cl == nil || cl.Session == "" {
+		return DefaultSessionName
+	}
+	return cl.Session
+}
+
+// GetSession returns the configured session name across the configuration, defaulting to "main".
+func (c *Config) GetSession() string {
+	if c == nil || c.Client == nil {
+		return DefaultSessionName
+	}
+	return c.Client.GetSession()
 }
 
 // GetMaxToolDepth returns the configured maximum multi-turn tool depth, or 50 by default.

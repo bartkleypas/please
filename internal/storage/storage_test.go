@@ -283,3 +283,90 @@ func TestSQLiteStorage_Concurrency(t *testing.T) {
 		t.Errorf("Expected %d nodes after stress test, got %d", expected, len(g.Nodes))
 	}
 }
+
+func TestSQLiteStorage_Sessions(t *testing.T) {
+	tmpDB := "test_sessions.db"
+	defer os.Remove(tmpDB)
+	defer os.Remove(tmpDB + "-shm")
+	defer os.Remove(tmpDB + "-wal")
+
+	storage, err := NewSQLiteStorage(tmpDB, "")
+	if err != nil {
+		t.Fatalf("Failed to create SQLite storage: %v", err)
+	}
+
+	// 1. Initial lookup on empty DB returns empty string and nil error
+	head, err := storage.GetSessionHead("main")
+	if err != nil {
+		t.Fatalf("GetSessionHead failed: %v", err)
+	}
+	if head != "" {
+		t.Errorf("expected empty head, got %s", head)
+	}
+
+	// 2. Save session head for main
+	if err := storage.SaveSessionHead("main", "node-101"); err != nil {
+		t.Fatalf("SaveSessionHead failed: %v", err)
+	}
+
+	head, err = storage.GetSessionHead("main")
+	if err != nil {
+		t.Fatalf("GetSessionHead failed: %v", err)
+	}
+	if head != "node-101" {
+		t.Errorf("expected node-101, got %s", head)
+	}
+
+	// 3. Save session head for another session
+	if err := storage.SaveSessionHead("experiment", "node-202"); err != nil {
+		t.Fatalf("SaveSessionHead failed: %v", err)
+	}
+
+	sessions, err := storage.ListSessions()
+	if err != nil {
+		t.Fatalf("ListSessions failed: %v", err)
+	}
+	if len(sessions) != 2 {
+		t.Errorf("expected 2 sessions, got %d", len(sessions))
+	}
+	if sessions["main"] != "node-101" || sessions["experiment"] != "node-202" {
+		t.Errorf("sessions mismatch: %v", sessions)
+	}
+
+	// 4. Update existing session head
+	if err := storage.SaveSessionHead("main", "node-102"); err != nil {
+		t.Fatalf("SaveSessionHead update failed: %v", err)
+	}
+	head, err = storage.GetSessionHead("main")
+	if err != nil || head != "node-102" {
+		t.Errorf("expected updated head node-102, got %s (err: %v)", head, err)
+	}
+}
+
+func TestJSONLStorage_Sessions(t *testing.T) {
+	tmpFile := "test_sessions.jsonl"
+	defer os.Remove(tmpFile)
+	defer os.Remove(tmpFile + ".sessions.json")
+
+	storage := NewJSONLStorage(tmpFile, "")
+
+	// 1. Empty lookup
+	head, err := storage.GetSessionHead("main")
+	if err != nil || head != "" {
+		t.Fatalf("expected empty head, got %q, err %v", head, err)
+	}
+
+	// 2. Save & List
+	if err := storage.SaveSessionHead("felicia", "node-555"); err != nil {
+		t.Fatalf("SaveSessionHead failed: %v", err)
+	}
+	head, err = storage.GetSessionHead("felicia")
+	if err != nil || head != "node-555" {
+		t.Fatalf("expected node-555, got %q, err %v", head, err)
+	}
+
+	sessions, err := storage.ListSessions()
+	if err != nil || sessions["felicia"] != "node-555" {
+		t.Fatalf("unexpected sessions list: %v", sessions)
+	}
+}

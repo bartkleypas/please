@@ -46,6 +46,12 @@ func NewSQLiteStorage(path, key string) (*SQLiteStorage, error) {
 		internal BOOLEAN DEFAULT 0,
 		images TEXT
 	);
+
+	CREATE TABLE IF NOT EXISTS sessions (
+		id TEXT PRIMARY KEY,
+		head_node_id TEXT NOT NULL,
+		updated_at DATETIME NOT NULL
+	);
 	`
 	if _, err := db.Exec(query); err != nil {
 		return nil, fmt.Errorf("failed to initialize sqlite schema: %w", err)
@@ -370,4 +376,79 @@ func (s *SQLiteStorage) LoadGraph() (*graph.Graph, string, error) {
 	}
 
 	return g, lastID, nil
+}
+
+// SaveSessionHead updates or creates the head node pointer for a given session.
+func (s *SQLiteStorage) SaveSessionHead(sessionID, nodeID string) error {
+	if sessionID == "" {
+		sessionID = "main"
+	}
+	db, err := s.open()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	query := `
+	INSERT INTO sessions (id, head_node_id, updated_at)
+	VALUES (?, ?, ?)
+	ON CONFLICT(id) DO UPDATE SET
+		head_node_id = excluded.head_node_id,
+		updated_at = excluded.updated_at;
+	`
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err := db.Exec(query, sessionID, nodeID, now); err != nil {
+		return fmt.Errorf("failed to save session head: %w", err)
+	}
+	return nil
+}
+
+// GetSessionHead retrieves the head node ID for a given session. Returns ("", nil) if not found.
+func (s *SQLiteStorage) GetSessionHead(sessionID string) (string, error) {
+	if sessionID == "" {
+		sessionID = "main"
+	}
+	db, err := s.open()
+	if err != nil {
+		return "", err
+	}
+	defer db.Close()
+
+	var headID string
+	err = db.QueryRow("SELECT head_node_id FROM sessions WHERE id = ?", sessionID).Scan(&headID)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to get session head: %w", err)
+	}
+	return headID, nil
+}
+
+// ListSessions returns a mapping of all active session IDs to their head node IDs.
+func (s *SQLiteStorage) ListSessions() (map[string]string, error) {
+	db, err := s.open()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	rows, err := db.Query("SELECT id, head_node_id FROM sessions ORDER BY updated_at DESC")
+	if err != nil {
+		return nil, fmt.Errorf("failed to list sessions: %w", err)
+	}
+	defer rows.Close()
+
+	sessions := make(map[string]string)
+	for rows.Next() {
+		var id, headID string
+		if err := rows.Scan(&id, &headID); err != nil {
+			return nil, fmt.Errorf("failed to scan session row: %w", err)
+		}
+		sessions[id] = headID
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating over session rows: %w", err)
+	}
+	return sessions, nil
 }

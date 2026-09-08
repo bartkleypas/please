@@ -83,6 +83,9 @@ func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, te
 		_, lastID, _ := m.Manager.Sync()
 		if lastID != "" {
 			m.CurrentID = lastID
+			if m.SessionID != "" && m.Manager != nil && m.Manager.Storage != nil {
+				_ = m.Manager.Storage.SaveSessionHead(m.SessionID, m.CurrentID)
+			}
 		}
 		m.LastActivity = time.Now()
 		m.CurrentStreamingContent = ""
@@ -143,6 +146,9 @@ func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, te
 	}
 
 	m.CurrentID = activeID
+	if m.SessionID != "" && m.Manager != nil && m.Manager.Storage != nil {
+		_ = m.Manager.Storage.SaveSessionHead(m.SessionID, m.CurrentID)
+	}
 	m.LastActivity = time.Now()
 	m.updateViewportContent() // Full refresh to show final formatted node
 	m.CurrentStreamingContent = ""

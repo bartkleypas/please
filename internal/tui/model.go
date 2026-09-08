@@ -6,7 +6,6 @@ import (
 
 	"github.com/bartkleypas/please/internal/engine"
 	"github.com/bartkleypas/please/internal/server"
-	"github.com/google/uuid"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -152,8 +151,10 @@ func NewModel(cfg *engine.Config, g *engine.Graph, s engine.Storage, p engine.LL
 		sessionID = rdp.SessionID
 	} else if rds, ok := s.(*engine.RemoteDaemonStorage); ok && rds.SessionID != "" {
 		sessionID = rds.SessionID
+	} else if cfg != nil {
+		sessionID = cfg.GetSession()
 	} else {
-		sessionID = uuid.New().String()
+		sessionID = "main"
 	}
 
 	m := Model{

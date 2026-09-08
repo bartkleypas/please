@@ -72,7 +72,9 @@ func TestManager_Validation(t *testing.T) {
 }
 
 // MockStorage for testing
-type MockStorage struct{}
+type MockStorage struct {
+	Sessions map[string]string
+}
 
 func (s *MockStorage) SaveNode(n *Node) error                                        { return nil }
 func (s *MockStorage) LoadGraph() (*Graph, string, error)                            { return NewGraph(), "", nil }
@@ -82,6 +84,29 @@ func (s *MockStorage) UpdateNodeObservations(id string, obs []ToolObservation) e
 func (s *MockStorage) GarbageCollect() (int64, error)                                { return 0, nil }
 func (s *MockStorage) Close() error                                                  { return nil }
 func (s *MockStorage) Vacuum() error                                                 { return nil }
+func (s *MockStorage) SaveSessionHead(sessionID, nodeID string) error {
+	if s.Sessions == nil {
+		s.Sessions = make(map[string]string)
+	}
+	s.Sessions[sessionID] = nodeID
+	return nil
+}
+func (s *MockStorage) GetSessionHead(sessionID string) (string, error) {
+	if s.Sessions == nil {
+		return "", nil
+	}
+	return s.Sessions[sessionID], nil
+}
+func (s *MockStorage) ListSessions() (map[string]string, error) {
+	if s.Sessions == nil {
+		return make(map[string]string), nil
+	}
+	res := make(map[string]string)
+	for k, v := range s.Sessions {
+		res[k] = v
+	}
+	return res, nil
+}
 
 func TestManager_ResonanceScoring(t *testing.T) {
 	mgr := NewManager(NewGraph(), &MockStorage{})
@@ -974,5 +999,72 @@ func TestPruneBranch_SystemRootGuard(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "cannot prune system root node") {
 		t.Errorf("expected error to mention 'cannot prune system root node', got: %v", err)
+	}
+}
+
+func TestPruneBranch_SessionProtectionGuard(t *testing.T) {
+	storage := &MockStorage{
+		Sessions: make(map[string]string),
+	}
+	mgr := NewManager(NewGraph(), storage)
+
+	root, _ := mgr.CreateNode("", RoleSystem, "System root", false)
+	userNode, _ := mgr.CreateNode(root.ID, RoleUser, "Message", false)
+	asstNode, _ := mgr.CreateNode(userNode.ID, RoleAssistant, "Response", false)
+
+	// Mark asstNode as head for active session "felicia"
+	_ = storage.SaveSessionHead("felicia", asstNode.ID)
+
+	// 1. Attempting to prune asstNode directly must fail
+	err := mgr.PruneBranch(asstNode.ID)
+	if err == nil {
+		t.Fatal("expected error pruning active session head, got nil")
+	}
+	if !strings.Contains(err.Error(), "felicia") {
+		t.Errorf("expected error to mention session 'felicia', got: %v", err)
+	}
+
+	// 2. Attempting to prune userNode (ancestor of felicia) must fail
+	err = mgr.PruneBranch(userNode.ID)
+	if err == nil {
+		t.Fatal("expected error pruning ancestor of active session, got nil")
+	}
+	if !strings.Contains(err.Error(), "felicia") {
+		t.Errorf("expected error to mention session 'felicia', got: %v", err)
+	}
+
+	// 3. Create a side branch with no sessions attached
+	sideNode, _ := mgr.CreateNode(userNode.ID, RoleUser, "Side branch", false)
+	err = mgr.PruneBranch(sideNode.ID)
+	if err != nil {
+		t.Errorf("expected side branch without active session to be pruned cleanly, got err: %v", err)
+	}
+}
+
+func TestCompactRange_SessionProtectionGuard(t *testing.T) {
+	storage := &MockStorage{
+		Sessions: make(map[string]string),
+	}
+	mgr := NewManager(NewGraph(), storage)
+
+	root, _ := mgr.CreateNode("", RoleSystem, "System root", false)
+	n1, _ := mgr.CreateNode(root.ID, RoleUser, "Step 1", false)
+	n2, _ := mgr.CreateNode(n1.ID, RoleAssistant, "Step 2", false)
+	n3, _ := mgr.CreateNode(n2.ID, RoleUser, "Step 3", false)
+
+	// Place session "experiment" head on intermediate node n2
+	_ = storage.SaveSessionHead("experiment", n2.ID)
+
+	provider := &MockLLMProvider{
+		ResponseContent: "Summary of steps",
+	}
+
+	// Compacting range [n1, n2, n3] includes intermediate node n2 which is an active session head
+	_, err := mgr.CompactRangeWithDirective(context.Background(), provider, []string{n1.ID, n2.ID, n3.ID}, "")
+	if err == nil {
+		t.Fatal("expected error compacting range containing intermediate active session head, got nil")
+	}
+	if !strings.Contains(err.Error(), "experiment") {
+		t.Errorf("expected error to mention session 'experiment', got: %v", err)
 	}
 }

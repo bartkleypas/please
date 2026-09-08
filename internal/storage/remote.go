@@ -199,3 +199,103 @@ func (s *RemoteDaemonStorage) CreateSupernode(ctx context.Context, nodeIDs []str
 
 	return &superNode, nil
 }
+
+// SaveSessionHead updates the session head on the daemon via POST /api/v1/sessions.
+func (s *RemoteDaemonStorage) SaveSessionHead(sessionID, nodeID string) error {
+	if sessionID == "" {
+		sessionID = "main"
+	}
+	payload := map[string]string{
+		"session_id":   sessionID,
+		"head_node_id": nodeID,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodPost, s.BaseURL+"/api/v1/sessions", bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	s.applyHeaders(req)
+	if s.HTTPClient == nil {
+		s.HTTPClient = &http.Client{}
+	}
+	resp, err := s.HTTPClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("daemon error (%d): %s", resp.StatusCode, string(respBytes))
+	}
+	return nil
+}
+
+// GetSessionHead retrieves the head node ID for a session from GET /api/v1/sessions/{id}. Returns ("", nil) if not found.
+func (s *RemoteDaemonStorage) GetSessionHead(sessionID string) (string, error) {
+	if sessionID == "" {
+		sessionID = "main"
+	}
+	req, err := http.NewRequest(http.MethodGet, s.BaseURL+"/api/v1/sessions/"+sessionID, nil)
+	if err != nil {
+		return "", err
+	}
+	s.applyHeaders(req)
+	if s.HTTPClient == nil {
+		s.HTTPClient = &http.Client{}
+	}
+	resp, err := s.HTTPClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return "", nil
+	}
+	if resp.StatusCode >= 400 {
+		respBytes, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("daemon error (%d): %s", resp.StatusCode, string(respBytes))
+	}
+
+	var result struct {
+		SessionID  string `json:"session_id"`
+		HeadNodeID string `json:"head_node_id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+	return result.HeadNodeID, nil
+}
+
+// ListSessions retrieves the mapping of all active sessions from GET /api/v1/sessions.
+func (s *RemoteDaemonStorage) ListSessions() (map[string]string, error) {
+	req, err := http.NewRequest(http.MethodGet, s.BaseURL+"/api/v1/sessions", nil)
+	if err != nil {
+		return nil, err
+	}
+	s.applyHeaders(req)
+	if s.HTTPClient == nil {
+		s.HTTPClient = &http.Client{}
+	}
+	resp, err := s.HTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("daemon error (%d): %s", resp.StatusCode, string(respBytes))
+	}
+
+	var sessions map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&sessions); err != nil {
+		return nil, err
+	}
+	return sessions, nil
+}

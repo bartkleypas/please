@@ -21,6 +21,9 @@ func (m *Model) handleCompactionFinished(msg compactionFinishedMsg) (tea.Model, 
 
 	if msg.node != nil {
 		m.CurrentID = msg.node.ID
+		if m.SessionID != "" && m.Manager != nil && m.Manager.Storage != nil {
+			_ = m.Manager.Storage.SaveSessionHead(m.SessionID, m.CurrentID)
+		}
 		if m.ViewMode == ModeChat {
 			m.navigateToNode(msg.node)
 		} else {

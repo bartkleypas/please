@@ -104,6 +104,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/gc", s.handleGC)
 	mux.HandleFunc("/api/v1/tools", s.handleTools)
 	mux.HandleFunc("/api/v1/chat/stream", s.handleChatStream)
+	mux.HandleFunc("/api/v1/sessions", s.handleSessions)
+	mux.HandleFunc("/api/v1/sessions/", s.handleSessionByID)
 
 	// Legacy endpoints for backward compatibility with visualizer
 	mux.HandleFunc("/api/graph", s.handleGraph)
@@ -682,4 +684,113 @@ func (s *Server) handleImage(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", mimeType)
 	w.Write(data)
+}
+
+// handleSessions handles GET /api/v1/sessions and POST /api/v1/sessions
+func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
+	if s.Manager == nil || s.Manager.Storage == nil {
+		http.Error(w, "Storage not initialized", http.StatusInternalServerError)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		sessions, err := s.Manager.Storage.ListSessions()
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to list sessions: %v", err), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(sessions)
+
+	case http.MethodPost:
+		var payload struct {
+			SessionID  string `json:"session_id"`
+			HeadNodeID string `json:"head_node_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
+			return
+		}
+		if payload.SessionID == "" {
+			payload.SessionID = "main"
+		}
+		if payload.HeadNodeID == "" {
+			http.Error(w, "head_node_id is required", http.StatusBadRequest)
+			return
+		}
+		if err := s.Manager.Storage.SaveSessionHead(payload.SessionID, payload.HeadNodeID); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to save session head: %v", err), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"status":       "ok",
+			"session_id":   payload.SessionID,
+			"head_node_id": payload.HeadNodeID,
+		})
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleSessionByID handles GET and PUT /api/v1/sessions/{id}
+func (s *Server) handleSessionByID(w http.ResponseWriter, r *http.Request) {
+	if s.Manager == nil || s.Manager.Storage == nil {
+		http.Error(w, "Storage not initialized", http.StatusInternalServerError)
+		return
+	}
+
+	sessionID := strings.TrimPrefix(r.URL.Path, "/api/v1/sessions/")
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		http.Error(w, "Session ID required", http.StatusBadRequest)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		headID, err := s.Manager.Storage.GetSessionHead(sessionID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to get session head: %v", err), http.StatusInternalServerError)
+			return
+		}
+		if headID == "" {
+			http.Error(w, "Session not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"session_id":   sessionID,
+			"head_node_id": headID,
+		})
+
+	case http.MethodPut, http.MethodPost:
+		var payload struct {
+			HeadNodeID string `json:"head_node_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
+			return
+		}
+		if payload.HeadNodeID == "" {
+			http.Error(w, "head_node_id is required", http.StatusBadRequest)
+			return
+		}
+		if err := s.Manager.Storage.SaveSessionHead(sessionID, payload.HeadNodeID); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to save session head: %v", err), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"status":       "ok",
+			"session_id":   sessionID,
+			"head_node_id": payload.HeadNodeID,
+		})
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
 }

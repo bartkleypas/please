@@ -126,6 +126,14 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	// Ingest optional client context for ambient telemetry
+	sessionID := r.Header.Get("X-Please-Session-ID")
+	if sessionID == "" && req.Context != nil {
+		sessionID = req.Context["session_id"]
+	}
+	if sessionID == "" {
+		sessionID = "main"
+	}
+
 	if s.Manager != nil {
 		clientCtx := make(map[string]string)
 		if req.Context != nil {
@@ -163,10 +171,18 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 	// 2. Resolve parent ID if a new user node must be created
 	parentID := req.ParentID
 	if userNode == nil && parentID == "" {
-		// Sync graph to get latest active leaf
-		_, lastID, err := s.Manager.Sync()
-		if err == nil && lastID != "" {
-			parentID = lastID
+		// Try resolving from this session's head first
+		if s.Manager != nil && s.Manager.Storage != nil {
+			if headID, err := s.Manager.Storage.GetSessionHead(sessionID); err == nil && headID != "" {
+				parentID = headID
+			}
+		}
+		if parentID == "" {
+			// Sync graph to get latest active leaf
+			_, lastID, err := s.Manager.Sync()
+			if err == nil && lastID != "" {
+				parentID = lastID
+			}
 		}
 	}
 
@@ -301,6 +317,9 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 
 		// If no tools were called, generation turn is complete!
 		if len(accumulatedToolCalls) == 0 {
+			if s.Manager != nil && s.Manager.Storage != nil {
+				_ = s.Manager.Storage.SaveSessionHead(sessionID, asstNode.ID)
+			}
 			_ = sendSSE(w, flusher, EventNodeComplete, NodeCompletePayload{
 				NodeID:    asstNode.ID,
 				ParentID:  asstNode.ParentID,
@@ -341,6 +360,9 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// If maximum depth reached, notify completion with the latest assistant node
+	if s.Manager != nil && s.Manager.Storage != nil {
+		_ = s.Manager.Storage.SaveSessionHead(sessionID, currentParentID)
+	}
 	_ = sendSSE(w, flusher, EventNodeComplete, NodeCompletePayload{
 		NodeID:    currentParentID,
 		ParentID:  userNode.ID,

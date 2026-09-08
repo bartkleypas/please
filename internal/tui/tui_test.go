@@ -1184,3 +1184,57 @@ func TestConfigCommand_Telemetry(t *testing.T) {
 		t.Errorf("expected /config to display disabled telemetry, got:\n%s", m.ViewportOverride)
 	}
 }
+
+func TestSessionCommand(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	storage, err := engine.NewSQLiteStorage(dbPath, "")
+	if err != nil {
+		t.Fatalf("failed to init storage: %v", err)
+	}
+	graph := engine.NewGraph()
+	mgr := engine.NewManager(graph, storage)
+
+	rootNode, _ := mgr.CreateNode("", engine.RoleSystem, "System root", false)
+	user1, _ := mgr.CreateNode(rootNode.ID, engine.RoleUser, "Main user message", false)
+	mainAsst, _ := mgr.CreateAssistantNode(user1.ID, "Main response", "", nil, false)
+	_ = storage.SaveSessionHead("main", mainAsst.ID)
+
+	cfg := engine.NewDefaultConfig()
+	m := NewModel(cfg, graph, storage, &engine.MockLLMProvider{}, mainAsst.ID)
+	m.SessionID = "main"
+
+	// 1. Test /session status
+	m.HandleCommand("/session")
+	if !strings.Contains(m.Notification, `Active session: "main"`) {
+		t.Errorf("expected notification to mention active session 'main', got: %q", m.Notification)
+	}
+
+	// 2. Test /session list
+	m.HandleCommand("/session list")
+	if !strings.Contains(m.ViewportOverride, "--- Active Sessions ---") || !strings.Contains(m.ViewportOverride, "main") {
+		t.Errorf("expected /session list to show main session, got:\n%s", m.ViewportOverride)
+	}
+
+	// 3. Test /session switch experiment
+	user2, _ := mgr.CreateNode(rootNode.ID, engine.RoleUser, "Experiment user message", false)
+	expAsst, _ := mgr.CreateAssistantNode(user2.ID, "Experiment response", "", nil, false)
+	_ = storage.SaveSessionHead("experiment", expAsst.ID)
+
+	m.HandleCommand("/session switch experiment")
+	if m.SessionID != "experiment" {
+		t.Errorf("expected SessionID to be 'experiment', got %q", m.SessionID)
+	}
+	if m.CurrentID != expAsst.ID {
+		t.Errorf("expected CurrentID to jump to experiment head %s, got %s", expAsst.ID, m.CurrentID)
+	}
+
+	// 4. Test /session shortcut to switch back to main
+	m.HandleCommand("/session main")
+	if m.SessionID != "main" {
+		t.Errorf("expected SessionID to be 'main', got %q", m.SessionID)
+	}
+	if m.CurrentID != mainAsst.ID {
+		t.Errorf("expected CurrentID to jump back to main head %s, got %s", mainAsst.ID, m.CurrentID)
+	}
+}

@@ -681,6 +681,29 @@ func (m *Manager) PruneBranch(nodeID string) error {
 		return fmt.Errorf("cannot prune system root node %s", nodeID)
 	}
 
+	// Guard against pruning nodes in active session trajectories
+	if m.Storage != nil {
+		if sessions, err := m.Storage.ListSessions(); err == nil {
+			protected := make(map[string]string)
+			for sessName, headID := range sessions {
+				if headID == "" {
+					continue
+				}
+				path, err := m.Graph.GetPath(headID)
+				if err != nil {
+					continue
+				}
+				for _, pNode := range path {
+					protected[pNode.ID] = sessName
+				}
+			}
+
+			if sessName, ok := protected[nodeID]; ok {
+				return fmt.Errorf("cannot prune node %s: node is part of the active trajectory of session %q", nodeID, sessName)
+			}
+		}
+	}
+
 	// Recursive helper to flag and persist
 	var flagDeleted func(n *Node) error
 	flagDeleted = func(n *Node) error {
@@ -727,6 +750,21 @@ func (m *Manager) CompactRange(ctx context.Context, provider LLMProvider, nodeID
 func (m *Manager) CompactRangeWithDirective(ctx context.Context, provider LLMProvider, nodeIDs []string, directive string) (*Node, error) {
 	if len(nodeIDs) == 0 {
 		return nil, fmt.Errorf("no nodes provided for compaction")
+	}
+
+	// Guard against compacting ranges containing intermediate active session heads
+	if m.Storage != nil && len(nodeIDs) > 1 {
+		if sessions, err := m.Storage.ListSessions(); err == nil {
+			intermediateMap := make(map[string]bool)
+			for _, id := range nodeIDs[:len(nodeIDs)-1] {
+				intermediateMap[id] = true
+			}
+			for sessName, headID := range sessions {
+				if intermediateMap[headID] {
+					return nil, fmt.Errorf("cannot compact range: contains active session head %s for session %q", headID, sessName)
+				}
+			}
+		}
 	}
 
 	var contentToSummarize strings.Builder

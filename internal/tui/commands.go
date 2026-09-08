@@ -41,6 +41,8 @@ func init() {
 	commandRegistry["/fold"] = &FoldCommand{}
 	commandRegistry["/compact"] = &CompactCommand{}
 	commandRegistry["/compress"] = &CompactCommand{}
+	commandRegistry["/session"] = &SessionCommand{}
+	commandRegistry["/sessions"] = &SessionCommand{}
 
 	// Tool confirmation commands
 	commandRegistry["/yes"] = &ConfirmToolCommand{}
@@ -790,6 +792,7 @@ func (c *HelpCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	s.WriteString("  /gc             Permanently scrub soft-deleted nodes from disk\n")
 	s.WriteString("  /server         Control the web visualization server (/server on|off|status)\n")
 	s.WriteString("  /audit          Toggle full UUID visibility in the graph and chat views\n")
+	s.WriteString("  /session [cmd]  Manage named sessions (/session [status], /session list, /session switch <name>)\n")
 	s.WriteString("  /pacing         Toggle natural reading pacing for LLM stream (/pacing [on|off])\n")
 	s.WriteString("  /compact [hint] Summarize the current branch into a milestone Supernode (alias: /compress)\n")
 	s.WriteString("  /fold [all]     Fold/unfold reasoning thought process blocks (key: Tab / Shift+Tab)\n")
@@ -915,4 +918,116 @@ func (c *FoldCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+type SessionCommand struct{}
+
+func (c *SessionCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
+	if len(args) == 0 {
+		headInfo := m.CurrentID
+		if len(headInfo) > 8 {
+			headInfo = headInfo[:8]
+		}
+		m.Notification = fmt.Sprintf("Active session: %q (head: %s)", m.SessionID, headInfo)
+		return m, nil
+	}
+
+	sub := strings.ToLower(args[0])
+	switch sub {
+	case "list":
+		if m.Manager == nil || m.Manager.Storage == nil {
+			m.Notification = "Storage not initialized"
+			return m, nil
+		}
+		sessions, err := m.Manager.Storage.ListSessions()
+		if err != nil {
+			m.Notification = fmt.Sprintf("Failed to list sessions: %v", err)
+			return m, nil
+		}
+		if len(sessions) == 0 {
+			m.ViewportOverride = "--- Sessions ---\nNo saved sessions found."
+		} else {
+			var sb strings.Builder
+			sb.WriteString("--- Active Sessions ---\n")
+			for id, headID := range sessions {
+				marker := "  "
+				if id == m.SessionID {
+					marker = "➜ "
+				}
+				shortHead := headID
+				if len(shortHead) > 8 {
+					shortHead = shortHead[:8]
+				}
+				sb.WriteString(fmt.Sprintf("%s%-16s (head: %s)\n", marker, id, shortHead))
+			}
+			m.ViewportOverride = sb.String()
+		}
+		m.Viewport.SetContent(m.ViewportOverride)
+		m.Viewport.GotoTop()
+		return m, nil
+
+	case "switch":
+		if len(args) < 2 {
+			m.Notification = "Usage: /session switch <name>"
+			return m, nil
+		}
+		targetSession := args[1]
+		if targetSession == "" {
+			m.Notification = "Session name cannot be empty"
+			return m, nil
+		}
+
+		m.SessionID = targetSession
+		if rdp, ok := m.Provider.(*engine.RemoteDaemonProvider); ok {
+			rdp.SessionID = targetSession
+		}
+		if rds, ok := m.Manager.Storage.(*engine.RemoteDaemonStorage); ok {
+			rds.SessionID = targetSession
+		}
+
+		headID, err := m.Manager.Storage.GetSessionHead(targetSession)
+		if err == nil && headID != "" {
+			if node, err := m.Manager.GetNode(headID); err == nil {
+				m.navigateToNode(node)
+				shortID := headID
+				if len(shortID) > 8 {
+					shortID = shortID[:8]
+				}
+				m.Notification = fmt.Sprintf("Switched to session %q (resumed at %s)", targetSession, shortID)
+				return m, nil
+			}
+		}
+
+		_ = m.Manager.Storage.SaveSessionHead(targetSession, m.CurrentID)
+		m.Notification = fmt.Sprintf("Switched to session %q (anchored at current node)", targetSession)
+		return m, nil
+
+	default:
+		// Shortcut: `/session <name>` behaves like `/session switch <name>`
+		targetSession := args[0]
+		m.SessionID = targetSession
+		if rdp, ok := m.Provider.(*engine.RemoteDaemonProvider); ok {
+			rdp.SessionID = targetSession
+		}
+		if rds, ok := m.Manager.Storage.(*engine.RemoteDaemonStorage); ok {
+			rds.SessionID = targetSession
+		}
+
+		headID, err := m.Manager.Storage.GetSessionHead(targetSession)
+		if err == nil && headID != "" {
+			if node, err := m.Manager.GetNode(headID); err == nil {
+				m.navigateToNode(node)
+				shortID := headID
+				if len(shortID) > 8 {
+					shortID = shortID[:8]
+				}
+				m.Notification = fmt.Sprintf("Switched to session %q (resumed at %s)", targetSession, shortID)
+				return m, nil
+			}
+		}
+
+		_ = m.Manager.Storage.SaveSessionHead(targetSession, m.CurrentID)
+		m.Notification = fmt.Sprintf("Switched to session %q (anchored at current node)", targetSession)
+		return m, nil
+	}
 }
