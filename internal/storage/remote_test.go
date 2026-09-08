@@ -1,10 +1,12 @@
-package engine
+package storage
 
 import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/bartkleypas/please/internal/graph"
 )
 
 func TestRemoteDaemonStorage(t *testing.T) {
@@ -45,18 +47,18 @@ func TestRemoteDaemonStorage(t *testing.T) {
 	}
 
 	// 1. Test SaveNode
-	node := &Node{ID: "node-123", Role: RoleUser, Content: "hello"}
+	node := &graph.Node{ID: "node-123", Role: graph.RoleUser, Content: "hello"}
 	if err := storage.SaveNode(node); err != nil {
 		t.Fatalf("SaveNode failed: %v", err)
 	}
 
 	// 2. Test LoadGraph
-	graph, latestID, err := storage.LoadGraph()
+	g, latestID, err := storage.LoadGraph()
 	if err != nil {
 		t.Fatalf("LoadGraph failed: %v", err)
 	}
-	if len(graph.Nodes) != 1 {
-		t.Errorf("expected 1 node, got %d", len(graph.Nodes))
+	if len(g.Nodes) != 1 {
+		t.Errorf("expected 1 node, got %d", len(g.Nodes))
 	}
 	if latestID != "node-123" {
 		t.Errorf("expected latest ID 'node-123', got '%s'", latestID)
