@@ -23,4 +23,7 @@ This index tracks key architectural decisions and engineering conventions throug
 *   [005-modular-tools-extraction](005-modular-tools-extraction.md) - Extraction and decomposition of tool execution, sandboxing, and default tools from internal/engine into internal/tools.
 *   [006-modular-providers-extraction](006-modular-providers-extraction.md) - Extraction of LLM provider drivers, wire serialization protocols, and message contracts from internal/engine into internal/providers.
 *   [007-multi-session-daemon-branch-concurrency](007-multi-session-daemon-branch-concurrency.md) - Multi-session daemon architecture, cursor decoupling, branch-isolated compactions, and workspace sandboxing.
+*   [008-modular-config-extraction](008-modular-config-extraction.md) - Extraction of configuration schemas, directory discovery, and migration into internal/config.
+*   [009-modular-storage-extraction](009-modular-storage-extraction.md) - Extraction of SQLite WAL, JSONL, remote storage proxy, and vault encryption into internal/storage.
+*   [010-pure-dag-graph-extraction](010-pure-dag-graph-extraction.md) - Extraction of the pure in-memory conversation Node and DAG Graph data structures into internal/graph.
 
