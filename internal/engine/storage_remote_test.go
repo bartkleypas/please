@@ -8,7 +8,9 @@ import (
 )
 
 func TestRemoteDaemonStorage(t *testing.T) {
+	var receivedSessionID string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedSessionID = r.Header.Get("X-Please-Session-ID")
 		switch r.URL.Path {
 		case "/api/v1/nodes":
 			if r.Method == http.MethodPost {
@@ -38,6 +40,10 @@ func TestRemoteDaemonStorage(t *testing.T) {
 		t.Fatalf("failed to create remote storage: %v", err)
 	}
 
+	if storage.SessionID == "" {
+		t.Error("expected NewRemoteDaemonStorage to initialize non-empty SessionID")
+	}
+
 	// 1. Test SaveNode
 	node := &Node{ID: "node-123", Role: RoleUser, Content: "hello"}
 	if err := storage.SaveNode(node); err != nil {
@@ -63,5 +69,9 @@ func TestRemoteDaemonStorage(t *testing.T) {
 	}
 	if deleted != 5 {
 		t.Errorf("expected 5 deleted nodes, got %d", deleted)
+	}
+
+	if receivedSessionID != storage.SessionID {
+		t.Errorf("expected daemon to receive session ID '%s', got '%s'", storage.SessionID, receivedSessionID)
 	}
 }

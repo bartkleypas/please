@@ -26,7 +26,7 @@ type remoteDaemonStreamConnMsg struct {
 }
 
 // listenRemoteEventsCmd establishes a long-running background connection to /api/v1/events
-func listenRemoteEventsCmd(remoteURL, authToken, caCertPath string) tea.Cmd {
+func listenRemoteEventsCmd(remoteURL, authToken, caCertPath, sessionID string) tea.Cmd {
 	return func() tea.Msg {
 		if remoteURL == "" {
 			return nil
@@ -72,6 +72,9 @@ func listenRemoteEventsCmd(remoteURL, authToken, caCertPath string) tea.Cmd {
 				req.Header.Set("Accept", "text/event-stream")
 				if authToken != "" {
 					req.Header.Set("Authorization", "Bearer "+authToken)
+				}
+				if sessionID != "" {
+					req.Header.Set("X-Please-Session-ID", sessionID)
 				}
 
 				resp, err := client.Do(req)
@@ -129,7 +132,9 @@ func (m *Model) handleRemoteDaemonEvent(msg remoteDaemonEventMsg) (tea.Model, te
 	if err == nil {
 		switch msg.Event.Type {
 		case server.EventNodeSaved:
-			if lastID != "" && (m.CurrentID == "" || m.TextInput.Value() == "") {
+			// Only initialize CurrentID if it has not been set yet (e.g. empty graph startup).
+			// Do not hijack active user cursor/viewport when other clients advance their branches.
+			if m.CurrentID == "" && lastID != "" {
 				m.CurrentID = lastID
 			}
 			if m.ViewMode == ModeMap {

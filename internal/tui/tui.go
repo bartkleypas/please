@@ -12,7 +12,7 @@ func (m *Model) Init() tea.Cmd {
 			token = m.Config.Client.AuthToken
 			caCert = m.Config.Client.CACertPath
 		}
-		return listenRemoteEventsCmd(m.RemoteURL, token, caCert)
+		return listenRemoteEventsCmd(m.RemoteURL, token, caCert, m.SessionID)
 	}
 	return nil
 }

@@ -958,3 +958,21 @@ func TestBuildLLMContext_TrailingToolCallsWithoutSegments(t *testing.T) {
 		t.Errorf("expected second tool observation for call_2, got: %+v", toolMsgs[1])
 	}
 }
+
+func TestPruneBranch_SystemRootGuard(t *testing.T) {
+	mgr := NewManager(NewGraph(), &MockStorage{})
+
+	root, err := mgr.CreateNode("", RoleSystem, "You are a helpful assistant.", false)
+	if err != nil {
+		t.Fatalf("failed to create root node: %v", err)
+	}
+
+	err = mgr.PruneBranch(root.ID)
+	if err == nil {
+		t.Fatal("expected PruneBranch on system root to return error, but got nil")
+	}
+
+	if !strings.Contains(err.Error(), "cannot prune system root node") {
+		t.Errorf("expected error to mention 'cannot prune system root node', got: %v", err)
+	}
+}

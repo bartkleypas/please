@@ -259,7 +259,7 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept, X-Requested-With")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept, X-Requested-With, X-Please-Session-ID")
 
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
@@ -313,6 +313,14 @@ func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
 		return
+	}
+
+	sessionID := r.Header.Get("X-Please-Session-ID")
+	if sessionID == "" {
+		sessionID = r.URL.Query().Get("session_id")
+	}
+	if sessionID != "" {
+		log.Printf("[server] SSE client connected: session=%s (remote=%s)", sessionID, r.RemoteAddr)
 	}
 
 	w.Header().Set("Content-Type", "text/event-stream")
