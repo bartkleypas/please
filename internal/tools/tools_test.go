@@ -82,6 +82,17 @@ func TestReadFile_PaginationAndWindowing(t *testing.T) {
 	if !strings.Contains(res, "Byte budget reached") {
 		t.Errorf("expected byte budget hint, got:\n%s", res)
 	}
+
+	// 4. Test calling read_file on a directory -> fails with directive to use list_directory
+	_, err = registry.Tools["read_file"].Function(context.Background(), map[string]interface{}{
+		"path": ".",
+	})
+	if err == nil {
+		t.Fatalf("expected error reading directory with read_file, got nil")
+	}
+	if !strings.Contains(err.Error(), "is a directory, not a file (use list_directory instead)") {
+		t.Errorf("expected directory warning error, got: %v", err)
+	}
 }
 
 func TestWriteFile_OverwriteAndTelemetry(t *testing.T) {
@@ -330,5 +341,103 @@ func TestDefaultTools_SearchAndExec(t *testing.T) {
 	}
 	if !strings.Contains(res, "test_exec") {
 		t.Errorf("expected 'test_exec' in command output, got: %s", res)
+	}
+}
+
+func TestEditFile_FailureSignaling(t *testing.T) {
+	tmpDir := t.TempDir()
+	registry := NewToolRegistry()
+	RegisterDefaultTools(registry, tmpDir)
+
+	ctx := context.Background()
+	editFile := registry.Tools["edit_file"].Function
+
+	sampleContent := "alpha\nbeta\ngamma\nbeta\nomega"
+	if err := os.WriteFile(filepath.Join(tmpDir, "sample.txt"), []byte(sampleContent), 0644); err != nil {
+		t.Fatalf("failed to write sample file: %v", err)
+	}
+
+	// 1. Missing search string in replace_string -> non-nil error
+	_, err := editFile(ctx, map[string]interface{}{
+		"path":    "sample.txt",
+		"mode":    "replace_string",
+		"search":  "nonexistent",
+		"replace": "replacement",
+	})
+	if err == nil {
+		t.Fatalf("expected error for missing search string, got nil")
+	}
+	if !strings.Contains(err.Error(), "search string not found in file 'sample.txt'") {
+		t.Errorf("expected missing search string error, got: %v", err)
+	}
+
+	// 2. Empty search string in replace_string -> non-nil error
+	_, err = editFile(ctx, map[string]interface{}{
+		"path":    "sample.txt",
+		"mode":    "replace_string",
+		"search":  "",
+		"replace": "replacement",
+	})
+	if err == nil {
+		t.Fatalf("expected error for empty search string, got nil")
+	}
+	if !strings.Contains(err.Error(), "search parameter cannot be empty") {
+		t.Errorf("expected empty search parameter error, got: %v", err)
+	}
+
+	// 3. Ambiguous multiple occurrences in replace_string -> non-nil error
+	_, err = editFile(ctx, map[string]interface{}{
+		"path":    "sample.txt",
+		"mode":    "replace_string",
+		"search":  "beta",
+		"replace": "replacement",
+	})
+	if err == nil {
+		t.Fatalf("expected error for duplicate search string matches, got nil")
+	}
+	if !strings.Contains(err.Error(), "search string matched 2 occurrences in 'sample.txt'") {
+		t.Errorf("expected multi-match disambiguation error, got: %v", err)
+	}
+
+	// 4. Zero-match regex in replace_regex -> non-nil error
+	_, err = editFile(ctx, map[string]interface{}{
+		"path":    "sample.txt",
+		"mode":    "replace_regex",
+		"search":  "^zeta.*",
+		"replace": "replacement",
+	})
+	if err == nil {
+		t.Fatalf("expected error for zero-match regex, got nil")
+	}
+	if !strings.Contains(err.Error(), "matched no content in file 'sample.txt'") {
+		t.Errorf("expected zero-match regex error, got: %v", err)
+	}
+
+	// 5. Missing pattern in insert_after -> non-nil error
+	_, err = editFile(ctx, map[string]interface{}{
+		"path":    "sample.txt",
+		"mode":    "insert_after",
+		"search":  "missing_target",
+		"replace": "inserted",
+	})
+	if err == nil {
+		t.Fatalf("expected error for missing insert_after pattern, got nil")
+	}
+	if !strings.Contains(err.Error(), "search pattern 'missing_target' not found in file 'sample.txt'") {
+		t.Errorf("expected insert_after missing pattern error, got: %v", err)
+	}
+
+	// 6. Empty pattern in insert_after -> non-nil error
+	_, err = editFile(ctx, map[string]interface{}{
+		"path":    "sample.txt",
+		"mode":    "insert_after",
+		"search":  "",
+		"replace": "inserted",
+	})
+	if err == nil {
+		t.Fatalf("expected error for empty search pattern in insert_after, got nil")
+	}
+	if !strings.Contains(err.Error(), "search parameter cannot be empty") {
+		t.Errorf("expected empty search parameter error, got: %v", err)
 	}
 }

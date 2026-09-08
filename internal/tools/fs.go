@@ -118,6 +118,14 @@ func ReadFileTool(workspaceDir string) Tool {
 				}
 			}
 
+			info, err := os.Stat(safePath)
+			if err != nil {
+				return "", fmt.Errorf("failed to access file: %w", err)
+			}
+			if info.IsDir() {
+				return "", fmt.Errorf("'%s' is a directory, not a file (use list_directory instead)", path)
+			}
+
 			file, err := os.Open(safePath)
 			if err != nil {
 				return "", fmt.Errorf("failed to open file: %w", err)
@@ -251,7 +259,7 @@ func WriteFileTool(workspaceDir string) Tool {
 			action := "created"
 			if _, err := os.Stat(safePath); err == nil {
 				if !overwrite {
-					return "", fmt.Errorf("file already exists: %s (to overwrite completely, set overwrite=true, or use edit_file / patch_file to modify)", path)
+					return "", fmt.Errorf("file already exists: %s (to overwrite completely, set overwrite=true, or use edit_file to modify)", path)
 				}
 				action = "overwritten"
 			} else if !os.IsNotExist(err) {
@@ -435,6 +443,9 @@ func EditFileTool(workspaceDir string) Tool {
 				if err != nil {
 					return "", fmt.Errorf("missing 'search' parameter: %w", err)
 				}
+				if search == "" {
+					return "", fmt.Errorf("search parameter cannot be empty")
+				}
 				replace, err := getStringArg(args, "replace")
 				if err != nil {
 					replace, err = getStringArg(args, "replace_block")
@@ -442,8 +453,12 @@ func EditFileTool(workspaceDir string) Tool {
 				if err != nil {
 					return "", fmt.Errorf("missing 'replace' parameter: %w", err)
 				}
-				if !strings.Contains(content, search) {
-					return fmt.Sprintf("search string not found in file '%s'. Ensure exact match including whitespace/indentation.", path), nil
+				matchCount := strings.Count(content, search)
+				if matchCount == 0 {
+					return "", fmt.Errorf("search string not found in file '%s'. Ensure exact match including whitespace/indentation", path)
+				}
+				if matchCount > 1 {
+					return "", fmt.Errorf("search string matched %d occurrences in '%s'. Provide more surrounding context lines to uniquely identify the target", matchCount, path)
 				}
 				newContent = strings.Replace(content, search, replace, 1)
 
@@ -452,6 +467,9 @@ func EditFileTool(workspaceDir string) Tool {
 				if err != nil {
 					return "", err
 				}
+				if search == "" {
+					return "", fmt.Errorf("search parameter cannot be empty")
+				}
 				replace, err := getStringArg(args, "replace")
 				if err != nil {
 					return "", err
@@ -459,6 +477,9 @@ func EditFileTool(workspaceDir string) Tool {
 				re, err := regexp.Compile(search)
 				if err != nil {
 					return "", fmt.Errorf("invalid regex: %w", err)
+				}
+				if !re.MatchString(content) {
+					return "", fmt.Errorf("regex pattern '%s' matched no content in file '%s'", search, path)
 				}
 				newContent = re.ReplaceAllString(content, replace)
 
@@ -486,6 +507,9 @@ func EditFileTool(workspaceDir string) Tool {
 				if err != nil {
 					return "", err
 				}
+				if search == "" {
+					return "", fmt.Errorf("search parameter cannot be empty")
+				}
 				replace, err := getStringArg(args, "replace")
 				if err != nil {
 					return "", err
@@ -500,7 +524,7 @@ func EditFileTool(workspaceDir string) Tool {
 					}
 				}
 				if !found {
-					return "search pattern not found", nil
+					return "", fmt.Errorf("search pattern '%s' not found in file '%s'", search, path)
 				}
 				newContent = strings.Join(lines, "\n")
 
