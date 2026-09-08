@@ -26,7 +26,7 @@ func (m *Model) handleLLMStream(msg llmStreamMsg) (tea.Model, tea.Cmd) {
 	// Keep IsThinking true while streaming to maintain the spinner/animation
 	m.IsThinking = true
 
-	if m.Config.IsPacingEnabled() && !m.PacingSkipped {
+	if m.Config.EnableNaturalPacing() && !m.PacingSkipped {
 		m.PacingBuffer = append(m.PacingBuffer, []rune(msg.content)...)
 		var cmd tea.Cmd
 		if !m.PacingActive {

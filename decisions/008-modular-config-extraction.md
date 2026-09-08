@@ -15,7 +15,7 @@ timestamp: "2026-09-07T18:35:00-07:00"
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context
 

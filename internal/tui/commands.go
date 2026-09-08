@@ -81,7 +81,7 @@ func (c *PacingCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		m.Config.Client = &engine.ClientConfig{}
 	}
 	if len(args) == 0 {
-		pacing := !m.Config.IsPacingEnabled()
+		pacing := !m.Config.EnableNaturalPacing()
 		m.Config.Client.NaturalPacing = &pacing
 	} else {
 		switch strings.ToLower(args[0]) {
@@ -97,7 +97,7 @@ func (c *PacingCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	if m.Config.IsPacingEnabled() {
+	if m.Config.EnableNaturalPacing() {
 		m.Notification = "Natural reading pacing enabled."
 	} else {
 		m.Notification = "Natural reading pacing disabled."
@@ -365,7 +365,7 @@ func (m *Model) renderConfigString() string {
 	// [ Client / TUI Preferences ]
 	s.WriteString("\n  [ Client / TUI Preferences ]\n")
 	pacingStr := "disabled"
-	if m.Config.IsPacingEnabled() {
+	if m.Config.EnableNaturalPacing() {
 		pacingStr = "enabled (natural reading pace)"
 	}
 	fmt.Fprintf(&s, "    Pacing:          %s\n", pacingStr)
