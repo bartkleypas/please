@@ -223,7 +223,8 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	currentParentID := userNode.ID
+	var asstNode *engine.Node
+	var segments []engine.AssistantSegment
 
 	// Multi-turn tool execution loop
 	for depth := 0; depth < maxDepth; depth++ {
@@ -232,7 +233,12 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 			supportsVision = s.Config.SupportsVision()
 		}
 
-		messages, err := s.Manager.BuildLLMContext(currentParentID, supportsVision)
+		contextNodeID := userNode.ID
+		if asstNode != nil {
+			contextNodeID = asstNode.ID
+		}
+
+		messages, err := s.Manager.BuildLLMContext(contextNodeID, supportsVision)
 		if err != nil {
 			_ = sendSSE(w, flusher, EventError, ErrorPayload{Error: "Context error: " + err.Error()})
 			return
@@ -292,27 +298,52 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Save the Assistant Turn Node
-		asstNode, err := s.Manager.CreateAssistantNode(
-			currentParentID,
-			fullContent.String(),
-			fullThought.String(),
-			accumulatedToolCalls,
-			false,
-		)
-		if err != nil {
-			_ = sendSSE(w, flusher, EventError, ErrorPayload{Error: "Failed to persist assistant turn: " + err.Error()})
-			return
-		}
+		contentChunk := fullContent.String()
+		thoughtChunk := fullThought.String()
 
-		currentParentID = asstNode.ID
+		segments = append(segments, engine.AssistantSegment{
+			Content: contentChunk,
+			Thought: thoughtChunk,
+		})
+		segBytes, _ := json.Marshal(segments)
 
-		if s.EventBus != nil {
-			s.EventBus.Publish(EventNodeSaved, map[string]interface{}{
-				"node_id":   asstNode.ID,
-				"parent_id": asstNode.ParentID,
-				"role":      asstNode.Role,
-			})
+		if asstNode == nil {
+			// First iteration: create the single assistant turn node
+			var err error
+			asstNode, err = s.Manager.CreateAssistantNode(
+				userNode.ID,
+				contentChunk,
+				thoughtChunk,
+				accumulatedToolCalls,
+				false,
+			)
+			if err != nil {
+				_ = sendSSE(w, flusher, EventError, ErrorPayload{Error: "Failed to persist assistant turn: " + err.Error()})
+				return
+			}
+			if asstNode.Metadata == nil {
+				asstNode.Metadata = make(map[string]string)
+			}
+			asstNode.Metadata["segments"] = string(segBytes)
+			_ = s.Manager.Storage.SaveNode(asstNode)
+
+			if s.EventBus != nil {
+				s.EventBus.Publish(EventNodeSaved, map[string]interface{}{
+					"node_id":   asstNode.ID,
+					"parent_id": asstNode.ParentID,
+					"role":      asstNode.Role,
+				})
+			}
+		} else {
+			// Subsequent iterations: update existing assistant turn in-place (same as standalone TUI)
+			asstNode.Content += contentChunk
+			asstNode.Thought += thoughtChunk
+			asstNode.ToolCalls = append(asstNode.ToolCalls, accumulatedToolCalls...)
+			if asstNode.Metadata == nil {
+				asstNode.Metadata = make(map[string]string)
+			}
+			asstNode.Metadata["segments"] = string(segBytes)
+			_ = s.Manager.Storage.SaveNode(asstNode)
 		}
 
 		// If no tools were called, generation turn is complete!
@@ -347,7 +378,7 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 				result = fmt.Sprintf("Error: %s", execErr.Error())
 			}
 
-			// Update assistant observations or create tool node
+			// Update assistant observations on the unified assistant node
 			_ = s.Manager.UpdateAssistantObservations(asstNode.ID, call.ID, result)
 
 			_ = sendSSE(w, flusher, EventToolResult, ToolResultPayload{
@@ -359,14 +390,16 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// If maximum depth reached, notify completion with the latest assistant node
-	if s.Manager != nil && s.Manager.Storage != nil {
-		_ = s.Manager.Storage.SaveSessionHead(sessionID, currentParentID)
+	// If maximum depth reached, notify completion with the assistant node
+	if asstNode != nil {
+		if s.Manager != nil && s.Manager.Storage != nil {
+			_ = s.Manager.Storage.SaveSessionHead(sessionID, asstNode.ID)
+		}
+		_ = sendSSE(w, flusher, EventNodeComplete, NodeCompletePayload{
+			NodeID:    asstNode.ID,
+			ParentID:  asstNode.ParentID,
+			Role:      string(asstNode.Role),
+			Timestamp: time.Now().Format(time.RFC3339),
+		})
 	}
-	_ = sendSSE(w, flusher, EventNodeComplete, NodeCompletePayload{
-		NodeID:    currentParentID,
-		ParentID:  userNode.ID,
-		Role:      string(engine.RoleAssistant),
-		Timestamp: time.Now().Format(time.RFC3339),
-	})
 }

@@ -551,6 +551,52 @@ func TestChatStream_MultiTurnToolCascading(t *testing.T) {
 	if turnCounter != 2 {
 		t.Errorf("expected 2 turns executed on server, got %d", turnCounter)
 	}
+
+	// Verify that the server unified multi-turn tool calling into exactly ONE assistant node
+	loadedGraph, _, err := storage.LoadGraph()
+	if err != nil {
+		t.Fatalf("failed to load graph from storage: %v", err)
+	}
+	nodes := loadedGraph.GetAllNodes()
+	if len(nodes) != 2 {
+		for _, n := range nodes {
+			t.Logf("Found node: ID=%s, Role=%s, ParentID=%s, Content=%q", n.ID, n.Role, n.ParentID, n.Content)
+		}
+		t.Errorf("expected exactly 2 nodes in graph (1 user, 1 unified assistant), got %d", len(nodes))
+	}
+
+	var asstNode *engine.Node
+	for _, n := range nodes {
+		if n.Role == engine.RoleAssistant {
+			asstNode = n
+			break
+		}
+	}
+	if asstNode == nil {
+		t.Fatalf("expected assistant node to exist in storage")
+	}
+
+	if segJSON, ok := asstNode.Metadata["segments"]; !ok {
+		t.Errorf("expected segments in assistant metadata")
+	} else {
+		var segs []engine.AssistantSegment
+		if err := json.Unmarshal([]byte(segJSON), &segs); err != nil {
+			t.Errorf("failed to unmarshal segments: %v", err)
+		} else if len(segs) != 2 {
+			t.Errorf("expected 2 assistant segments, got %d", len(segs))
+		}
+	}
+
+	hasObservation := false
+	for _, obs := range asstNode.Observations {
+		if obs.ToolCallID == "call_123" && strings.Contains(obs.Result, "[Lines 1-64 of test content]") {
+			hasObservation = true
+			break
+		}
+	}
+	if !hasObservation {
+		t.Errorf("expected observation for call_123 on assistant node, got: %+v", asstNode.Observations)
+	}
 }
 
 func TestRemoteDaemonStorage_CreateSupernode(t *testing.T) {
