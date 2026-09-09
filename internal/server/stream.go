@@ -301,6 +301,15 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 		contentChunk := fullContent.String()
 		thoughtChunk := fullThought.String()
 
+		// Fallback: If no structured tool calls were emitted by the provider,
+		// check if the model leaked raw tool calls directly into content (e.g. Gemma <call>...</call>)
+		if len(accumulatedToolCalls) == 0 {
+			if cleanedContent, rawCalls := engine.ExtractContentToolCalls(contentChunk); len(rawCalls) > 0 {
+				contentChunk = cleanedContent
+				accumulatedToolCalls = rawCalls
+			}
+		}
+
 		segments = append(segments, engine.AssistantSegment{
 			Content: contentChunk,
 			Thought: thoughtChunk,

@@ -97,6 +97,15 @@ func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, te
 		return m, tea.Batch(tick())
 	}
 
+	// Fallback: If no structured tool calls were emitted by the provider,
+	// check if the model leaked raw tool calls directly into content (e.g. Gemma <call>...</call>)
+	if len(msg.toolCalls) == 0 {
+		if cleanedContent, rawCalls := engine.ExtractContentToolCalls(m.CurrentStreamingContent); len(rawCalls) > 0 {
+			m.CurrentStreamingContent = cleanedContent
+			msg.toolCalls = rawCalls
+		}
+	}
+
 	var activeID string
 	if msg.activeNodeID != "" {
 		// Update existing node
