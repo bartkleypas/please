@@ -26,9 +26,11 @@ type ServerConfig struct {
 	Model            string        `json:"model,omitempty"`
 	Endpoint         string        `json:"endpoint,omitempty"`
 	VaultPath        string        `json:"vault_path,omitempty"`
+	Vault            string        `json:"vault,omitempty"`
 	StorageType      string        `json:"storage_type,omitempty"` // "jsonl" or "sqlite"
 	EncryptionKey    string        `json:"encryption_key,omitempty"`
 	WorkspaceDir     string        `json:"workspace_dir,omitempty"`
+	Workspace        string        `json:"workspace,omitempty"`
 	AuthToken        string        `json:"auth_token,omitempty"`
 	TLSCertFile      string        `json:"tls_cert_file,omitempty"`
 	TLSKeyFile       string        `json:"tls_key_file,omitempty"`
@@ -63,11 +65,13 @@ type legacyV1Config struct {
 	Model            string        `json:"model"`
 	Endpoint         string        `json:"endpoint"`
 	VaultPath        string        `json:"vault_path"`
+	Vault            string        `json:"vault"`
 	StorageType      string        `json:"storage_type"`
 	EncryptionKey    string        `json:"encryption_key"`
 	NaturalPacing    *bool         `json:"natural_pacing"`
 	Options          *ModelOptions `json:"options"`
 	WorkspaceDir     string        `json:"workspace_dir"`
+	Workspace        string        `json:"workspace"`
 	AuthToken        string        `json:"auth_token"`
 	TLSCertFile      string        `json:"tls_cert_file"`
 	TLSKeyFile       string        `json:"tls_key_file"`
@@ -257,6 +261,14 @@ func migrateConfig(data []byte) (*Config, bool, error) {
 		if cfg.Version == 0 {
 			cfg.Version = CurrentConfigVersion
 		}
+		if cfg.Server != nil {
+			if cfg.Server.VaultPath == "" && cfg.Server.Vault != "" {
+				cfg.Server.VaultPath = cfg.Server.Vault
+			}
+			if cfg.Server.WorkspaceDir == "" && cfg.Server.Workspace != "" {
+				cfg.Server.WorkspaceDir = cfg.Server.Workspace
+			}
+		}
 		return &cfg, false, nil
 	}
 
@@ -284,8 +296,26 @@ func migrateConfig(data []byte) (*Config, bool, error) {
 	}
 	vaultPath := v1.VaultPath
 	if vaultPath == "" {
+		vaultPath = v1.Vault
+	}
+	if vaultPath == "" {
+		if v, ok := raw["vault"].(string); ok && v != "" {
+			vaultPath = v
+		}
+	}
+	if vaultPath == "" {
 		home, _ := os.UserHomeDir()
 		vaultPath = filepath.Join(home, ".local", "share", "please", "vault.db")
+	}
+
+	workspaceDir := v1.WorkspaceDir
+	if workspaceDir == "" {
+		workspaceDir = v1.Workspace
+	}
+	if workspaceDir == "" {
+		if w, ok := raw["workspace"].(string); ok && w != "" {
+			workspaceDir = w
+		}
 	}
 
 	pacing := true
@@ -306,7 +336,7 @@ func migrateConfig(data []byte) (*Config, bool, error) {
 			VaultPath:        vaultPath,
 			StorageType:      storageType,
 			EncryptionKey:    v1.EncryptionKey,
-			WorkspaceDir:     v1.WorkspaceDir,
+			WorkspaceDir:     workspaceDir,
 			AuthToken:        v1.AuthToken,
 			TLSCertFile:      v1.TLSCertFile,
 			TLSKeyFile:       v1.TLSKeyFile,
