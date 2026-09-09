@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/bartkleypas/please/internal/engine"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -124,6 +125,17 @@ func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, te
 			Content: m.CurrentStreamingContent,
 			Thought: m.CurrentStreamingThought,
 		})
+		if len(msg.toolCalls) == 0 {
+			if clean, sig := engine.ExtractSignat(node.Content); sig != "" {
+				node.Content = clean
+				node.Metadata["signat"] = sig
+				if len(segments) > 0 {
+					if lastClean, lastSig := engine.ExtractSignat(segments[len(segments)-1].Content); lastSig != "" {
+						segments[len(segments)-1].Content = lastClean
+					}
+				}
+			}
+		}
 		if segJSON, err := json.Marshal(segments); err == nil {
 			node.Metadata["segments"] = string(segJSON)
 		}

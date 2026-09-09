@@ -348,6 +348,24 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 
 		// If no tools were called, generation turn is complete!
 		if len(accumulatedToolCalls) == 0 {
+			// Clean any trailing signat from the final assistant content into metadata
+			if clean, sig := engine.ExtractSignat(asstNode.Content); sig != "" {
+				asstNode.Content = clean
+				if asstNode.Metadata == nil {
+					asstNode.Metadata = make(map[string]string)
+				}
+				asstNode.Metadata["signat"] = sig
+				if len(segments) > 0 {
+					if lastClean, lastSig := engine.ExtractSignat(segments[len(segments)-1].Content); lastSig != "" {
+						segments[len(segments)-1].Content = lastClean
+					}
+					if segJSON, err := json.Marshal(segments); err == nil {
+						asstNode.Metadata["segments"] = string(segJSON)
+					}
+				}
+				_ = s.Manager.Storage.SaveNode(asstNode)
+			}
+
 			if s.Manager != nil && s.Manager.Storage != nil {
 				_ = s.Manager.Storage.SaveSessionHead(sessionID, asstNode.ID)
 			}
