@@ -1068,3 +1068,71 @@ func TestCompactRange_SessionProtectionGuard(t *testing.T) {
 		t.Errorf("expected error to mention session 'experiment', got: %v", err)
 	}
 }
+
+func TestBuildLLMContext_MissingObservationDefensiveFallback(t *testing.T) {
+	storage := &MockStorage{}
+	mgr := NewManager(NewGraph(), storage)
+
+	root, _ := mgr.CreateNode("", RoleSystem, "System prompt", false)
+	user, _ := mgr.CreateNode(root.ID, RoleUser, "List files please", false)
+
+	// Simulate an assistant turn that executed a tool call, has 2 segments, but Observations is missing/empty
+	tCalls := []ToolCall{
+		{
+			ID:   "call_test_123",
+			Type: "function",
+			Function: struct {
+				Name      string          `json:"name"`
+				Arguments json.RawMessage `json:"arguments"`
+			}{
+				Name:      "list_files_recursive",
+				Arguments: json.RawMessage(`{"path":"."}`),
+			},
+		},
+	}
+	asst, _ := mgr.CreateAssistantNode(user.ID, "", "Thinking...", tCalls, false)
+
+	// Update segments to simulate depth=1 where the turn concluded
+	type AssistantSegment struct {
+		Content string `json:"content"`
+		Thought string `json:"thought"`
+	}
+	segments := []AssistantSegment{
+		{Content: "", Thought: "Thinking..."},
+		{Content: "Here are the files", Thought: ""},
+	}
+	segBytes, _ := json.Marshal(segments)
+	asst.Metadata["segments"] = string(segBytes)
+	asst.Observations = nil // Force missing observations
+
+	msgs, err := mgr.BuildLLMContext(asst.ID, false)
+	if err != nil {
+		t.Fatalf("BuildLLMContext failed: %v", err)
+	}
+
+	// Verify that the tool call message is followed by a tool response message, not back-to-back assistant messages
+	foundToolCallIdx := -1
+	for idx, m := range msgs {
+		if len(m.ToolCalls) > 0 {
+			foundToolCallIdx = idx
+			break
+		}
+	}
+
+	if foundToolCallIdx == -1 {
+		t.Fatalf("expected tool call in messages")
+	}
+
+	if foundToolCallIdx+1 >= len(msgs) {
+		t.Fatalf("expected message after tool call")
+	}
+
+	nextMsg := msgs[foundToolCallIdx+1]
+	if nextMsg.Role != RoleTool {
+		t.Errorf("expected RoleTool immediately after RoleAssistant(tool_calls), got role: %s", nextMsg.Role)
+	}
+	if nextMsg.ToolCallID != "call_test_123" {
+		t.Errorf("expected ToolCallID 'call_test_123', got: %s", nextMsg.ToolCallID)
+	}
+}
+

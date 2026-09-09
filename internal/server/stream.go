@@ -407,6 +407,10 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 
 			// Update assistant observations on the unified assistant node
 			_ = s.Manager.UpdateAssistantObservations(asstNode.ID, call.ID, result)
+			asstNode.Observations = append(asstNode.Observations, engine.ToolObservation{
+				ToolCallID: call.ID,
+				Result:     result,
+			})
 
 			_ = sendSSE(w, flusher, EventToolResult, ToolResultPayload{
 				ID:     call.ID,

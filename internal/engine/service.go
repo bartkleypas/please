@@ -451,6 +451,14 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 							ToolCallID: obs.ToolCallID,
 							Internal:   node.Internal,
 						})
+					} else if j < len(node.ToolCalls) {
+						toolName := node.ToolCalls[j].Function.Name
+						messages = append(messages, Message{
+							Role:       RoleTool,
+							Content:    fmt.Sprintf("[Tool '%s' execution completed.]", toolName),
+							ToolCallID: node.ToolCalls[j].ID,
+							Internal:   node.Internal,
+						})
 					}
 				}
 
@@ -487,6 +495,14 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 							Role:       RoleTool,
 							Content:    truncatedResult,
 							ToolCallID: obs.ToolCallID,
+							Internal:   node.Internal,
+						})
+					} else {
+						toolName := node.ToolCalls[j].Function.Name
+						messages = append(messages, Message{
+							Role:       RoleTool,
+							Content:    fmt.Sprintf("[Tool '%s' execution completed.]", toolName),
+							ToolCallID: node.ToolCalls[j].ID,
 							Internal:   node.Internal,
 						})
 					}

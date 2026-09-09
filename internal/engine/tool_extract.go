@@ -16,6 +16,12 @@ var (
 	// Matches tool_code: tool_name{...}
 	toolCodeRegex = regexp.MustCompile(`(?m)^tool_code:\s*([a-zA-Z0-9_-]+)\s*\{(.*?)\}\s*(.*?)$`)
 
+	// Matches <tool_call>...</tool_call> or <|tool_call|>...</|tool_call|> or <tool_call|>...</tool_call|>
+	toolCallTagRegex = regexp.MustCompile(`(?s)<(?:\|tool_call\||tool_call\||tool_call)>\s*(.*?)\s*(?:</(?:\|tool_call\||tool_call\||tool_call)>|$)`)
+
+	// Matches orphan delimiter tokens like <tool_call|>, <|tool_call|>, <tool_call>, </tool_call>
+	orphanToolTokenRegex = regexp.MustCompile(`(?i)</?(?:\|tool_call\||tool_call\||tool_call)>`)
+
 	// Regex to quote unquoted object keys in pseudo-JSON (e.g. {path: "internal"} -> {"path": "internal"})
 	unquotedKeyRegex = regexp.MustCompile(`([{,]\s*)([a-zA-Z0-9_]+)\s*:`)
 )
@@ -109,5 +115,96 @@ func ExtractContentToolCalls(content string) (string, []ToolCall) {
 		}
 	}
 
-	return content, nil
+	// 3. Check for <tool_call>...</tool_call> tags (JSON or tool_name{...} format)
+	if matches := toolCallTagRegex.FindAllStringSubmatchIndex(content, -1); len(matches) > 0 {
+		for i := len(matches) - 1; i >= 0; i-- {
+			m := matches[i]
+			rawBody := strings.TrimSpace(content[m[2]:m[3]])
+			if rawBody == "" {
+				cleaned = strings.TrimSpace(cleaned[:m[0]] + cleaned[m[1]:])
+				continue
+			}
+
+			// Try 3a: JSON format {"name": "...", "arguments": ...}
+			var jsonMap map[string]interface{}
+			if err := json.Unmarshal([]byte(rawBody), &jsonMap); err == nil {
+				toolName := ""
+				var argsBytes []byte
+				if n, ok := jsonMap["name"].(string); ok && n != "" {
+					toolName = n
+					if rawArg, ok := jsonMap["arguments"]; ok {
+						if strArg, ok := rawArg.(string); ok {
+							argsBytes = []byte(strArg)
+						} else {
+							argsBytes, _ = json.Marshal(rawArg)
+						}
+					}
+				} else if f, ok := jsonMap["function"].(map[string]interface{}); ok {
+					if n, ok := f["name"].(string); ok && n != "" {
+						toolName = n
+						if rawArg, ok := f["arguments"]; ok {
+							if strArg, ok := rawArg.(string); ok {
+								argsBytes = []byte(strArg)
+							} else {
+								argsBytes, _ = json.Marshal(rawArg)
+							}
+						}
+					}
+				}
+
+				if toolName != "" {
+					if len(argsBytes) == 0 {
+						argsBytes = []byte("{}")
+					}
+					callID := fmt.Sprintf("call_%s", strings.ReplaceAll(uuid.New().String(), "-", "")[:8])
+					toolCalls = append([]ToolCall{{
+						ID:   callID,
+						Type: "function",
+						Function: struct {
+							Name      string          `json:"name"`
+							Arguments json.RawMessage `json:"arguments"`
+						}{
+							Name:      toolName,
+							Arguments: argsBytes,
+						},
+					}}, toolCalls...)
+					cleaned = strings.TrimSpace(cleaned[:m[0]] + cleaned[m[1]:])
+					continue
+				}
+			}
+
+			// Try 3b: function syntax inside <tool_call>: [call:]tool_name{...}
+			funcRegex := regexp.MustCompile(`^(?:call:)?([a-zA-Z0-9_-]+)\s*\{(.*?)\}`)
+			if fMatch := funcRegex.FindStringSubmatch(rawBody); len(fMatch) > 0 {
+				toolName := fMatch[1]
+				normJSON := normalizePseudoJSON(fMatch[2])
+				var parsed map[string]interface{}
+				if err := json.Unmarshal([]byte(normJSON), &parsed); err == nil {
+					jsonBytes, _ := json.Marshal(parsed)
+					callID := fmt.Sprintf("call_%s", strings.ReplaceAll(uuid.New().String(), "-", "")[:8])
+					toolCalls = append([]ToolCall{{
+						ID:   callID,
+						Type: "function",
+						Function: struct {
+							Name      string          `json:"name"`
+							Arguments json.RawMessage `json:"arguments"`
+						}{
+							Name:      toolName,
+							Arguments: jsonBytes,
+						},
+					}}, toolCalls...)
+					cleaned = strings.TrimSpace(cleaned[:m[0]] + cleaned[m[1]:])
+					continue
+				}
+			}
+		}
+		if len(toolCalls) > 0 {
+			cleaned = strings.TrimSpace(orphanToolTokenRegex.ReplaceAllString(cleaned, ""))
+			return cleaned, toolCalls
+		}
+	}
+
+	// 4. Strip any leaked orphan delimiter tokens (e.g. <tool_call|>, <|tool_call|>) from content
+	cleaned = strings.TrimSpace(orphanToolTokenRegex.ReplaceAllString(cleaned, ""))
+	return cleaned, nil
 }

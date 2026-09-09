@@ -76,3 +76,52 @@ func TestExtractContentToolCalls_NoToolCalls(t *testing.T) {
 		t.Errorf("expected content unchanged, got: %s", cleaned)
 	}
 }
+
+func TestExtractContentToolCalls_ToolCallTagFormat(t *testing.T) {
+	// JSON format
+	rawJSON := "I will read the log file.\n<tool_call>{\"name\": \"read_file\", \"arguments\": {\"path\": \"log.md\"}}</tool_call>"
+	cleaned, calls := ExtractContentToolCalls(rawJSON)
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 tool call, got %d", len(calls))
+	}
+	if calls[0].Function.Name != "read_file" {
+		t.Errorf("expected read_file, got %s", calls[0].Function.Name)
+	}
+	if !strings.Contains(string(calls[0].Function.Arguments), "log.md") {
+		t.Errorf("expected log.md in args, got %s", string(calls[0].Function.Arguments))
+	}
+	if strings.Contains(cleaned, "<tool_call>") {
+		t.Errorf("expected tool_call tags stripped, got %s", cleaned)
+	}
+
+	// Function syntax format
+	rawFunc := "<tool_call>read_file{path: \"log.md\"}</tool_call>"
+	cleanedFunc, callsFunc := ExtractContentToolCalls(rawFunc)
+	if len(callsFunc) != 1 {
+		t.Fatalf("expected 1 tool call from func format, got %d", len(callsFunc))
+	}
+	if callsFunc[0].Function.Name != "read_file" {
+		t.Errorf("expected read_file, got %s", callsFunc[0].Function.Name)
+	}
+	if cleanedFunc != "" {
+		t.Errorf("expected empty cleaned content, got %s", cleanedFunc)
+	}
+}
+
+func TestExtractContentToolCalls_OrphanTokenCleanup(t *testing.T) {
+	raw := "<tool_call|>"
+	cleaned, calls := ExtractContentToolCalls(raw)
+	if len(calls) != 0 {
+		t.Errorf("expected 0 tool calls, got %d", len(calls))
+	}
+	if cleaned != "" {
+		t.Errorf("expected empty string for orphan delimiter, got: %q", cleaned)
+	}
+
+	rawMixed := "I need to inspect the project trajectory.<tool_call|>"
+	cleanedMixed, _ := ExtractContentToolCalls(rawMixed)
+	if cleanedMixed != "I need to inspect the project trajectory." {
+		t.Errorf("expected cleaned text without delimiter, got: %q", cleanedMixed)
+	}
+}
+
