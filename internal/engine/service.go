@@ -414,7 +414,7 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 					}
 
 					content := seg.Content
-					if m.SignatSteering && j == len(segments)-1 && node.Metadata != nil && node.Metadata["signat"] != "" {
+					if m.SignatSteering && j == len(segments)-1 && len(tCalls) == 0 && node.Metadata != nil && node.Metadata["signat"] != "" {
 						content = content + " " + node.Metadata["signat"]
 					}
 
@@ -512,7 +512,7 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 		}
 
 		signatSuffix := ""
-		if m.SignatSteering && node.Metadata != nil && node.Metadata["signat"] != "" && (node.Role == RoleAssistant || node.Role == RoleSystem) {
+		if m.SignatSteering && len(node.ToolCalls) == 0 && node.Metadata != nil && node.Metadata["signat"] != "" && (node.Role == RoleAssistant || node.Role == RoleSystem) {
 			signatSuffix = " " + node.Metadata["signat"]
 		}
 

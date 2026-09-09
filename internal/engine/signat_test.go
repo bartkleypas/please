@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -118,3 +119,53 @@ func TestBuildLLMContext_SignatRetention(t *testing.T) {
 		t.Errorf("steered mode: expected assistant message to retain signat, got: %q", steeredMessages[2].Content)
 	}
 }
+
+func TestSignatSteering_IntermediateToolCallNotPolluted(t *testing.T) {
+	storage := &MockStorage{}
+	graph := NewGraph()
+	mgr := NewManager(graph, storage)
+	mgr.SignatSteering = true
+
+	root, _ := mgr.CreateNode("", RoleSystem, "You are George 🦉📚", false)
+	user, _ := mgr.CreateNode(root.ID, RoleUser, "List files", false)
+
+	tCall := ToolCall{
+		ID:   "call_1",
+		Type: "function",
+		Function: struct {
+			Name      string          `json:"name"`
+			Arguments json.RawMessage `json:"arguments"`
+		}{
+			Name:      "list_directory",
+			Arguments: json.RawMessage(`{"path":"internal/tui/"}`),
+		},
+	}
+
+	asst, err := mgr.CreateAssistantNode(user.ID, "", "Checking tui directory...", []ToolCall{tCall}, false)
+	if err != nil {
+		t.Fatalf("failed to create assistant node: %v", err)
+	}
+
+	// Signat should be derived in metadata
+	if asst.Metadata["signat"] == "" {
+		t.Errorf("expected silent signat to be derived on node metadata")
+	}
+
+	// BuildLLMContext must NOT steer signat into the intermediate assistant message containing tool calls
+	msgs, err := mgr.BuildLLMContext(asst.ID, false)
+	if err != nil {
+		t.Fatalf("failed to build context: %v", err)
+	}
+
+	for _, msg := range msgs {
+		if msg.Role == RoleAssistant && len(msg.ToolCalls) > 0 {
+			if strings.Contains(msg.Content, "🔍") || strings.Contains(msg.Content, "📜") {
+				t.Errorf("intermediate tool-calling assistant message should NOT contain signat, got: %q", msg.Content)
+			}
+			if msg.Content != "" {
+				t.Errorf("expected empty content for tool-calling assistant message, got: %q", msg.Content)
+			}
+		}
+	}
+}
+
