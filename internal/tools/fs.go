@@ -21,11 +21,8 @@ func getStringArg(args map[string]interface{}, key string) (string, error) {
 }
 
 // ReadFileTool constructs the read_file tool scoped to workspaceDir.
-func ReadFileTool(workspaceDir string) Tool {
-	ws := workspaceDir
-	if ws == "" {
-		ws = "."
-	}
+func ReadFileTool(workspaceDir ...string) Tool {
+	ws, prim := parseWorkspaceArgs(workspaceDir...)
 
 	return Tool{
 		Name:        "read_file",
@@ -59,7 +56,7 @@ func ReadFileTool(workspaceDir string) Tool {
 			if err != nil {
 				return "", err
 			}
-			safePath, err := ValidateSafePath(ws, path)
+			safePath, err := ValidateSafePath(ws, path, prim)
 			if err != nil {
 				return "", err
 			}
@@ -200,11 +197,8 @@ func ReadFileTool(workspaceDir string) Tool {
 }
 
 // WriteFileTool constructs the write_file tool scoped to workspaceDir.
-func WriteFileTool(workspaceDir string) Tool {
-	ws := workspaceDir
-	if ws == "" {
-		ws = "."
-	}
+func WriteFileTool(workspaceDir ...string) Tool {
+	ws, prim := parseWorkspaceArgs(workspaceDir...)
 
 	return Tool{
 		Name:        "write_file",
@@ -238,7 +232,7 @@ func WriteFileTool(workspaceDir string) Tool {
 			if err != nil {
 				return "", err
 			}
-			safePath, err := ValidateSafePath(ws, path)
+			safePath, err := ValidateSafePath(ws, path, prim)
 			if err != nil {
 				return "", err
 			}
@@ -278,11 +272,8 @@ func WriteFileTool(workspaceDir string) Tool {
 }
 
 // AppendFileTool constructs the append_file tool scoped to workspaceDir.
-func AppendFileTool(workspaceDir string) Tool {
-	ws := workspaceDir
-	if ws == "" {
-		ws = "."
-	}
+func AppendFileTool(workspaceDir ...string) Tool {
+	ws, prim := parseWorkspaceArgs(workspaceDir...)
 
 	return Tool{
 		Name:        "append_file",
@@ -312,7 +303,7 @@ func AppendFileTool(workspaceDir string) Tool {
 			if err != nil {
 				return "", err
 			}
-			safePath, err := ValidateSafePath(ws, path)
+			safePath, err := ValidateSafePath(ws, path, prim)
 			if err != nil {
 				return "", err
 			}
@@ -373,11 +364,8 @@ func AppendFileTool(workspaceDir string) Tool {
 }
 
 // EditFileTool constructs the edit_file tool scoped to workspaceDir.
-func EditFileTool(workspaceDir string) Tool {
-	ws := workspaceDir
-	if ws == "" {
-		ws = "."
-	}
+func EditFileTool(workspaceDir ...string) Tool {
+	ws, prim := parseWorkspaceArgs(workspaceDir...)
 
 	return Tool{
 		Name:        "edit_file",
@@ -421,7 +409,7 @@ func EditFileTool(workspaceDir string) Tool {
 				mode = m
 			}
 
-			safePath, err := ValidateSafePath(ws, path)
+			safePath, err := ValidateSafePath(ws, path, prim)
 			if err != nil {
 				return "", err
 			}

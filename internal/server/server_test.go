@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -906,4 +907,138 @@ func TestServer_SessionActor_SerializedQueue(t *testing.T) {
 		t.Errorf("expected session head to point to Alpha 2 assistant node, got content: %q", headNode.Content)
 	}
 }
+
+func TestServer_SessionActor_WorktreeIsolation(t *testing.T) {
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git binary not found, skipping worktree isolation test")
+	}
+
+	tmpDir := t.TempDir()
+	if eval, err := filepath.EvalSymlinks(tmpDir); err == nil {
+		tmpDir = eval
+	}
+	repoDir := filepath.Join(tmpDir, "repo")
+	cfgDir := filepath.Join(tmpDir, "config")
+	_ = os.MkdirAll(repoDir, 0755)
+	_ = os.MkdirAll(cfgDir, 0755)
+	t.Setenv("PLEASE_CONFIG_DIR", cfgDir)
+
+	// Initialize git repo
+	execCmd := func(args ...string) {
+		cmd := exec.Command(gitPath, append([]string{"-C", repoDir}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s failed: %v\nOutput: %s", strings.Join(args, " "), err, string(out))
+		}
+	}
+	execCmd("init", "-b", "main")
+	execCmd("config", "user.name", "Test")
+	execCmd("config", "user.email", "test@test.com")
+	_ = os.WriteFile(filepath.Join(repoDir, "README.md"), []byte("# Hello\n"), 0644)
+	execCmd("add", "README.md")
+	execCmd("commit", "-m", "initial")
+
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	storage, _ := engine.NewSQLiteStorage(dbPath, "")
+	graph := engine.NewGraph()
+	mgr := engine.NewManager(graph, storage)
+	mgr.RegisterDefaultTools(repoDir)
+
+	mockProvider := &engine.MockLLMProvider{
+		StreamHandler: func(messages []engine.Message, tools []engine.Tool) (string, string, []engine.ToolCall, error) {
+			lastMsg := messages[len(messages)-1].Content
+			if strings.Contains(lastMsg, "Write Alpha") {
+				return "", "", []engine.ToolCall{
+					{
+						ID: "call_alpha",
+						Function: struct {
+							Name      string          `json:"name"`
+							Arguments json.RawMessage `json:"arguments"`
+						}{
+							Name:      "write_file",
+							Arguments: []byte(`{"path": "alpha.txt", "content": "hello from alpha"}`),
+						},
+					},
+				}, nil
+			}
+			if strings.Contains(lastMsg, "Write Beta") {
+				return "", "", []engine.ToolCall{
+					{
+						ID: "call_beta",
+						Function: struct {
+							Name      string          `json:"name"`
+							Arguments json.RawMessage `json:"arguments"`
+						}{
+							Name:      "write_file",
+							Arguments: []byte(`{"path": "beta.txt", "content": "hello from beta"}`),
+						},
+					},
+				}, nil
+			}
+			return "Done! 🦉☕", "", nil, nil
+		},
+	}
+
+	cfg := engine.NewDefaultConfig()
+	wtTrue := true
+	cfg.Server.WorktreeIsolation = &wtTrue
+	cfg.Server.WorkspaceDir = repoDir
+
+	srv := NewServerWithProvider(mgr, mockProvider, cfg)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	clientAlpha, _ := engine.NewRemoteDaemonProvider(ts.URL, "", "")
+	clientAlpha.SessionID = "alpha"
+
+	clientBeta, _ := engine.NewRemoteDaemonProvider(ts.URL, "", "")
+	clientBeta.SessionID = "beta"
+
+	// Execute turn for alpha
+	_, err = clientAlpha.GenerateResponse(context.Background(), []engine.Message{
+		{Role: engine.RoleUser, Content: "Write Alpha"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("clientAlpha turn failed: %v", err)
+	}
+
+	// Execute turn for beta
+	_, err = clientBeta.GenerateResponse(context.Background(), []engine.Message{
+		{Role: engine.RoleUser, Content: "Write Beta"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("clientBeta turn failed: %v", err)
+	}
+
+	// 1. Primary workspace should remain 100% clean
+	if _, err := os.Stat(filepath.Join(repoDir, "alpha.txt")); !os.IsNotExist(err) {
+		t.Errorf("alpha.txt leaked into primary repoDir!")
+	}
+	if _, err := os.Stat(filepath.Join(repoDir, "beta.txt")); !os.IsNotExist(err) {
+		t.Errorf("beta.txt leaked into primary repoDir!")
+	}
+
+	// 2. Find worktrees in cfgDir
+	worktreeRoot := filepath.Join(cfgDir, "worktrees")
+	var alphaFileFound, betaFileFound bool
+	_ = filepath.Walk(worktreeRoot, func(p string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() {
+			if strings.HasSuffix(p, "alpha/alpha.txt") {
+				alphaFileFound = true
+			}
+			if strings.HasSuffix(p, "beta/beta.txt") {
+				betaFileFound = true
+			}
+		}
+		return nil
+	})
+
+	if !alphaFileFound {
+		t.Errorf("alpha.txt was not found in alpha's isolated worktree under %s", worktreeRoot)
+	}
+	if !betaFileFound {
+		t.Errorf("beta.txt was not found in beta's isolated worktree under %s", worktreeRoot)
+	}
+}
+
 

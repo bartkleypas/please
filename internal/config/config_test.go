@@ -293,3 +293,34 @@ func TestConfig_VaultAndWorkspaceAliases(t *testing.T) {
 		t.Errorf("expected WorkspaceDir './v2_vault/workspace', got '%s'", cfg2.Server.WorkspaceDir)
 	}
 }
+
+func TestConfig_WorktreeIsolation(t *testing.T) {
+	// Default should be false (opt-in)
+	defCfg := NewDefaultConfig()
+	if defCfg.EnableWorktreeIsolation() {
+		t.Errorf("expected default WorktreeIsolation to be false, got true")
+	}
+
+	// Explicitly enabled
+	tr := true
+	cfgTrue := &Config{
+		Server: &ServerConfig{
+			WorktreeIsolation: &tr,
+		},
+	}
+	if !cfgTrue.EnableWorktreeIsolation() {
+		t.Errorf("expected WorktreeIsolation to be true")
+	}
+
+	// Explicitly disabled
+	fa := false
+	cfgFalse := &Config{
+		Server: &ServerConfig{
+			WorktreeIsolation: &fa,
+		},
+	}
+	if cfgFalse.EnableWorktreeIsolation() {
+		t.Errorf("expected WorktreeIsolation to be false")
+	}
+}
+

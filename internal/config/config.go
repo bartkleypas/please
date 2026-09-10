@@ -36,9 +36,10 @@ type ServerConfig struct {
 	TLSKeyFile       string        `json:"tls_key_file,omitempty"`
 	SandboxPolicy    string        `json:"sandbox_policy,omitempty"` // "strict", "standard", "permissive"
 	MaxToolDepth     *int          `json:"max_tool_depth,omitempty"`
-	SignatSteering   *bool         `json:"signat_steering,omitempty"`
-	AmbientTelemetry *bool         `json:"ambient_telemetry,omitempty"`
-	Options          *ModelOptions `json:"options,omitempty"`
+	SignatSteering    *bool         `json:"signat_steering,omitempty"`
+	AmbientTelemetry  *bool         `json:"ambient_telemetry,omitempty"`
+	WorktreeIsolation *bool         `json:"worktree_isolation,omitempty"`
+	Options           *ModelOptions `json:"options,omitempty"`
 }
 
 // ClientConfig holds settings for connecting the TUI to a remote daemon
@@ -223,6 +224,23 @@ func (s *ServerConfig) EnableAmbientTelemetry() bool {
 func (c *Config) EnableAmbientTelemetry() bool {
 	if c != nil && c.Server != nil {
 		return c.Server.EnableAmbientTelemetry()
+	}
+	return false
+}
+
+// EnableWorktreeIsolation returns whether Git worktree isolation is enabled.
+// Defaults to false (opt-in).
+func (s *ServerConfig) EnableWorktreeIsolation() bool {
+	if s == nil || s.WorktreeIsolation == nil {
+		return false
+	}
+	return *s.WorktreeIsolation
+}
+
+// EnableWorktreeIsolation returns whether Git worktree isolation is enabled from ServerConfig.
+func (c *Config) EnableWorktreeIsolation() bool {
+	if c != nil && c.Server != nil {
+		return c.Server.EnableWorktreeIsolation()
 	}
 	return false
 }

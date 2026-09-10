@@ -1299,3 +1299,56 @@ func TestLocalHarnessProvider_TUIIntegration(t *testing.T) {
 	}
 }
 
+func TestConfigCommand_Worktree(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	storage, _ := engine.NewSQLiteStorage(dbPath, "")
+	graph := engine.NewGraph()
+	mockProvider := &engine.MockLLMProvider{}
+	cfg := engine.NewDefaultConfig()
+
+	m := NewModel(cfg, graph, storage, mockProvider, "")
+
+	// 1. Initially disabled
+	if m.Config.EnableWorktreeIsolation() {
+		t.Errorf("expected worktree isolation initially disabled")
+	}
+
+	// 2. Enable via /config worktree on
+	m.HandleCommand("/config worktree on")
+	if !m.Config.EnableWorktreeIsolation() {
+		t.Errorf("expected worktree isolation enabled after /config worktree on")
+	}
+
+	// 3. Disable via /config worktree off
+	m.HandleCommand("/config worktree off")
+	if m.Config.EnableWorktreeIsolation() {
+		t.Errorf("expected worktree isolation disabled after /config worktree off")
+	}
+}
+
+func TestWorktreeCommand(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	storage, _ := engine.NewSQLiteStorage(dbPath, "")
+	graph := engine.NewGraph()
+	mockProvider := &engine.MockLLMProvider{}
+	cfg := engine.NewDefaultConfig()
+
+	m := NewModel(cfg, graph, storage, mockProvider, "")
+	m.SessionID = "experiment"
+
+	// 1. Status overview
+	m.HandleCommand("/worktree")
+	if !strings.Contains(m.ViewportOverride, "Git Worktree Sandboxing") {
+		t.Errorf("expected ViewportOverride to contain 'Git Worktree Sandboxing', got: %s", m.ViewportOverride)
+	}
+
+	// 2. Usage on invalid subcommand
+	m.HandleCommand("/worktree unknown_cmd")
+	if !strings.Contains(m.Notification, "Usage:") {
+		t.Errorf("expected Usage notification, got: %s", m.Notification)
+	}
+}
+
+

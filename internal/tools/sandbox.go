@@ -37,21 +37,37 @@ func GetAllowedCommands(policy string) []string {
 	}
 }
 
+// parseWorkspaceArgs extracts workspaceDir and optional primaryWorkspace from variadic arguments.
+func parseWorkspaceArgs(workspaceDir ...string) (string, string) {
+	ws := "."
+	prim := ""
+	if len(workspaceDir) > 0 && workspaceDir[0] != "" {
+		ws = workspaceDir[0]
+	}
+	if len(workspaceDir) > 1 && workspaceDir[1] != "" {
+		prim = workspaceDir[1]
+	}
+	return ws, prim
+}
+
 // ValidateSafePath verifies that the target path does not escape the workspace root.
 // It also resolves symbolic links to prevent directory traversal escapes.
-func ValidateSafePath(workspaceDir, path string) (string, error) {
+// If primaryWorkspace is provided and path is an absolute path originating inside primaryWorkspace,
+// it is virtualized by rebasing the relative path onto workspaceDir.
+func ValidateSafePath(workspaceDir, path string, primaryWorkspace ...string) (string, error) {
 	base := workspaceDir
 	if base == "" {
 		base = "."
 	}
-	absRoot, err := filepath.Abs(base)
-	if err != nil {
-		return "", fmt.Errorf("failed to get absolute workspace root: %w", err)
-	}
+	absRoot := canonicalizePath(base)
 
-	// Resolve symlinks on the root itself if present
-	if evalRoot, err := filepath.EvalSymlinks(absRoot); err == nil {
-		absRoot = evalRoot
+	// Virtualize path if it originates from primaryWorkspace
+	if len(primaryWorkspace) > 0 && primaryWorkspace[0] != "" && filepath.IsAbs(path) {
+		primRoot := canonicalizePath(primaryWorkspace[0])
+		canonPath := canonicalizePath(path)
+		if relFromPrim, err := filepath.Rel(primRoot, canonPath); err == nil && !strings.HasPrefix(relFromPrim, "..") {
+			path = relFromPrim
+		}
 	}
 
 	var targetPath string
@@ -61,23 +77,32 @@ func ValidateSafePath(workspaceDir, path string) (string, error) {
 		targetPath = filepath.Join(absRoot, path)
 	}
 
-	absPath, err := filepath.Abs(targetPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to get absolute path: %w", err)
+	canonicalPath := canonicalizePath(targetPath)
+
+	// Boundary check against canonical workspace root
+	rel, err := filepath.Rel(absRoot, canonicalPath)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return "", fmt.Errorf("security error: path '%s' is outside of workspace root (%s)", path, absRoot)
 	}
 
-	// Canonicalize absPath if it or any ancestor exists
-	canonicalPath := absPath
-	checkPath := absPath
+	return canonicalPath, nil
+}
+
+// canonicalizePath resolves symlinks on existing ancestors of a path
+func canonicalizePath(p string) string {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		abs = filepath.Clean(p)
+	}
+	checkPath := abs
 	for checkPath != "" && checkPath != "/" && checkPath != "." {
 		if evalPath, err := filepath.EvalSymlinks(checkPath); err == nil {
-			relFromCheck, err := filepath.Rel(checkPath, absPath)
+			relFromCheck, err := filepath.Rel(checkPath, abs)
 			if err == nil {
 				if relFromCheck == "." {
-					canonicalPath = evalPath
-				} else {
-					canonicalPath = filepath.Join(evalPath, relFromCheck)
+					return evalPath
 				}
+				return filepath.Join(evalPath, relFromCheck)
 			}
 			break
 		}
@@ -87,14 +112,7 @@ func ValidateSafePath(workspaceDir, path string) (string, error) {
 		}
 		checkPath = parent
 	}
-
-	// Boundary check against canonical workspace root
-	rel, err := filepath.Rel(absRoot, canonicalPath)
-	if err != nil || strings.HasPrefix(rel, "..") {
-		return "", fmt.Errorf("security error: path '%s' is outside of workspace root (%s)", path, absRoot)
-	}
-
-	return canonicalPath, nil
+	return abs
 }
 
 // ParseAndValidatePipeline decomposes compound shell commands and verifies that every binary is permitted.

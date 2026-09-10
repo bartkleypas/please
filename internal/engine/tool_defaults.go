@@ -16,5 +16,5 @@ func (m *Manager) RegisterDefaultTools(workspaceDir ...string) {
 		ws = workspaceDir[0]
 		m.WorkspaceDir = ws
 	}
-	tools.RegisterDefaultTools(m.Registry, ws)
+	tools.RegisterDefaultTools(m.Registry, workspaceDir...)
 }

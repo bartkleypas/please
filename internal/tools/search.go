@@ -10,11 +10,8 @@ import (
 )
 
 // ListDirectoryTool constructs the list_directory tool scoped to workspaceDir.
-func ListDirectoryTool(workspaceDir string) Tool {
-	ws := workspaceDir
-	if ws == "" {
-		ws = "."
-	}
+func ListDirectoryTool(workspaceDir ...string) Tool {
+	ws, prim := parseWorkspaceArgs(workspaceDir...)
 
 	return Tool{
 		Name:        "list_directory",
@@ -36,7 +33,7 @@ func ListDirectoryTool(workspaceDir string) Tool {
 			if err != nil {
 				return "", err
 			}
-			safePath, err := ValidateSafePath(ws, path)
+			safePath, err := ValidateSafePath(ws, path, prim)
 			if err != nil {
 				return "", err
 			}
@@ -64,11 +61,8 @@ func ListDirectoryTool(workspaceDir string) Tool {
 }
 
 // GrepSearchTool constructs the grep_search tool scoped to workspaceDir.
-func GrepSearchTool(workspaceDir string) Tool {
-	ws := workspaceDir
-	if ws == "" {
-		ws = "."
-	}
+func GrepSearchTool(workspaceDir ...string) Tool {
+	ws, prim := parseWorkspaceArgs(workspaceDir...)
 
 	return Tool{
 		Name:        "grep_search",
@@ -107,7 +101,7 @@ func GrepSearchTool(workspaceDir string) Tool {
 				includePattern = inc
 			}
 
-			safePath, err := ValidateSafePath(ws, searchPath)
+			safePath, err := ValidateSafePath(ws, searchPath, prim)
 			if err != nil {
 				return "", err
 			}
@@ -168,11 +162,8 @@ func GrepSearchTool(workspaceDir string) Tool {
 }
 
 // ListFilesRecursiveTool constructs the list_files_recursive tool scoped to workspaceDir.
-func ListFilesRecursiveTool(workspaceDir string) Tool {
-	ws := workspaceDir
-	if ws == "" {
-		ws = "."
-	}
+func ListFilesRecursiveTool(workspaceDir ...string) Tool {
+	ws, prim := parseWorkspaceArgs(workspaceDir...)
 
 	return Tool{
 		Name:        "list_files_recursive",
@@ -193,7 +184,7 @@ func ListFilesRecursiveTool(workspaceDir string) Tool {
 			if p, ok := args["path"].(string); ok && p != "" {
 				searchPath = p
 			}
-			safePath, err := ValidateSafePath(ws, searchPath)
+			safePath, err := ValidateSafePath(ws, searchPath, prim)
 			if err != nil {
 				return "", err
 			}

@@ -12,6 +12,7 @@ import (
 
 	"path/filepath"
 
+	"github.com/bartkleypas/please/internal/tools"
 	"github.com/google/uuid"
 )
 
@@ -56,6 +57,28 @@ func NewManager(g *Graph, s Storage) *Manager {
 		WorkspaceDir: ".",
 		NumCtx:       32768,
 	}
+}
+
+// CloneWithWorkspace creates a lightweight copy of the manager scoped to a new workspace directory
+// (such as a Git worktree), while sharing the same underlying Graph DAG, Storage vault, and
+// runtime tuning parameters.
+func (m *Manager) CloneWithWorkspace(workspaceDir string, primaryWorkspace ...string) *Manager {
+	cloned := &Manager{
+		Graph:            m.Graph,
+		Storage:          m.Storage,
+		Registry:         NewToolRegistry(),
+		WorkspaceDir:     workspaceDir,
+		NumCtx:           m.NumCtx,
+		SignatSteering:   m.SignatSteering,
+		AmbientTelemetry: m.AmbientTelemetry,
+		clientContext:    m.clientContext,
+	}
+	prim := m.WorkspaceDir
+	if len(primaryWorkspace) > 0 && primaryWorkspace[0] != "" {
+		prim = primaryWorkspace[0]
+	}
+	tools.RegisterDefaultTools(cloned.Registry, workspaceDir, prim)
+	return cloned
 }
 
 // SetClientContext sets temporary client editor context (e.g. active_file, cursor_line).

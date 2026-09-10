@@ -1192,5 +1192,61 @@ func TestBuildLLMContext_MissingObservationDefensiveFallback(t *testing.T) {
 	}
 }
 
+func TestManager_CloneWithWorkspace(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	storage, _ := NewSQLiteStorage(dbPath, "")
+	graph := NewGraph()
+	primaryDir := filepath.Join(tmpDir, "primary")
+	worktreeDir := filepath.Join(tmpDir, "worktree")
+	_ = os.MkdirAll(primaryDir, 0755)
+	_ = os.MkdirAll(worktreeDir, 0755)
+
+	mgr := NewManager(graph, storage)
+	mgr.RegisterDefaultTools(primaryDir)
+
+	cloned := mgr.CloneWithWorkspace(worktreeDir, primaryDir)
+
+	// Verify shared DAG and persistence
+	if cloned.Graph != mgr.Graph {
+		t.Errorf("expected cloned manager to share same Graph pointer")
+	}
+	if cloned.Storage != mgr.Storage {
+		t.Errorf("expected cloned manager to share same Storage pointer")
+	}
+	if cloned.WorkspaceDir != worktreeDir {
+		t.Errorf("expected cloned WorkspaceDir to be %s, got %s", worktreeDir, cloned.WorkspaceDir)
+	}
+
+	// Verify tool registry is distinct and properly scoped
+	if cloned.Registry == mgr.Registry {
+		t.Errorf("expected cloned manager to have distinct ToolRegistry")
+	}
+
+	// Execute write_file via cloned manager
+	_, err := cloned.ExecuteToolCall(context.Background(), ToolCall{
+		ID: "call_clone_test",
+		Function: struct {
+			Name      string          `json:"name"`
+			Arguments json.RawMessage `json:"arguments"`
+		}{
+			Name:      "write_file",
+			Arguments: []byte(`{"path": "hello.txt", "content": "from worktree"}`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("write_file in cloned manager failed: %v", err)
+	}
+
+	// Verify file was written to worktreeDir and NOT primaryDir
+	if _, err := os.Stat(filepath.Join(worktreeDir, "hello.txt")); err != nil {
+		t.Errorf("expected hello.txt in worktreeDir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(primaryDir, "hello.txt")); !os.IsNotExist(err) {
+		t.Errorf("hello.txt leaked into primaryDir!")
+	}
+}
+
+
 
 

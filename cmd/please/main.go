@@ -88,6 +88,7 @@ func main() {
 	flag.IntVar(ctxFlag, "ctx", 0, "Context window size in tokens (shorthand)")
 	maxTokensFlag := flag.Int("max-tokens", 0, "Maximum response tokens to generate (e.g., 2048)")
 	sessionFlag := flag.String("session", "", "Named session identifier (default: from config or 'main')")
+	worktreeFlag := flag.Bool("worktree", false, "Enable isolated Git worktree sandboxing for named sessions")
 
 	var images arrayFlags
 	flag.Var(&images, "image", "Path to an image to attach (can be specified multiple times)")
@@ -106,6 +107,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  -v, --vault <path>     Path to a custom vault file\n")
 		fmt.Fprintf(os.Stderr, "  -c, --config <path>    Path to a custom configuration JSON file\n")
 		fmt.Fprintf(os.Stderr, "  -w, --workspace <path> Path to project workspace directory\n")
+		fmt.Fprintf(os.Stderr, "      --worktree         Enable isolated Git worktree sandboxing\n")
 		fmt.Fprintf(os.Stderr, "  -p, --parent <id>      Parent node ID for new message\n")
 		fmt.Fprintf(os.Stderr, "  -j, --jump <id>        Node ID to jump to in interactive mode\n")
 		fmt.Fprintf(os.Stderr, "      --session <name>   Named session identifier (default: 'main')\n")
@@ -146,6 +148,12 @@ func main() {
 
 	if *workspacePath != "" {
 		cfg.Server.WorkspaceDir = *workspacePath
+	}
+	if *worktreeFlag {
+		if cfg.Server == nil {
+			cfg.Server = &engine.ServerConfig{}
+		}
+		cfg.Server.WorktreeIsolation = worktreeFlag
 	}
 
 	// Apply CLI flag overrides to cfg.Server.Options
@@ -354,6 +362,7 @@ func runServe(args []string) {
 	tokenFlag := fs.String("token", "", "Pre-shared bearer token for authentication")
 	vaultPath := fs.String("vault", "", "Path to vault file")
 	workspacePath := fs.String("workspace", "", "Path to workspace directory")
+	worktreeFlag := fs.Bool("worktree", false, "Enable isolated Git worktree sandboxing for concurrent sessions")
 	configPath := fs.String("config", "", "Path to configuration file")
 	fs.StringVar(configPath, "c", "", "Path to configuration file (shorthand)")
 
@@ -373,6 +382,9 @@ func runServe(args []string) {
 
 	if *workspacePath != "" {
 		cfg.Server.WorkspaceDir = *workspacePath
+	}
+	if *worktreeFlag {
+		cfg.Server.WorktreeIsolation = worktreeFlag
 	}
 	if *tokenFlag != "" {
 		cfg.Server.AuthToken = *tokenFlag

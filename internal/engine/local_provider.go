@@ -8,15 +8,17 @@ import (
 	"sync"
 
 	"github.com/bartkleypas/please/internal/tools"
+	"github.com/bartkleypas/please/internal/worktree"
 )
 
 // LocalHarnessProvider adapts SessionHarness into a Provider interface,
 // allowing the standalone interactive TUI to consume the canonical multi-turn
 // agent lifecycle in-process identically to a remote daemon client.
 type LocalHarnessProvider struct {
-	Harness   *SessionHarness
-	SessionID string
-	mu        sync.RWMutex
+	Harness        *SessionHarness
+	SessionID      string
+	PrimaryManager *Manager
+	mu             sync.RWMutex
 }
 
 // NewLocalHarnessProvider instantiates a new LocalHarnessProvider.
@@ -24,17 +26,43 @@ func NewLocalHarnessProvider(harness *SessionHarness, sessionID string) *LocalHa
 	if sessionID == "" {
 		sessionID = "main"
 	}
-	return &LocalHarnessProvider{
-		Harness:   harness,
-		SessionID: sessionID,
+	p := &LocalHarnessProvider{
+		Harness:        harness,
+		SessionID:      sessionID,
+		PrimaryManager: harness.Manager,
 	}
+	p.updateHarnessWorkspace(sessionID)
+	return p
 }
 
-// SetSessionID updates the active session identifier.
+// SetSessionID updates the active session identifier and re-binds worktree isolation if active.
 func (p *LocalHarnessProvider) SetSessionID(sessionID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.SessionID = sessionID
+	p.updateHarnessWorkspace(sessionID)
+}
+
+func (p *LocalHarnessProvider) updateHarnessWorkspace(sessionID string) {
+	if p.Harness == nil || p.Harness.Config == nil || !p.Harness.Config.EnableWorktreeIsolation() {
+		return
+	}
+	if p.PrimaryManager == nil {
+		p.PrimaryManager = p.Harness.Manager
+	}
+
+	if sessionID == "" || sessionID == "main" {
+		p.Harness.Manager = p.PrimaryManager
+		return
+	}
+
+	configDir, _ := GetConfigDir()
+	wtMgr := worktree.NewManager(configDir, p.PrimaryManager.WorkspaceDir)
+	if wtMgr.IsGitAvailable() && wtMgr.IsGitRepo() {
+		if wtDir, _, err := wtMgr.EnsureWorktree(sessionID); err == nil && wtDir != "" {
+			p.Harness.Manager = p.PrimaryManager.CloneWithWorkspace(wtDir, p.PrimaryManager.WorkspaceDir)
+		}
+	}
 }
 
 // GetSessionID returns the current session identifier.

@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/bartkleypas/please/internal/engine"
+	"github.com/bartkleypas/please/internal/worktree"
 )
 
 type turnResult struct {
@@ -33,7 +34,19 @@ type SessionActor struct {
 
 func newSessionActor(sessionID string, mgr *engine.Manager, provider engine.Provider, cfg *engine.Config, onNodeSaved func(*engine.Node)) *SessionActor {
 	ctx, cancel := context.WithCancel(context.Background())
-	harness := engine.NewSessionHarness(mgr, provider, cfg)
+	sessionMgr := mgr
+
+	if cfg != nil && cfg.EnableWorktreeIsolation() && sessionID != "" && sessionID != "main" {
+		configDir, _ := engine.GetConfigDir()
+		wtMgr := worktree.NewManager(configDir, mgr.WorkspaceDir)
+		if wtMgr.IsGitAvailable() && wtMgr.IsGitRepo() {
+			if wtDir, _, err := wtMgr.EnsureWorktree(sessionID); err == nil && wtDir != "" {
+				sessionMgr = mgr.CloneWithWorkspace(wtDir, mgr.WorkspaceDir)
+			}
+		}
+	}
+
+	harness := engine.NewSessionHarness(sessionMgr, provider, cfg)
 	harness.OnNodeSaved = onNodeSaved
 
 	actor := &SessionActor{
