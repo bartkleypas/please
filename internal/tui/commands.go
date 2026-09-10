@@ -981,6 +981,9 @@ func (c *SessionCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		if rdp, ok := m.Provider.(*engine.RemoteDaemonProvider); ok {
 			rdp.SessionID = targetSession
 		}
+		if lhp, ok := m.Provider.(*engine.LocalHarnessProvider); ok {
+			lhp.SetSessionID(targetSession)
+		}
 		if rds, ok := m.Manager.Storage.(*engine.RemoteDaemonStorage); ok {
 			rds.SessionID = targetSession
 		}
@@ -1008,6 +1011,9 @@ func (c *SessionCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		m.SessionID = targetSession
 		if rdp, ok := m.Provider.(*engine.RemoteDaemonProvider); ok {
 			rdp.SessionID = targetSession
+		}
+		if lhp, ok := m.Provider.(*engine.LocalHarnessProvider); ok {
+			lhp.SetSessionID(targetSession)
 		}
 		if rds, ok := m.Manager.Storage.(*engine.RemoteDaemonStorage); ok {
 			rds.SessionID = targetSession

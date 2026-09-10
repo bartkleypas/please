@@ -328,7 +328,9 @@ func main() {
 		startID = *jumpID
 	}
 
-	m := tui.NewModel(cfg, graph, storage, provider, startID)
+	harness := engine.NewSessionHarness(mgr, provider, cfg)
+	localProvider := engine.NewLocalHarnessProvider(harness, sessionName)
+	m := tui.NewModel(cfg, graph, storage, localProvider, startID)
 	m.SessionID = sessionName
 	m.Server = webServer
 	p := tea.NewProgram(&m, tea.WithAltScreen())

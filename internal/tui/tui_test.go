@@ -1238,3 +1238,64 @@ func TestSessionCommand(t *testing.T) {
 		t.Errorf("expected CurrentID to jump back to main head %s, got %s", mainAsst.ID, m.CurrentID)
 	}
 }
+
+func TestLocalHarnessProvider_TUIIntegration(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	storage, _ := engine.NewSQLiteStorage(dbPath, "")
+	graph := engine.NewGraph()
+	mgr := engine.NewManager(graph, storage)
+
+	mockProvider := &engine.MockLLMProvider{
+		StreamHandler: func(messages []engine.Message, tools []engine.Tool) (string, string, []engine.ToolCall, error) {
+			return "Hello from LocalHarnessProvider! 🦉☕", "Thinking...", nil, nil
+		},
+	}
+
+	cfg := engine.NewDefaultConfig()
+	pacing := false
+	cfg.Client.NaturalPacing = &pacing
+	harness := engine.NewSessionHarness(mgr, mockProvider, cfg)
+	localProvider := engine.NewLocalHarnessProvider(harness, "main")
+
+	m := NewModel(cfg, graph, storage, localProvider, "")
+	m.SessionID = "main"
+
+	// Simulate user typing a message
+	userNode, _ := mgr.CreateNode("", engine.RoleUser, "Hi", false)
+	m.CurrentID = userNode.ID
+
+	// Trigger stream via LocalHarnessProvider
+	contentChan, _, _, _ := localProvider.GenerateResponseStream(
+		context.Background(),
+		[]engine.Message{{Role: engine.RoleUser, Content: "Hi", ID: userNode.ID}},
+		nil,
+	)
+
+	// Stream chunks into TUI
+	for chunk := range contentChan {
+		newM, _ := m.handleLLMStream(llmStreamMsg{content: chunk, activeNodeID: userNode.ID})
+		m = *newM.(*Model)
+	}
+
+	// Stream finished
+	newM, _ := m.handleLLMStreamFinished(llmStreamFinishedMsg{activeNodeID: userNode.ID})
+	m = *newM.(*Model)
+
+	// Verify that m.CurrentID advanced to the assistant node created by the harness
+	if m.CurrentID == userNode.ID {
+		t.Errorf("expected m.CurrentID to advance to new assistant node, still at user node: %s", m.CurrentID)
+	}
+
+	asstNode, err := mgr.GetNode(m.CurrentID)
+	if err != nil || asstNode == nil {
+		t.Fatalf("failed to retrieve current node: %v", err)
+	}
+	if asstNode.Role != engine.RoleAssistant {
+		t.Errorf("expected RoleAssistant, got: %s", asstNode.Role)
+	}
+	if !strings.Contains(asstNode.Content, "Hello from LocalHarnessProvider") {
+		t.Errorf("expected assistant content, got: %q", asstNode.Content)
+	}
+}
+

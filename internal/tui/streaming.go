@@ -78,15 +78,19 @@ func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, te
 		return m, nil
 	}
 
-	if m.RemoteURL != "" {
-		// In connected mode, the remote daemon autonomously manages tool execution
-		// and persists assistant/tool turns directly in the vault.
+	if _, ok := m.Provider.(*engine.LocalHarnessProvider); ok || m.RemoteURL != "" {
+		// When driven by a SessionHarness (either remote daemon or in-process LocalHarnessProvider),
+		// the harness autonomously executes tools, records observations, and persists turns.
 		_, lastID, _ := m.Manager.Sync()
-		if lastID != "" {
-			m.CurrentID = lastID
-			if m.SessionID != "" && m.Manager != nil && m.Manager.Storage != nil {
+		if m.SessionID != "" && m.Manager != nil && m.Manager.Storage != nil {
+			if headID, err := m.Manager.Storage.GetSessionHead(m.SessionID); err == nil && headID != "" {
+				m.CurrentID = headID
+			} else if lastID != "" {
+				m.CurrentID = lastID
 				_ = m.Manager.Storage.SaveSessionHead(m.SessionID, m.CurrentID)
 			}
+		} else if lastID != "" {
+			m.CurrentID = lastID
 		}
 		m.LastActivity = time.Now()
 		m.CurrentStreamingContent = ""
