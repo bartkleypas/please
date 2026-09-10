@@ -27,6 +27,7 @@ type Server struct {
 	Config    *engine.Config
 	AuthToken string
 	EventBus  *EventBus
+	Actors    *SessionActorRegistry
 	server    *http.Server
 	host      string
 	port      int
@@ -37,11 +38,22 @@ type Server struct {
 
 // NewServer creates a new Server instance
 func NewServer(mgr *engine.Manager) *Server {
-	return &Server{
+	bus := NewEventBus()
+	srv := &Server{
 		Manager:  mgr,
-		EventBus: NewEventBus(),
+		EventBus: bus,
 		host:     "127.0.0.1",
 	}
+	srv.Actors = NewSessionActorRegistry(mgr, nil, nil, func(node *engine.Node) {
+		if srv.EventBus != nil {
+			srv.EventBus.Publish(EventNodeSaved, map[string]interface{}{
+				"node_id":   node.ID,
+				"parent_id": node.ParentID,
+				"role":      node.Role,
+			})
+		}
+	})
+	return srv
 }
 
 // NewServerWithProvider creates a Server instance with provider and configuration
@@ -53,7 +65,7 @@ func NewServerWithProvider(mgr *engine.Manager, provider engine.LLMProvider, cfg
 			mgr.NumCtx = *cfg.Server.Options.NumCtx
 		}
 	}
-	return &Server{
+	srv := &Server{
 		Manager:   mgr,
 		Provider:  provider,
 		Config:    cfg,
@@ -61,6 +73,16 @@ func NewServerWithProvider(mgr *engine.Manager, provider engine.LLMProvider, cfg
 		EventBus:  NewEventBus(),
 		host:      "127.0.0.1",
 	}
+	srv.Actors = NewSessionActorRegistry(mgr, provider, cfg, func(node *engine.Node) {
+		if srv.EventBus != nil {
+			srv.EventBus.Publish(EventNodeSaved, map[string]interface{}{
+				"node_id":   node.ID,
+				"parent_id": node.ParentID,
+				"role":      node.Role,
+			})
+		}
+	})
+	return srv
 }
 
 // SetProvider updates the LLMProvider on the server
@@ -68,6 +90,9 @@ func (s *Server) SetProvider(p engine.LLMProvider) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Provider = p
+	if s.Actors != nil {
+		s.Actors.SetProvider(p)
+	}
 }
 
 // SetConfig updates the configuration on the server
@@ -77,6 +102,9 @@ func (s *Server) SetConfig(cfg *engine.Config) {
 	s.Config = cfg
 	if cfg != nil && cfg.Server != nil && cfg.Server.AuthToken != "" {
 		s.AuthToken = cfg.Server.AuthToken
+	}
+	if s.Actors != nil {
+		s.Actors.SetConfig(cfg)
 	}
 }
 
@@ -201,6 +229,9 @@ func (s *Server) Stop() error {
 	}
 
 	s.running = false
+	if s.Actors != nil {
+		s.Actors.StopAll()
+	}
 	return nil
 }
 

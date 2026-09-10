@@ -13,7 +13,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/bartkleypas/please/internal/engine"
 )
@@ -814,3 +816,94 @@ func TestServer_Sessions(t *testing.T) {
 		t.Fatalf("unexpected list: %v", list)
 	}
 }
+
+func TestServer_SessionActor_SerializedQueue(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	storage, _ := engine.NewSQLiteStorage(dbPath, "")
+	graph := engine.NewGraph()
+	mgr := engine.NewManager(graph, storage)
+
+	var executionOrder []string
+	var mu sync.Mutex
+
+	mockProvider := &engine.MockLLMProvider{
+		StreamHandler: func(messages []engine.Message, tools []engine.Tool) (string, string, []engine.ToolCall, error) {
+			mu.Lock()
+			lastMsg := messages[len(messages)-1].Content
+			executionOrder = append(executionOrder, lastMsg)
+			mu.Unlock()
+			time.Sleep(20 * time.Millisecond)
+			return "Response to " + lastMsg + " 🦉☕", "", nil, nil
+		},
+	}
+
+	cfg := engine.NewDefaultConfig()
+	srv := NewServerWithProvider(mgr, mockProvider, cfg)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	clientAlpha, err := engine.NewRemoteDaemonProvider(ts.URL, "", "")
+	if err != nil {
+		t.Fatalf("failed to init RemoteDaemonProvider: %v", err)
+	}
+	clientAlpha.SessionID = "session-alpha"
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Fire two requests concurrently to session-alpha
+	var res1, res2 *engine.Message
+	var err1, err2 error
+
+	go func() {
+		defer wg.Done()
+		res1, err1 = clientAlpha.GenerateResponse(context.Background(), []engine.Message{
+			{Role: engine.RoleUser, Content: "Alpha 1"},
+		}, nil)
+	}()
+
+	go func() {
+		defer wg.Done()
+		time.Sleep(5 * time.Millisecond) // Ensure Alpha 1 queues first
+		res2, err2 = clientAlpha.GenerateResponse(context.Background(), []engine.Message{
+			{Role: engine.RoleUser, Content: "Alpha 2"},
+		}, nil)
+	}()
+
+	wg.Wait()
+
+	if err1 != nil {
+		t.Fatalf("Alpha 1 failed: %v", err1)
+	}
+	if err2 != nil {
+		t.Fatalf("Alpha 2 failed: %v", err2)
+	}
+
+	if !strings.Contains(res1.Content, "Alpha 1") {
+		t.Errorf("expected response 1 to match Alpha 1, got: %s", res1.Content)
+	}
+	if !strings.Contains(res2.Content, "Alpha 2") {
+		t.Errorf("expected response 2 to match Alpha 2, got: %s", res2.Content)
+	}
+
+	mu.Lock()
+	if len(executionOrder) != 2 || executionOrder[0] != "Alpha 1" || executionOrder[1] != "Alpha 2" {
+		t.Errorf("expected sequential execution [Alpha 1, Alpha 2], got: %v", executionOrder)
+	}
+	mu.Unlock()
+
+	// Verify session head is the second response node
+	headID, err := storage.GetSessionHead("session-alpha")
+	if err != nil {
+		t.Fatalf("GetSessionHead failed: %v", err)
+	}
+	headNode, err := mgr.GetNode(headID)
+	if err != nil || headNode == nil {
+		t.Fatalf("head node %q not found in graph", headID)
+	}
+	if !strings.Contains(headNode.Content, "Alpha 2") {
+		t.Errorf("expected session head to point to Alpha 2 assistant node, got content: %q", headNode.Content)
+	}
+}
+

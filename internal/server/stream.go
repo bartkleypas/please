@@ -134,323 +134,74 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 		sessionID = "main"
 	}
 
-	if s.Manager != nil {
-		clientCtx := make(map[string]string)
-		if req.Context != nil {
-			for k, v := range req.Context {
-				clientCtx[k] = v
-			}
-		}
-		if req.ActiveFile != "" {
-			clientCtx["active_file"] = req.ActiveFile
-		}
-		if req.CursorLine > 0 {
-			clientCtx["cursor_line"] = fmt.Sprintf("%d", req.CursorLine)
-		}
-		if len(clientCtx) > 0 {
-			s.Manager.SetClientContext(clientCtx)
-			defer s.Manager.SetClientContext(nil)
-		}
+	if s.Actors == nil {
+		_ = sendSSE(w, flusher, EventError, ErrorPayload{Error: "server actors registry not initialized"})
+		return
 	}
 
-	// 1. Resolve existing user node if specified (e.g. created by client beforehand)
-	var userNode *engine.Node
-	if req.NodeID != "" {
-		if existing, err := s.Manager.GetNode(req.NodeID); err == nil && existing != nil {
-			userNode = existing
-		} else {
-			// Sync graph in case node was just written by client via POST /api/v1/nodes
-			if _, _, syncErr := s.Manager.Sync(); syncErr == nil {
-				if syncedNode, err := s.Manager.GetNode(req.NodeID); err == nil && syncedNode != nil {
-					userNode = syncedNode
-				}
-			}
-		}
+	actor := s.Actors.GetOrCreate(sessionID)
+	eventCh := make(chan engine.HarnessEvent, 64)
+	turnReq := engine.TurnRequest{
+		SessionID:    sessionID,
+		UserNodeID:   req.NodeID,
+		ParentID:     req.ParentID,
+		Message:      req.Message,
+		Role:         req.Role,
+		Images:       req.Images,
+		MaxToolDepth: req.MaxToolDepth,
+		ActiveFile:   req.ActiveFile,
+		CursorLine:   req.CursorLine,
+		Context:      req.Context,
 	}
 
-	// 2. Resolve parent ID if a new user node must be created
-	parentID := req.ParentID
-	if userNode == nil && parentID == "" {
-		// Try resolving from this session's head first
-		if s.Manager != nil && s.Manager.Storage != nil {
-			if headID, err := s.Manager.Storage.GetSessionHead(sessionID); err == nil && headID != "" {
-				parentID = headID
-			}
-		}
-		if parentID == "" {
-			// Sync graph to get latest active leaf
-			_, lastID, err := s.Manager.Sync()
-			if err == nil && lastID != "" {
-				parentID = lastID
-			}
-		}
+	resultChan, err := actor.Submit(r.Context(), turnReq, eventCh)
+	if err != nil {
+		_ = sendSSE(w, flusher, EventError, ErrorPayload{Error: err.Error()})
+		return
 	}
 
-	// 3. Create User Node if not already existing
-	if userNode == nil {
-		role := engine.RoleUser
-		if req.Role != "" {
-			role = engine.Role(req.Role)
-		}
-
-		var err error
-		userNode, err = s.Manager.CreateNode(parentID, role, req.Message, false)
-		if err != nil {
-			_ = sendSSE(w, flusher, EventError, ErrorPayload{Error: "Failed to create node: " + err.Error()})
-			return
-		}
-
-		if len(req.Images) > 0 {
-			s.Manager.AttachImages(userNode, req.Images)
-			_ = s.Manager.Storage.SaveNode(userNode)
-		}
-
-		if s.EventBus != nil {
-			s.EventBus.Publish(EventNodeSaved, map[string]interface{}{
-				"node_id":   userNode.ID,
-				"parent_id": userNode.ParentID,
-				"role":      userNode.Role,
+	for ev := range eventCh {
+		switch ev.Kind {
+		case engine.HarnessEventToken:
+			_ = sendSSE(w, flusher, EventToken, TokenPayload{Chunk: ev.Chunk})
+		case engine.HarnessEventThought:
+			_ = sendSSE(w, flusher, EventThought, ThoughtPayload{Chunk: ev.Chunk})
+		case engine.HarnessEventToolCall:
+			_ = sendSSE(w, flusher, EventToolCall, ToolCallPayload{
+				ID:        ev.ToolCallID,
+				Tool:      ev.ToolName,
+				Arguments: ev.ToolArgs,
 			})
-		}
-	}
-
-	maxDepth := req.MaxToolDepth
-	if maxDepth <= 0 && s.Config != nil && s.Config.Server != nil {
-		maxDepth = s.Config.Server.GetMaxToolDepth()
-	}
-	if maxDepth <= 0 {
-		maxDepth = 50
-	}
-
-	ctx := r.Context()
-	var asstNode *engine.Node
-	var segments []engine.AssistantSegment
-
-	// Multi-turn tool execution loop
-	for depth := 0; depth < maxDepth; depth++ {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		supportsVision := false
-		if s.Config != nil {
-			supportsVision = s.Config.SupportsVision()
-		}
-
-		contextNodeID := userNode.ID
-		if asstNode != nil {
-			if latest, err := s.Manager.GetNode(asstNode.ID); err == nil && latest != nil {
-				asstNode = latest
-			}
-			contextNodeID = asstNode.ID
-		}
-
-		messages, err := s.Manager.BuildLLMContext(contextNodeID, supportsVision)
-		if err != nil {
-			_ = sendSSE(w, flusher, EventError, ErrorPayload{Error: "Context error: " + err.Error()})
-			return
-		}
-
-		// Retrieve active tools from manager registry filtered by sandbox policy
-		var tools []engine.Tool
-		if s.Manager.Registry != nil {
-			policy := ""
-			if s.Config != nil {
-				policy = s.Config.GetSandboxPolicy()
-			}
-			tools = s.Manager.Registry.GetToolsForPolicy(policy)
-		}
-
-		contentChan, thoughtChan, toolCallsChan, errChan := s.Provider.GenerateResponseStream(ctx, messages, tools)
-
-		var fullContent strings.Builder
-		var fullThought strings.Builder
-		var accumulatedToolCalls []engine.ToolCall
-
-		for contentChan != nil || thoughtChan != nil || toolCallsChan != nil || errChan != nil {
-			select {
-			case <-ctx.Done():
-				return
-
-			case thought, ok := <-thoughtChan:
-				if !ok {
-					thoughtChan = nil
-				} else if thought != "" {
-					fullThought.WriteString(thought)
-					_ = sendSSE(w, flusher, EventThought, ThoughtPayload{Chunk: thought})
-				}
-
-			case chunk, ok := <-contentChan:
-				if !ok {
-					contentChan = nil
-				} else if chunk != "" {
-					fullContent.WriteString(chunk)
-					_ = sendSSE(w, flusher, EventToken, TokenPayload{Chunk: chunk})
-				}
-
-			case toolCalls, ok := <-toolCallsChan:
-				if !ok {
-					toolCallsChan = nil
-				} else if len(toolCalls) > 0 {
-					accumulatedToolCalls = append(accumulatedToolCalls, toolCalls...)
-				}
-
-			case streamErr, ok := <-errChan:
-				if !ok {
-					errChan = nil
-				} else if streamErr != nil {
-					_ = sendSSE(w, flusher, EventError, ErrorPayload{Error: streamErr.Error()})
-					return
-				}
-			}
-		}
-
-		contentChunk := fullContent.String()
-		thoughtChunk := fullThought.String()
-
-		// Fallback: If no structured tool calls were emitted by the provider,
-		// check if the model leaked raw tool calls directly into content (e.g. Gemma <call>...</call>)
-		if len(accumulatedToolCalls) == 0 {
-			if cleanedContent, rawCalls := engine.ExtractContentToolCalls(contentChunk); len(rawCalls) > 0 {
-				contentChunk = cleanedContent
-				accumulatedToolCalls = rawCalls
-			}
-		}
-
-		segments = append(segments, engine.AssistantSegment{
-			Content: contentChunk,
-			Thought: thoughtChunk,
-		})
-		segBytes, _ := json.Marshal(segments)
-
-		if asstNode == nil {
-			// First iteration: create the single assistant turn node
-			var err error
-			asstNode, err = s.Manager.CreateAssistantNode(
-				userNode.ID,
-				contentChunk,
-				thoughtChunk,
-				accumulatedToolCalls,
-				false,
-			)
-			if err != nil {
-				_ = sendSSE(w, flusher, EventError, ErrorPayload{Error: "Failed to persist assistant turn: " + err.Error()})
-				return
-			}
-			if asstNode.Metadata == nil {
-				asstNode.Metadata = make(map[string]string)
-			}
-			asstNode.Metadata["segments"] = string(segBytes)
-			_ = s.Manager.Storage.SaveNode(asstNode)
-
-			if s.EventBus != nil {
-				s.EventBus.Publish(EventNodeSaved, map[string]interface{}{
-					"node_id":   asstNode.ID,
-					"parent_id": asstNode.ParentID,
-					"role":      asstNode.Role,
+		case engine.HarnessEventToolResult:
+			_ = sendSSE(w, flusher, EventToolResult, ToolResultPayload{
+				ID:     ev.ToolCallID,
+				Tool:   ev.ToolName,
+				Output: ev.ToolResult,
+				Error:  ev.ToolError,
+			})
+		case engine.HarnessEventNodeComplete:
+			if ev.Node != nil {
+				_ = sendSSE(w, flusher, EventNodeComplete, NodeCompletePayload{
+					NodeID:    ev.Node.ID,
+					ParentID:  ev.Node.ParentID,
+					Role:      string(ev.Node.Role),
+					Timestamp: ev.Node.Timestamp.Format(time.RFC3339),
 				})
 			}
-		} else {
-			// Subsequent iterations: update existing assistant turn in-place (same as standalone TUI)
-			if latest, err := s.Manager.GetNode(asstNode.ID); err == nil && latest != nil {
-				asstNode = latest
+		case engine.HarnessEventError:
+			if ev.Err != nil {
+				_ = sendSSE(w, flusher, EventError, ErrorPayload{Error: ev.Err.Error()})
 			}
-			asstNode.Content += contentChunk
-			asstNode.Thought += thoughtChunk
-			asstNode.ToolCalls = append(asstNode.ToolCalls, accumulatedToolCalls...)
-			if asstNode.Metadata == nil {
-				asstNode.Metadata = make(map[string]string)
-			}
-			asstNode.Metadata["segments"] = string(segBytes)
-			_ = s.Manager.Storage.SaveNode(asstNode)
-		}
-
-		// If no tools were called, generation turn is complete!
-		if len(accumulatedToolCalls) == 0 {
-			if latest, err := s.Manager.GetNode(asstNode.ID); err == nil && latest != nil {
-				asstNode = latest
-			}
-			// Clean any trailing signat from the final assistant content into metadata
-			if clean, sig := engine.ExtractSignat(asstNode.Content); sig != "" {
-				asstNode.Content = clean
-				if asstNode.Metadata == nil {
-					asstNode.Metadata = make(map[string]string)
-				}
-				asstNode.Metadata["signat"] = sig
-				if len(segments) > 0 {
-					if lastClean, lastSig := engine.ExtractSignat(segments[len(segments)-1].Content); lastSig != "" {
-						segments[len(segments)-1].Content = lastClean
-					}
-					if segJSON, err := json.Marshal(segments); err == nil {
-						asstNode.Metadata["segments"] = string(segJSON)
-					}
-				}
-				_ = s.Manager.Storage.SaveNode(asstNode)
-			}
-
-			if s.Manager != nil && s.Manager.Storage != nil {
-				_ = s.Manager.Storage.SaveSessionHead(sessionID, asstNode.ID)
-			}
-			_ = sendSSE(w, flusher, EventNodeComplete, NodeCompletePayload{
-				NodeID:    asstNode.ID,
-				ParentID:  asstNode.ParentID,
-				Role:      string(asstNode.Role),
-				Timestamp: asstNode.Timestamp.Format(time.RFC3339),
-			})
-			return
-		}
-
-		// Execute Tool Calls and stream tool results
-		for _, call := range accumulatedToolCalls {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-
-			var argsMap map[string]interface{}
-			_ = json.Unmarshal(call.Function.Arguments, &argsMap)
-
-			_ = sendSSE(w, flusher, EventToolCall, ToolCallPayload{
-				ID:        call.ID,
-				Tool:      call.Function.Name,
-				Arguments: argsMap,
-			})
-
-			result, execErr := s.Manager.ExecuteToolCall(ctx, call)
-			errStr := ""
-			if execErr != nil {
-				errStr = execErr.Error()
-				result = fmt.Sprintf("Error: %s", execErr.Error())
-			}
-
-			// Update assistant observations on the unified assistant node
-			_ = s.Manager.UpdateAssistantObservations(asstNode.ID, call.ID, result)
-			if latest, err := s.Manager.GetNode(asstNode.ID); err == nil && latest != nil {
-				asstNode = latest
-			}
-
-			_ = sendSSE(w, flusher, EventToolResult, ToolResultPayload{
-				ID:     call.ID,
-				Tool:   call.Function.Name,
-				Output: result,
-				Error:  errStr,
-			})
 		}
 	}
 
-	// If maximum depth reached, notify completion with the assistant node
-	if asstNode != nil {
-		if s.Manager != nil && s.Manager.Storage != nil {
-			_ = s.Manager.Storage.SaveSessionHead(sessionID, asstNode.ID)
+	// Wait for turn completion
+	select {
+	case <-r.Context().Done():
+		return
+	case res := <-resultChan:
+		if res.err != nil && r.Context().Err() == nil {
+			_ = sendSSE(w, flusher, EventError, ErrorPayload{Error: res.err.Error()})
 		}
-		_ = sendSSE(w, flusher, EventNodeComplete, NodeCompletePayload{
-			NodeID:    asstNode.ID,
-			ParentID:  asstNode.ParentID,
-			Role:      string(asstNode.Role),
-			Timestamp: time.Now().Format(time.RFC3339),
-		})
 	}
 }
