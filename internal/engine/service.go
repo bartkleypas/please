@@ -360,6 +360,28 @@ func (m *Manager) calculateResonanceScore(node *Node, distance int, fillRatio fl
 	return baseScore * decayFactor
 }
 
+// CalculateResonanceScore computes the Context Resonance Score for a node given its distance and context metrics.
+func (m *Manager) CalculateResonanceScore(node *Node, distance int, fillRatio float64, totalPathLen int) float64 {
+	return m.calculateResonanceScore(node, distance, fillRatio, totalPathLen)
+}
+
+// formatCompactedToolObservation produces a concise summary of a completed tool observation,
+// preserving any leading pagination banner (e.g. "[Lines 1-64 of 131...]") so the model
+// maintains memory of read ranges and continuation offsets without retaining the full body.
+func formatCompactedToolObservation(toolName string, rawResult string) string {
+	banner := ""
+	if idx := strings.Index(rawResult, "\n"); idx != -1 {
+		firstLine := strings.TrimSpace(rawResult[:idx])
+		if strings.HasPrefix(firstLine, "[Lines ") || strings.HasPrefix(firstLine, "[Offset ") || (strings.HasPrefix(firstLine, "[") && strings.HasSuffix(firstLine, "]")) {
+			banner = ": " + firstLine
+		}
+	} else if strings.HasPrefix(rawResult, "[Lines ") || strings.HasPrefix(rawResult, "[Offset ") || (strings.HasPrefix(rawResult, "[") && strings.HasSuffix(rawResult, "]")) {
+		banner = ": " + strings.TrimSpace(rawResult)
+	}
+
+	return fmt.Sprintf("[Tool '%s' execution completed%s. Detailed results omitted. Total size: %d bytes.]", toolName, banner, len(rawResult))
+}
+
 // BuildLLMContext constructs the message history for the LLM, applying Priority Pruning based on the Context Resonance Score.
 func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message, error) {
 	path, err := m.GetPath(leafID)
@@ -406,6 +428,28 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 				_ = json.Unmarshal([]byte(node.Metadata["segments"]), &segments)
 			}
 
+			obsMap := make(map[string]ToolObservation, len(node.Observations))
+			for _, obs := range node.Observations {
+				obsMap[obs.ToolCallID] = obs
+			}
+
+			formatObs := func(toolName, rawResult string) string {
+				if distance >= 2 && len(rawResult) > 1000 {
+					return formatCompactedToolObservation(toolName, rawResult)
+				} else if v > 5.0 {
+					if fillRatio >= 0.60 && len(rawResult) > 8000 {
+						return rawResult[:8000] + "... [truncated]"
+					}
+					return rawResult
+				} else if v > 0.5 {
+					if len(rawResult) > 2000 {
+						return rawResult[:2000] + "... [truncated]"
+					}
+					return rawResult
+				}
+				return formatCompactedToolObservation(toolName, rawResult)
+			}
+
 			if len(segments) > 0 {
 				for j, seg := range segments {
 					var tCalls []ToolCall
@@ -427,82 +471,50 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 					msg.ToolCalls = tCalls
 					messages = append(messages, msg)
 
-					if j < len(node.ToolCalls) && j < len(node.Observations) {
-						obs := node.Observations[j]
-						truncatedResult := obs.Result
-						toolName := node.ToolCalls[j].Function.Name
-						if distance >= 2 && len(truncatedResult) > 1000 {
-							truncatedResult = fmt.Sprintf("[Tool '%s' execution completed. Detailed results omitted. Total size: %d bytes.]", toolName, len(obs.Result))
-						} else if v > 5.0 {
-							if fillRatio >= 0.60 && len(truncatedResult) > 8000 {
-								truncatedResult = truncatedResult[:8000] + "... [truncated]"
-							}
-						} else if v > 0.5 {
-							if len(truncatedResult) > 2000 {
-								truncatedResult = truncatedResult[:2000] + "... [truncated]"
-							}
+					for _, tc := range tCalls {
+						toolName := tc.Function.Name
+						if obs, ok := obsMap[tc.ID]; ok {
+							messages = append(messages, Message{
+								Role:       RoleTool,
+								Content:    formatObs(toolName, obs.Result),
+								ToolCallID: tc.ID,
+								Internal:   node.Internal,
+							})
 						} else {
-							truncatedResult = fmt.Sprintf("[Tool '%s' execution completed. Detailed results omitted. Total size: %d bytes.]", toolName, len(obs.Result))
+							messages = append(messages, Message{
+								Role:       RoleTool,
+								Content:    fmt.Sprintf("[Tool '%s' execution completed.]", toolName),
+								ToolCallID: tc.ID,
+								Internal:   node.Internal,
+							})
 						}
-
-						messages = append(messages, Message{
-							Role:       RoleTool,
-							Content:    truncatedResult,
-							ToolCallID: obs.ToolCallID,
-							Internal:   node.Internal,
-						})
-					} else if j < len(node.ToolCalls) {
-						toolName := node.ToolCalls[j].Function.Name
-						messages = append(messages, Message{
-							Role:       RoleTool,
-							Content:    fmt.Sprintf("[Tool '%s' execution completed.]", toolName),
-							ToolCallID: node.ToolCalls[j].ID,
-							Internal:   node.Internal,
-						})
 					}
 				}
 
-				// Defensive fallback: if there are more ToolCalls/Observations than segments,
+				// Defensive fallback: if there are more ToolCalls than segments,
 				// emit them sequentially so the model is never blinded to tool execution results.
 				for j := len(segments); j < len(node.ToolCalls); j++ {
-					tCalls := []ToolCall{node.ToolCalls[j]}
+					tc := node.ToolCalls[j]
+					toolName := tc.Function.Name
 					messages = append(messages, Message{
 						Role:      RoleAssistant,
 						Content:   "",
 						Internal:  node.Internal,
-						ToolCalls: tCalls,
+						ToolCalls: []ToolCall{tc},
 					})
 
-					if j < len(node.Observations) {
-						obs := node.Observations[j]
-						truncatedResult := obs.Result
-						toolName := node.ToolCalls[j].Function.Name
-						if distance >= 2 && len(truncatedResult) > 1000 {
-							truncatedResult = fmt.Sprintf("[Tool '%s' execution completed. Detailed results omitted. Total size: %d bytes.]", toolName, len(obs.Result))
-						} else if v > 5.0 {
-							if fillRatio >= 0.60 && len(truncatedResult) > 8000 {
-								truncatedResult = truncatedResult[:8000] + "... [truncated]"
-							}
-						} else if v > 0.5 {
-							if len(truncatedResult) > 2000 {
-								truncatedResult = truncatedResult[:2000] + "... [truncated]"
-							}
-						} else {
-							truncatedResult = fmt.Sprintf("[Tool '%s' execution completed. Detailed results omitted. Total size: %d bytes.]", toolName, len(obs.Result))
-						}
-
+					if obs, ok := obsMap[tc.ID]; ok {
 						messages = append(messages, Message{
 							Role:       RoleTool,
-							Content:    truncatedResult,
-							ToolCallID: obs.ToolCallID,
+							Content:    formatObs(toolName, obs.Result),
+							ToolCallID: tc.ID,
 							Internal:   node.Internal,
 						})
 					} else {
-						toolName := node.ToolCalls[j].Function.Name
 						messages = append(messages, Message{
 							Role:       RoleTool,
 							Content:    fmt.Sprintf("[Tool '%s' execution completed.]", toolName),
-							ToolCallID: node.ToolCalls[j].ID,
+							ToolCallID: tc.ID,
 							Internal:   node.Internal,
 						})
 					}
@@ -583,7 +595,7 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 				}
 				truncatedResult := obs.Result
 				if len(truncatedResult) > 1000 {
-					truncatedResult = fmt.Sprintf("[Tool '%s' execution completed. Detailed results omitted. Total size: %d bytes.]", toolName, len(obs.Result))
+					truncatedResult = formatCompactedToolObservation(toolName, obs.Result)
 				}
 				msg.Observations[j] = ToolObservation{
 					ToolCallID: obs.ToolCallID,
@@ -619,7 +631,7 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 				}
 			}
 		} else {
-			// Low fidelity: keep core dialogue, but crush observations
+			// Low fidelity: keep core dialogue, but crush observations with banner retention
 			msg.ToolCalls = node.ToolCalls
 			msg.Observations = make([]ToolObservation, len(node.Observations))
 			for j, obs := range node.Observations {
@@ -633,7 +645,7 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 				}
 				msg.Observations[j] = ToolObservation{
 					ToolCallID: obs.ToolCallID,
-					Result:     fmt.Sprintf("[Tool '%s' execution completed. Detailed results omitted. Total size: %d bytes.]", toolName, len(obs.Result)),
+					Result:     formatCompactedToolObservation(toolName, obs.Result),
 				}
 			}
 		}

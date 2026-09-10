@@ -228,6 +228,12 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 
 	// Multi-turn tool execution loop
 	for depth := 0; depth < maxDepth; depth++ {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
 		supportsVision := false
 		if s.Config != nil {
 			supportsVision = s.Config.SupportsVision()
@@ -235,6 +241,9 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 
 		contextNodeID := userNode.ID
 		if asstNode != nil {
+			if latest, err := s.Manager.GetNode(asstNode.ID); err == nil && latest != nil {
+				asstNode = latest
+			}
 			contextNodeID = asstNode.ID
 		}
 
@@ -345,6 +354,9 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			// Subsequent iterations: update existing assistant turn in-place (same as standalone TUI)
+			if latest, err := s.Manager.GetNode(asstNode.ID); err == nil && latest != nil {
+				asstNode = latest
+			}
 			asstNode.Content += contentChunk
 			asstNode.Thought += thoughtChunk
 			asstNode.ToolCalls = append(asstNode.ToolCalls, accumulatedToolCalls...)
@@ -357,6 +369,9 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 
 		// If no tools were called, generation turn is complete!
 		if len(accumulatedToolCalls) == 0 {
+			if latest, err := s.Manager.GetNode(asstNode.ID); err == nil && latest != nil {
+				asstNode = latest
+			}
 			// Clean any trailing signat from the final assistant content into metadata
 			if clean, sig := engine.ExtractSignat(asstNode.Content); sig != "" {
 				asstNode.Content = clean
@@ -389,6 +404,12 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 
 		// Execute Tool Calls and stream tool results
 		for _, call := range accumulatedToolCalls {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
 			var argsMap map[string]interface{}
 			_ = json.Unmarshal(call.Function.Arguments, &argsMap)
 
@@ -407,10 +428,9 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 
 			// Update assistant observations on the unified assistant node
 			_ = s.Manager.UpdateAssistantObservations(asstNode.ID, call.ID, result)
-			asstNode.Observations = append(asstNode.Observations, engine.ToolObservation{
-				ToolCallID: call.ID,
-				Result:     result,
-			})
+			if latest, err := s.Manager.GetNode(asstNode.ID); err == nil && latest != nil {
+				asstNode = latest
+			}
 
 			_ = sendSSE(w, flusher, EventToolResult, ToolResultPayload{
 				ID:     call.ID,

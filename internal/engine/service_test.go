@@ -739,6 +739,62 @@ func TestBuildLLMContext_EphemeralToolCompaction(t *testing.T) {
 	}
 }
 
+func TestBuildLLMContext_PreservesPaginationBannerOnCompaction(t *testing.T) {
+	mgr := NewManager(NewGraph(), &MockStorage{})
+	mgr.NumCtx = 131072
+
+	root, _ := mgr.CreateNode("", RoleSystem, "System prompt", false)
+
+	// Turn 1: Assistant executes read_file with pagination header
+	tc1 := ToolCall{
+		ID:   "call_paged",
+		Type: "function",
+		Function: struct {
+			Name      string          `json:"name"`
+			Arguments json.RawMessage `json:"arguments"`
+		}{
+			Name:      "read_file",
+			Arguments: json.RawMessage(`{"path":"log.md"}`),
+		},
+	}
+	asst1, _ := mgr.CreateAssistantNode(root.ID, "Reading log...", "Analyzing", []ToolCall{tc1}, false)
+	pagedResult := "[Lines 1-64 of 131 (Showing 7.9 KB) (Byte budget reached; 67 lines remaining. To read further, call read_file with path: \"log.md\", offset: 65)]\n\n" + strings.Repeat("log entry line...\n", 150)
+	_ = mgr.UpdateAssistantObservations(asst1.ID, "call_paged", pagedResult)
+
+	// Turn 2: User follow-up
+	user2, _ := mgr.CreateNode(asst1.ID, RoleUser, "Next step", false)
+
+	// Turn 3: Assistant intermediate turn
+	asst2, _ := mgr.CreateNode(user2.ID, RoleAssistant, "Working on next step...", false)
+
+	// Turn 4: User active leaf (distance of asst1 is >= 2)
+	user4, _ := mgr.CreateNode(asst2.ID, RoleUser, "What is the status?", false)
+
+	messages, err := mgr.BuildLLMContext(user4.ID, false)
+	if err != nil {
+		t.Fatalf("failed to build context: %v", err)
+	}
+
+	foundPaged := false
+	for _, msg := range messages {
+		if msg.Role == RoleTool && msg.ToolCallID == "call_paged" {
+			foundPaged = true
+			if !strings.Contains(msg.Content, "Lines 1-64 of 131") {
+				t.Errorf("expected compacted observation to preserve pagination banner, got: %s", msg.Content)
+			}
+			if !strings.Contains(msg.Content, "offset: 65") {
+				t.Errorf("expected compacted observation to preserve next offset directive, got: %s", msg.Content)
+			}
+			if !strings.Contains(msg.Content, "Detailed results omitted") {
+				t.Errorf("expected compacted observation to omit detailed body, got: %s", msg.Content)
+			}
+		}
+	}
+	if !foundPaged {
+		t.Errorf("expected to find call_paged tool message in context")
+	}
+}
+
 func TestBuildLLMContext_PureRootAndUnbumperedUserTurns(t *testing.T) {
 	storage := &MockStorage{}
 	mgr := NewManager(NewGraph(), storage)
@@ -1135,4 +1191,6 @@ func TestBuildLLMContext_MissingObservationDefensiveFallback(t *testing.T) {
 		t.Errorf("expected ToolCallID 'call_test_123', got: %s", nextMsg.ToolCallID)
 	}
 }
+
+
 

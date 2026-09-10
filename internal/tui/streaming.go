@@ -163,6 +163,23 @@ func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, te
 			m.CurrentStreamingThought = ""
 			return m, nil
 		}
+		if len(msg.toolCalls) > 0 {
+			type AssistantSegment struct {
+				Content string `json:"content"`
+				Thought string `json:"thought"`
+			}
+			initialSegs := []AssistantSegment{{
+				Content: m.CurrentStreamingContent,
+				Thought: m.CurrentStreamingThought,
+			}}
+			if botNode.Metadata == nil {
+				botNode.Metadata = make(map[string]string)
+			}
+			if segBytes, err := json.Marshal(initialSegs); err == nil {
+				botNode.Metadata["segments"] = string(segBytes)
+				_ = m.Manager.Storage.SaveNode(botNode)
+			}
+		}
 		activeID = botNode.ID
 	}
 
@@ -294,7 +311,12 @@ func (m *Model) resumeStreamCmd(ctx context.Context, activeNodeID string) tea.Cm
 			return llmStreamFinishedMsg{err: err, activeNodeID: activeNodeID}
 		}
 
-		contentChan, thoughtChan, toolCallChan, errChan := m.Provider.GenerateResponseStream(ctx, messages, m.Manager.Registry.GetToolsForPolicy(m.Config.GetSandboxPolicy()))
+		var tools []engine.Tool
+		if m.Manager.Registry != nil {
+			tools = m.Manager.Registry.GetToolsForPolicy(m.Config.GetSandboxPolicy())
+		}
+
+		contentChan, thoughtChan, toolCallChan, errChan := m.Provider.GenerateResponseStream(ctx, messages, tools)
 		return streamResponseMsg{
 			contentChan:  contentChan,
 			thoughtChan:  thoughtChan,
