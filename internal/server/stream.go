@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/bartkleypas/please/internal/engine"
 )
+
 
 // ChatStreamRequest defines the JSON payload sent by clients to initiate a generation turn.
 type ChatStreamRequest struct {
@@ -127,12 +129,20 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 
 	// Ingest optional client context for ambient telemetry
 	sessionID := r.Header.Get("X-Please-Session-ID")
+	if sessionID == "" {
+		sessionID = r.URL.Query().Get("session")
+	}
+	if sessionID == "" {
+		sessionID = r.URL.Query().Get("session_id")
+	}
 	if sessionID == "" && req.Context != nil {
 		sessionID = req.Context["session_id"]
 	}
 	if sessionID == "" {
 		sessionID = "main"
 	}
+	log.Printf("[server] Dispatched chat stream turn to session '%s'", sessionID)
+
 
 	if s.Actors == nil {
 		_ = sendSSE(w, flusher, EventError, ErrorPayload{Error: "server actors registry not initialized"})
