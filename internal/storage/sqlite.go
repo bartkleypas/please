@@ -182,8 +182,25 @@ func (s *SQLiteStorage) SaveNode(node *graph.Node) error {
 	}
 
 	query := `
-	INSERT OR REPLACE INTO nodes (id, parent_id, role, content, thought, timestamp, tool_calls, tool_call_id, observations, metadata, deleted, internal, images)
+	INSERT INTO nodes (id, parent_id, role, content, thought, timestamp, tool_calls, tool_call_id, observations, metadata, deleted, internal, images)
 	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT(id) DO UPDATE SET
+		parent_id = excluded.parent_id,
+		role = excluded.role,
+		content = excluded.content,
+		thought = excluded.thought,
+		timestamp = excluded.timestamp,
+		tool_calls = excluded.tool_calls,
+		tool_call_id = excluded.tool_call_id,
+		observations = CASE 
+			WHEN excluded.observations IS NOT NULL AND excluded.observations != 'null' AND excluded.observations != '[]' 
+			THEN excluded.observations 
+			ELSE nodes.observations 
+		END,
+		metadata = excluded.metadata,
+		deleted = excluded.deleted,
+		internal = excluded.internal,
+		images = excluded.images
 	`
 
 	tsVal := node.Timestamp

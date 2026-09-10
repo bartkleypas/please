@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -370,3 +371,91 @@ func TestJSONLStorage_Sessions(t *testing.T) {
 		t.Fatalf("unexpected sessions list: %v", sessions)
 	}
 }
+
+func TestSQLiteStorage_SaveNodePreservesExistingObservations(t *testing.T) {
+	tmpDB := t.TempDir() + "/test_obs_preservation.db"
+	storage, err := NewSQLiteStorage(tmpDB, "")
+	if err != nil {
+		t.Fatalf("failed to init SQLiteStorage: %v", err)
+	}
+
+	// 1. Save assistant node with tool calls and observations
+	asstNode := &graph.Node{
+		ID:        "asst-1",
+		Role:      graph.RoleAssistant,
+		Content:   "Reading log file...",
+		Timestamp: time.Now(),
+		ToolCalls: []providers.ToolCall{
+			{
+				ID: "call_read_log",
+				Function: struct {
+					Name      string          `json:"name"`
+					Arguments json.RawMessage `json:"arguments"`
+				}{
+					Name:      "read_file",
+					Arguments: json.RawMessage(`{"path":"log.md"}`),
+				},
+			},
+		},
+		Observations: []providers.ToolObservation{
+			{
+				ToolCallID: "call_read_log",
+				Result:     "# Log Content\nYesterday we refactored the DAG.",
+			},
+		},
+	}
+
+	if err := storage.SaveNode(asstNode); err != nil {
+		t.Fatalf("SaveNode failed: %v", err)
+	}
+
+	// Verify observations stored
+	g, _, err := storage.LoadGraph()
+	if err != nil {
+		t.Fatalf("LoadGraph failed: %v", err)
+	}
+	loaded, err := g.GetNode("asst-1")
+	if err != nil || len(loaded.Observations) != 1 {
+		t.Fatalf("expected 1 observation, got %d (err: %v)", len(loaded.Observations), err)
+	}
+
+	// 2. Simulate subsequent update where caller provides empty/nil Observations
+	// (e.g. updating Content or Metadata without having observations loaded in-memory)
+	updatedNode := &graph.Node{
+		ID:           "asst-1",
+		Role:         graph.RoleAssistant,
+		Content:      "Based on the log, yesterday we refactored the DAG. 🦉☕",
+		Timestamp:    asstNode.Timestamp,
+		ToolCalls:    asstNode.ToolCalls,
+		Observations: nil, // Nil observations!
+		Metadata:     map[string]string{"signat": "🦉☕"},
+	}
+
+	if err := storage.SaveNode(updatedNode); err != nil {
+		t.Fatalf("second SaveNode failed: %v", err)
+	}
+
+	// 3. Load graph and verify observations were PRESERVED and not wiped out!
+	g2, _, err := storage.LoadGraph()
+	if err != nil {
+		t.Fatalf("LoadGraph 2 failed: %v", err)
+	}
+	loaded2, err := g2.GetNode("asst-1")
+	if err != nil {
+		t.Fatalf("node not found after second save: %v", err)
+	}
+
+	if len(loaded2.Observations) != 1 {
+		t.Fatalf("CRITICAL: observations were wiped out by SaveNode! Expected 1, got %d", len(loaded2.Observations))
+	}
+	if loaded2.Observations[0].ToolCallID != "call_read_log" {
+		t.Errorf("expected observation for call_read_log, got: %s", loaded2.Observations[0].ToolCallID)
+	}
+	if !strings.Contains(loaded2.Observations[0].Result, "Yesterday we refactored the DAG") {
+		t.Errorf("observation content was corrupted: %q", loaded2.Observations[0].Result)
+	}
+	if loaded2.Content != updatedNode.Content {
+		t.Errorf("content was not updated: %q", loaded2.Content)
+	}
+}
+
