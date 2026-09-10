@@ -17,7 +17,7 @@ timestamp: "2026-09-07T11:00:00-07:00"
 
 ## Status
 
-Implemented (Phase 1 & Phase 2)
+Implemented (Phase 1, Phase 2, & Phase 3)
 
 ## Context
 
@@ -181,8 +181,12 @@ We formally recognize the multi-client concurrency hazard and adopt a multi-phas
    * **Daemon REST & SSE Endpoints**: `GET /api/v1/sessions`, `GET /api/v1/sessions/{id}`, and `POST /api/v1/sessions`. SSE turns update session heads automatically.
    * **TUI Ergonomics**: Added `/session` status, `/session list`, and `/session switch <name>` slash commands.
 
-3. **Phase 3 (Worktree Sandboxing - Planned)**:
-   * Evaluate Git worktree isolation for isolated tool execution when multiplayer pair-programming requires distinct filesystem sandboxes.
+3. **Phase 3 (Worktree Sandboxing - Implemented)**:
+   * **Opt-In Sandboxing**: Controlled via `--worktree` flag or `worktree_isolation: true` in `config.json`. Gracefully falls back to direct workspace mode if `git` is not installed or workspace is not a Git repo.
+   * **Out-of-Tree Storage**: Provisions isolated session checkouts under `<configDir>/worktrees/<repo-key>/<session-id>` on dedicated branches (`please/<session-id>`), preventing tooling and watcher pollution in the primary checkout.
+   * **Manager Cloning & Scoped Registries**: `Manager.CloneWithWorkspace` creates session-scoped tool registries and working directories so tools run in complete isolation per session.
+   * **Path Virtualization**: Transparently virtualizes absolute primary workspace paths inside worktree checkouts.
+   * **TUI Ergonomics**: Added `/worktree` status overview, `/worktree list`, `/worktree remove <session>`, and `/config worktree on|off`.
 
 ---
 
