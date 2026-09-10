@@ -50,6 +50,26 @@ To maintain the architectural conventions of the `please` codebase during edits:
 *   **LLM Provider Abstraction**: Maintain strict protocol boundaries (`LLMProvider`) so local Ollama backends, OpenAI-compatible cloud/self-hosted endpoints, and remote `please serve` daemons swap seamlessly.
 *   **Testing Discipline**: Always run fast hermetic tests (`go test -count=1 ./...` and `make build`) for automated verification (~2s). Treat `PLEASE_LIVE_FIRE=1` (`make test-livefire`) as **Manual / On-Demand Integration Testing** triggered only when explicitly evaluating real local LLM inference.
 *   **Tool Contracts as Sensory Input**: Tools must return concrete telemetry (paths, byte sizes, line counts) and descriptive error messages with actionable hints to prevent model retry loops.
+*   **Built-in Diagnostics**: Use `please inspect` and `please context` to diagnose live SQLite/JSONL vaults without writing scratch code.
+
+---
+
+## 🔍 Diagnostic & Inspection Tools
+
+The CLI includes built-in diagnostic tools to inspect DAG nodes, tool observation telemetry, lineage resonance decay, and exact reconstructed LLM prompt contexts:
+
+*   **Inspect Node & Lineage Scorecard**:
+    ```bash
+    please inspect [node-id] [-v /path/to/vault.db] [-c config.json]
+    ```
+    *Omitting `[node-id]` automatically targets the latest active leaf node.*
+    Prints node metadata, segments, exact tool calls and observations (with byte counts and banners), and an ASCII table of the path to root showing distance, token costs, resonance scores $V$, and fidelity tiers (`Full Fidelity`, `Medium`, `Low (Compact)`). Supports full UUIDs or short prefixes (e.g. `01a08802`).
+
+*   **Inspect LLM Reconstructed Context**:
+    ```bash
+    please context [node-id] [-v /path/to/vault.db] [-c config.json] [--json]
+    ```
+    Reconstructs and displays the exact linear prompt sequence (`[]engine.Message`) sent to the LLM for that turn, including system prompt overlays, ephemeral thoughts, and compaction state. Pass `--json` to output clean JSON suitable for piping to `jq`.
 
 ---
 

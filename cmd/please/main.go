@@ -46,6 +46,12 @@ func main() {
 			}
 			fmt.Fprintf(os.Stderr, "Usage: please cert generate [options]\n")
 			os.Exit(1)
+		case "inspect":
+			runInspect(os.Args[2:])
+			return
+		case "context":
+			runContext(os.Args[2:])
+			return
 		}
 	}
 
@@ -93,7 +99,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  please                    Start standalone interactive TUI (default)\n")
 		fmt.Fprintf(os.Stderr, "  please serve [options]    Start the API & streaming engine daemon\n")
 		fmt.Fprintf(os.Stderr, "  please connect [url]      Connect TUI to a remote Please daemon\n")
-		fmt.Fprintf(os.Stderr, "  please cert generate      Generate 20-year internal Root CA and Server certificates\n\n")
+		fmt.Fprintf(os.Stderr, "  please cert generate      Generate 20-year internal Root CA and Server certificates\n")
+		fmt.Fprintf(os.Stderr, "  please inspect <node-id>  Inspect node lineage, token costs & resonance scores\n")
+		fmt.Fprintf(os.Stderr, "  please context <node-id>  Inspect reconstructed prompt messages sent to LLM\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		fmt.Fprintf(os.Stderr, "  -v, --vault <path>     Path to a custom vault file\n")
 		fmt.Fprintf(os.Stderr, "  -c, --config <path>    Path to a custom configuration JSON file\n")
