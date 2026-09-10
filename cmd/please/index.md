@@ -51,4 +51,3 @@ Reconstructs and displays the exact linear prompt context trail passed to LLM pr
 
 ### Certificate Generation (`please cert generate`)
 A specialized utility to generate the long-term (20-year) ECDSA Root CA and Leaf Server Certificates required for secure local network communication.
-
