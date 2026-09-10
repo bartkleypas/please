@@ -19,9 +19,11 @@ const (
 // DaemonEvent represents a structured notification sent over SSE.
 type DaemonEvent struct {
 	Type      DaemonEventType        `json:"type"`
+	SessionID string                 `json:"session_id,omitempty"`
 	Timestamp string                 `json:"timestamp"`
 	Payload   map[string]interface{} `json:"payload,omitempty"`
 }
+
 
 // EventSubscription provides a channel for a subscriber and an unsubscribe func.
 type EventSubscription struct {
@@ -86,6 +88,11 @@ func (b *EventBus) SubscriberCount() int {
 // Publish broadcasts an event to all active subscribers.
 // Delivery is non-blocking: if a subscriber's buffer is full, the event is dropped for that subscriber.
 func (b *EventBus) Publish(eventType DaemonEventType, payload map[string]interface{}) {
+	b.PublishSession(eventType, "", payload)
+}
+
+// PublishSession broadcasts an event tagged with a specific sessionID.
+func (b *EventBus) PublishSession(eventType DaemonEventType, sessionID string, payload map[string]interface{}) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -95,6 +102,7 @@ func (b *EventBus) Publish(eventType DaemonEventType, payload map[string]interfa
 
 	event := DaemonEvent{
 		Type:      eventType,
+		SessionID: sessionID,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Payload:   payload,
 	}
@@ -107,3 +115,4 @@ func (b *EventBus) Publish(eventType DaemonEventType, payload map[string]interfa
 		}
 	}
 }
+

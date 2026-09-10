@@ -44,17 +44,19 @@ func NewServer(mgr *engine.Manager) *Server {
 		EventBus: bus,
 		host:     "127.0.0.1",
 	}
-	srv.Actors = NewSessionActorRegistry(mgr, nil, nil, func(node *engine.Node) {
+	srv.Actors = NewSessionActorRegistry(mgr, nil, nil, func(sessionID string, node *engine.Node) {
 		if srv.EventBus != nil {
-			srv.EventBus.Publish(EventNodeSaved, map[string]interface{}{
-				"node_id":   node.ID,
-				"parent_id": node.ParentID,
-				"role":      node.Role,
+			srv.EventBus.PublishSession(EventNodeSaved, sessionID, map[string]interface{}{
+				"node_id":    node.ID,
+				"parent_id":  node.ParentID,
+				"role":       node.Role,
+				"session_id": sessionID,
 			})
 		}
 	})
 	return srv
 }
+
 
 // NewServerWithProvider creates a Server instance with provider and configuration
 func NewServerWithProvider(mgr *engine.Manager, provider engine.LLMProvider, cfg *engine.Config) *Server {
@@ -73,17 +75,19 @@ func NewServerWithProvider(mgr *engine.Manager, provider engine.LLMProvider, cfg
 		EventBus:  NewEventBus(),
 		host:      "127.0.0.1",
 	}
-	srv.Actors = NewSessionActorRegistry(mgr, provider, cfg, func(node *engine.Node) {
+	srv.Actors = NewSessionActorRegistry(mgr, provider, cfg, func(sessionID string, node *engine.Node) {
 		if srv.EventBus != nil {
-			srv.EventBus.Publish(EventNodeSaved, map[string]interface{}{
-				"node_id":   node.ID,
-				"parent_id": node.ParentID,
-				"role":      node.Role,
+			srv.EventBus.PublishSession(EventNodeSaved, sessionID, map[string]interface{}{
+				"node_id":    node.ID,
+				"parent_id":  node.ParentID,
+				"role":       node.Role,
+				"session_id": sessionID,
 			})
 		}
 	})
 	return srv
 }
+
 
 // SetProvider updates the LLMProvider on the server
 func (s *Server) SetProvider(p engine.LLMProvider) {
@@ -390,6 +394,10 @@ func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
+			// If client subscribed with a specific session, filter out events from other sessions
+			if sessionID != "" && ev.SessionID != "" && ev.SessionID != sessionID {
+				continue
+			}
 			data, err := json.Marshal(ev)
 			if err != nil {
 				continue
@@ -401,6 +409,7 @@ func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 }
+
 
 func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")

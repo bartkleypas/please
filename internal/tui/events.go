@@ -139,7 +139,7 @@ func (m *Model) handleRemoteDaemonEvent(msg remoteDaemonEventMsg) (tea.Model, te
 			}
 			if m.ViewMode == ModeMap {
 				m.syncMapSelection()
-			} else {
+			} else if m.ViewportOverride == "" {
 				m.updateViewportContent()
 			}
 
@@ -155,9 +155,10 @@ func (m *Model) handleRemoteDaemonEvent(msg remoteDaemonEventMsg) (tea.Model, te
 
 			if m.ViewMode == ModeMap {
 				m.syncMapSelection()
-			} else {
+			} else if m.ViewportOverride == "" {
 				m.updateViewportContent()
 			}
+
 		}
 	}
 

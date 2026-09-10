@@ -32,7 +32,7 @@ type SessionActor struct {
 	cancel    context.CancelFunc
 }
 
-func newSessionActor(sessionID string, mgr *engine.Manager, provider engine.Provider, cfg *engine.Config, onNodeSaved func(*engine.Node)) *SessionActor {
+func newSessionActor(sessionID string, mgr *engine.Manager, provider engine.Provider, cfg *engine.Config, onNodeSaved func(string, *engine.Node)) *SessionActor {
 	ctx, cancel := context.WithCancel(context.Background())
 	sessionMgr := mgr
 
@@ -47,7 +47,11 @@ func newSessionActor(sessionID string, mgr *engine.Manager, provider engine.Prov
 	}
 
 	harness := engine.NewSessionHarness(sessionMgr, provider, cfg)
-	harness.OnNodeSaved = onNodeSaved
+	if onNodeSaved != nil {
+		harness.OnNodeSaved = func(node *engine.Node) {
+			onNodeSaved(sessionID, node)
+		}
+	}
 
 	actor := &SessionActor{
 		sessionID: sessionID,
@@ -58,6 +62,7 @@ func newSessionActor(sessionID string, mgr *engine.Manager, provider engine.Prov
 	}
 
 	go actor.loop()
+
 	return actor
 }
 
@@ -117,11 +122,11 @@ type SessionActorRegistry struct {
 	manager     *engine.Manager
 	provider    engine.Provider
 	config      *engine.Config
-	onNodeSaved func(*engine.Node)
+	onNodeSaved func(string, *engine.Node)
 }
 
 // NewSessionActorRegistry initializes a registry for session actors.
-func NewSessionActorRegistry(mgr *engine.Manager, provider engine.Provider, cfg *engine.Config, onNodeSaved func(*engine.Node)) *SessionActorRegistry {
+func NewSessionActorRegistry(mgr *engine.Manager, provider engine.Provider, cfg *engine.Config, onNodeSaved func(string, *engine.Node)) *SessionActorRegistry {
 	return &SessionActorRegistry{
 		actors:      make(map[string]*SessionActor),
 		manager:     mgr,
@@ -130,6 +135,7 @@ func NewSessionActorRegistry(mgr *engine.Manager, provider engine.Provider, cfg 
 		onNodeSaved: onNodeSaved,
 	}
 }
+
 
 // GetOrCreate returns an existing SessionActor or instantiates a new one if needed.
 func (r *SessionActorRegistry) GetOrCreate(sessionID string) *SessionActor {
