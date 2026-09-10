@@ -66,8 +66,8 @@ func TestReadFile_PaginationAndWindowing(t *testing.T) {
 	if strings.Contains(res, "Line 4 content") || strings.Contains(res, "Line 8 content") {
 		t.Errorf("should not contain lines outside slice, got:\n%s", res)
 	}
-	if !strings.Contains(res, "offset=8") {
-		t.Errorf("expected next offset hint (offset=8), got:\n%s", res)
+	if !strings.Contains(res, "offset: 8") {
+		t.Errorf("expected next offset hint (offset: 8), got:\n%s", res)
 	}
 
 	// 3. Test byte budget
@@ -79,8 +79,8 @@ func TestReadFile_PaginationAndWindowing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read_file with max_bytes failed: %v", err)
 	}
-	if !strings.Contains(res, "Byte budget reached") {
-		t.Errorf("expected byte budget hint, got:\n%s", res)
+	if !strings.Contains(res, "Byte budget reached") || !strings.Contains(res, "call read_file with path:") {
+		t.Errorf("expected actionable byte budget hint, got:\n%s", res)
 	}
 
 	// 4. Test calling read_file on a directory -> fails with directive to use list_directory
@@ -92,6 +92,19 @@ func TestReadFile_PaginationAndWindowing(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "is a directory, not a file (use list_directory instead)") {
 		t.Errorf("expected directory warning error, got: %v", err)
+	}
+
+	// 5. Test 25KB file fits under 64KB default budget
+	largeContent := strings.Repeat("a line of content that is reasonably long and descriptive for testing...\n", 130)
+	os.WriteFile(filepath.Join(tmpDir, "large.txt"), []byte(largeContent), 0644)
+	res, err = registry.Tools["read_file"].Function(context.Background(), map[string]interface{}{
+		"path": "large.txt",
+	})
+	if err != nil {
+		t.Fatalf("read_file large.txt failed: %v", err)
+	}
+	if !strings.Contains(res, "[Lines 1-130 of 130") {
+		t.Errorf("expected all 130 lines to fit under 64KB budget, got header:\n%s", res[:strings.Index(res, "\n\n")])
 	}
 }
 

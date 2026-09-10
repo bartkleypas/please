@@ -30,7 +30,7 @@ func ReadFileTool(workspaceDir string) Tool {
 	return Tool{
 		Name:        "read_file",
 		Category:    CategorySensory,
-		Description: "Read the contents of a file from the local filesystem with optional line slicing and byte windowing. Supports pagination for large files.",
+		Description: "Read the contents of a file from the local filesystem with optional line slicing and byte windowing. Supports pagination for large files. If a file is truncated, inspect the pagination header and call read_file again with offset set to the next offset indicated.",
 		Interactive: false,
 		Parameters: map[string]interface{}{
 			"type": "object",
@@ -49,7 +49,7 @@ func ReadFileTool(workspaceDir string) Tool {
 				},
 				"max_bytes": map[string]interface{}{
 					"type":        "integer",
-					"description": "Optional maximum byte budget for output (default: 8192)",
+					"description": "Optional maximum byte budget for output (default: 65536)",
 				},
 			},
 			"required": []string{"path"},
@@ -100,7 +100,7 @@ func ReadFileTool(workspaceDir string) Tool {
 				}
 			}
 
-			maxBytes := 8192
+			maxBytes := 65536
 			if mb, ok := args["max_bytes"]; ok {
 				switch v := mb.(type) {
 				case float64:
@@ -183,10 +183,11 @@ func ReadFileTool(workspaceDir string) Tool {
 			var sb strings.Builder
 			var paginationHint string
 			if endLine < totalLines {
+				remainingLines := totalLines - endLine
 				if hitByteLimit {
-					paginationHint = fmt.Sprintf(" (Byte budget reached; next offset=%d)", endLine+1)
+					paginationHint = fmt.Sprintf(" (Byte budget reached; %d lines remaining. To read further, call read_file with path: %q, offset: %d)", remainingLines, path, endLine+1)
 				} else {
-					paginationHint = fmt.Sprintf(" (File truncated at line %d of %d; next offset=%d)", endLine, totalLines, endLine+1)
+					paginationHint = fmt.Sprintf(" (Limit reached; %d lines remaining. To read further, call read_file with path: %q, offset: %d)", remainingLines, path, endLine+1)
 				}
 			}
 
