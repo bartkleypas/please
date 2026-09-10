@@ -72,7 +72,9 @@ func TestManager_Validation(t *testing.T) {
 }
 
 // MockStorage for testing
-type MockStorage struct{}
+type MockStorage struct {
+	Sessions map[string]string
+}
 
 func (s *MockStorage) SaveNode(n *Node) error                                        { return nil }
 func (s *MockStorage) LoadGraph() (*Graph, string, error)                            { return NewGraph(), "", nil }
@@ -82,6 +84,29 @@ func (s *MockStorage) UpdateNodeObservations(id string, obs []ToolObservation) e
 func (s *MockStorage) GarbageCollect() (int64, error)                                { return 0, nil }
 func (s *MockStorage) Close() error                                                  { return nil }
 func (s *MockStorage) Vacuum() error                                                 { return nil }
+func (s *MockStorage) SaveSessionHead(sessionID, nodeID string) error {
+	if s.Sessions == nil {
+		s.Sessions = make(map[string]string)
+	}
+	s.Sessions[sessionID] = nodeID
+	return nil
+}
+func (s *MockStorage) GetSessionHead(sessionID string) (string, error) {
+	if s.Sessions == nil {
+		return "", nil
+	}
+	return s.Sessions[sessionID], nil
+}
+func (s *MockStorage) ListSessions() (map[string]string, error) {
+	if s.Sessions == nil {
+		return make(map[string]string), nil
+	}
+	res := make(map[string]string)
+	for k, v := range s.Sessions {
+		res[k] = v
+	}
+	return res, nil
+}
 
 func TestManager_ResonanceScoring(t *testing.T) {
 	mgr := NewManager(NewGraph(), &MockStorage{})
@@ -714,6 +739,62 @@ func TestBuildLLMContext_EphemeralToolCompaction(t *testing.T) {
 	}
 }
 
+func TestBuildLLMContext_PreservesPaginationBannerOnCompaction(t *testing.T) {
+	mgr := NewManager(NewGraph(), &MockStorage{})
+	mgr.NumCtx = 131072
+
+	root, _ := mgr.CreateNode("", RoleSystem, "System prompt", false)
+
+	// Turn 1: Assistant executes read_file with pagination header
+	tc1 := ToolCall{
+		ID:   "call_paged",
+		Type: "function",
+		Function: struct {
+			Name      string          `json:"name"`
+			Arguments json.RawMessage `json:"arguments"`
+		}{
+			Name:      "read_file",
+			Arguments: json.RawMessage(`{"path":"log.md"}`),
+		},
+	}
+	asst1, _ := mgr.CreateAssistantNode(root.ID, "Reading log...", "Analyzing", []ToolCall{tc1}, false)
+	pagedResult := "[Lines 1-64 of 131 (Showing 7.9 KB) (Byte budget reached; 67 lines remaining. To read further, call read_file with path: \"log.md\", offset: 65)]\n\n" + strings.Repeat("log entry line...\n", 150)
+	_ = mgr.UpdateAssistantObservations(asst1.ID, "call_paged", pagedResult)
+
+	// Turn 2: User follow-up
+	user2, _ := mgr.CreateNode(asst1.ID, RoleUser, "Next step", false)
+
+	// Turn 3: Assistant intermediate turn
+	asst2, _ := mgr.CreateNode(user2.ID, RoleAssistant, "Working on next step...", false)
+
+	// Turn 4: User active leaf (distance of asst1 is >= 2)
+	user4, _ := mgr.CreateNode(asst2.ID, RoleUser, "What is the status?", false)
+
+	messages, err := mgr.BuildLLMContext(user4.ID, false)
+	if err != nil {
+		t.Fatalf("failed to build context: %v", err)
+	}
+
+	foundPaged := false
+	for _, msg := range messages {
+		if msg.Role == RoleTool && msg.ToolCallID == "call_paged" {
+			foundPaged = true
+			if !strings.Contains(msg.Content, "Lines 1-64 of 131") {
+				t.Errorf("expected compacted observation to preserve pagination banner, got: %s", msg.Content)
+			}
+			if !strings.Contains(msg.Content, "offset: 65") {
+				t.Errorf("expected compacted observation to preserve next offset directive, got: %s", msg.Content)
+			}
+			if !strings.Contains(msg.Content, "Detailed results omitted") {
+				t.Errorf("expected compacted observation to omit detailed body, got: %s", msg.Content)
+			}
+		}
+	}
+	if !foundPaged {
+		t.Errorf("expected to find call_paged tool message in context")
+	}
+}
+
 func TestBuildLLMContext_PureRootAndUnbumperedUserTurns(t *testing.T) {
 	storage := &MockStorage{}
 	mgr := NewManager(NewGraph(), storage)
@@ -976,3 +1057,196 @@ func TestPruneBranch_SystemRootGuard(t *testing.T) {
 		t.Errorf("expected error to mention 'cannot prune system root node', got: %v", err)
 	}
 }
+
+func TestPruneBranch_SessionProtectionGuard(t *testing.T) {
+	storage := &MockStorage{
+		Sessions: make(map[string]string),
+	}
+	mgr := NewManager(NewGraph(), storage)
+
+	root, _ := mgr.CreateNode("", RoleSystem, "System root", false)
+	userNode, _ := mgr.CreateNode(root.ID, RoleUser, "Message", false)
+	asstNode, _ := mgr.CreateNode(userNode.ID, RoleAssistant, "Response", false)
+
+	// Mark asstNode as head for active session "felicia"
+	_ = storage.SaveSessionHead("felicia", asstNode.ID)
+
+	// 1. Attempting to prune asstNode directly must fail
+	err := mgr.PruneBranch(asstNode.ID)
+	if err == nil {
+		t.Fatal("expected error pruning active session head, got nil")
+	}
+	if !strings.Contains(err.Error(), "felicia") {
+		t.Errorf("expected error to mention session 'felicia', got: %v", err)
+	}
+
+	// 2. Attempting to prune userNode (ancestor of felicia) must fail
+	err = mgr.PruneBranch(userNode.ID)
+	if err == nil {
+		t.Fatal("expected error pruning ancestor of active session, got nil")
+	}
+	if !strings.Contains(err.Error(), "felicia") {
+		t.Errorf("expected error to mention session 'felicia', got: %v", err)
+	}
+
+	// 3. Create a side branch with no sessions attached
+	sideNode, _ := mgr.CreateNode(userNode.ID, RoleUser, "Side branch", false)
+	err = mgr.PruneBranch(sideNode.ID)
+	if err != nil {
+		t.Errorf("expected side branch without active session to be pruned cleanly, got err: %v", err)
+	}
+}
+
+func TestCompactRange_SessionProtectionGuard(t *testing.T) {
+	storage := &MockStorage{
+		Sessions: make(map[string]string),
+	}
+	mgr := NewManager(NewGraph(), storage)
+
+	root, _ := mgr.CreateNode("", RoleSystem, "System root", false)
+	n1, _ := mgr.CreateNode(root.ID, RoleUser, "Step 1", false)
+	n2, _ := mgr.CreateNode(n1.ID, RoleAssistant, "Step 2", false)
+	n3, _ := mgr.CreateNode(n2.ID, RoleUser, "Step 3", false)
+
+	// Place session "experiment" head on intermediate node n2
+	_ = storage.SaveSessionHead("experiment", n2.ID)
+
+	provider := &MockLLMProvider{
+		ResponseContent: "Summary of steps",
+	}
+
+	// Compacting range [n1, n2, n3] includes intermediate node n2 which is an active session head
+	_, err := mgr.CompactRangeWithDirective(context.Background(), provider, []string{n1.ID, n2.ID, n3.ID}, "")
+	if err == nil {
+		t.Fatal("expected error compacting range containing intermediate active session head, got nil")
+	}
+	if !strings.Contains(err.Error(), "experiment") {
+		t.Errorf("expected error to mention session 'experiment', got: %v", err)
+	}
+}
+
+func TestBuildLLMContext_MissingObservationDefensiveFallback(t *testing.T) {
+	storage := &MockStorage{}
+	mgr := NewManager(NewGraph(), storage)
+
+	root, _ := mgr.CreateNode("", RoleSystem, "System prompt", false)
+	user, _ := mgr.CreateNode(root.ID, RoleUser, "List files please", false)
+
+	// Simulate an assistant turn that executed a tool call, has 2 segments, but Observations is missing/empty
+	tCalls := []ToolCall{
+		{
+			ID:   "call_test_123",
+			Type: "function",
+			Function: struct {
+				Name      string          `json:"name"`
+				Arguments json.RawMessage `json:"arguments"`
+			}{
+				Name:      "list_files_recursive",
+				Arguments: json.RawMessage(`{"path":"."}`),
+			},
+		},
+	}
+	asst, _ := mgr.CreateAssistantNode(user.ID, "", "Thinking...", tCalls, false)
+
+	// Update segments to simulate depth=1 where the turn concluded
+	type AssistantSegment struct {
+		Content string `json:"content"`
+		Thought string `json:"thought"`
+	}
+	segments := []AssistantSegment{
+		{Content: "", Thought: "Thinking..."},
+		{Content: "Here are the files", Thought: ""},
+	}
+	segBytes, _ := json.Marshal(segments)
+	asst.Metadata["segments"] = string(segBytes)
+	asst.Observations = nil // Force missing observations
+
+	msgs, err := mgr.BuildLLMContext(asst.ID, false)
+	if err != nil {
+		t.Fatalf("BuildLLMContext failed: %v", err)
+	}
+
+	// Verify that the tool call message is followed by a tool response message, not back-to-back assistant messages
+	foundToolCallIdx := -1
+	for idx, m := range msgs {
+		if len(m.ToolCalls) > 0 {
+			foundToolCallIdx = idx
+			break
+		}
+	}
+
+	if foundToolCallIdx == -1 {
+		t.Fatalf("expected tool call in messages")
+	}
+
+	if foundToolCallIdx+1 >= len(msgs) {
+		t.Fatalf("expected message after tool call")
+	}
+
+	nextMsg := msgs[foundToolCallIdx+1]
+	if nextMsg.Role != RoleTool {
+		t.Errorf("expected RoleTool immediately after RoleAssistant(tool_calls), got role: %s", nextMsg.Role)
+	}
+	if nextMsg.ToolCallID != "call_test_123" {
+		t.Errorf("expected ToolCallID 'call_test_123', got: %s", nextMsg.ToolCallID)
+	}
+}
+
+func TestManager_CloneWithWorkspace(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	storage, _ := NewSQLiteStorage(dbPath, "")
+	graph := NewGraph()
+	primaryDir := filepath.Join(tmpDir, "primary")
+	worktreeDir := filepath.Join(tmpDir, "worktree")
+	_ = os.MkdirAll(primaryDir, 0755)
+	_ = os.MkdirAll(worktreeDir, 0755)
+
+	mgr := NewManager(graph, storage)
+	mgr.RegisterDefaultTools(primaryDir)
+
+	cloned := mgr.CloneWithWorkspace(worktreeDir, primaryDir)
+
+	// Verify shared DAG and persistence
+	if cloned.Graph != mgr.Graph {
+		t.Errorf("expected cloned manager to share same Graph pointer")
+	}
+	if cloned.Storage != mgr.Storage {
+		t.Errorf("expected cloned manager to share same Storage pointer")
+	}
+	if cloned.WorkspaceDir != worktreeDir {
+		t.Errorf("expected cloned WorkspaceDir to be %s, got %s", worktreeDir, cloned.WorkspaceDir)
+	}
+
+	// Verify tool registry is distinct and properly scoped
+	if cloned.Registry == mgr.Registry {
+		t.Errorf("expected cloned manager to have distinct ToolRegistry")
+	}
+
+	// Execute write_file via cloned manager
+	_, err := cloned.ExecuteToolCall(context.Background(), ToolCall{
+		ID: "call_clone_test",
+		Function: struct {
+			Name      string          `json:"name"`
+			Arguments json.RawMessage `json:"arguments"`
+		}{
+			Name:      "write_file",
+			Arguments: []byte(`{"path": "hello.txt", "content": "from worktree"}`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("write_file in cloned manager failed: %v", err)
+	}
+
+	// Verify file was written to worktreeDir and NOT primaryDir
+	if _, err := os.Stat(filepath.Join(worktreeDir, "hello.txt")); err != nil {
+		t.Errorf("expected hello.txt in worktreeDir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(primaryDir, "hello.txt")); !os.IsNotExist(err) {
+		t.Errorf("hello.txt leaked into primaryDir!")
+	}
+}
+
+
+
+

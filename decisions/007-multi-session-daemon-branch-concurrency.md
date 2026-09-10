@@ -17,7 +17,7 @@ timestamp: "2026-09-07T11:00:00-07:00"
 
 ## Status
 
-Proposed
+Implemented (Phase 1, Phase 2, & Phase 3)
 
 ## Context
 
@@ -168,16 +168,25 @@ Nesting worktrees inside the project root (e.g. `.please/worktrees/`) introduces
 
 ## Decision
 
-We formally recognize the multi-client concurrency hazard and adopt a two-phase roadmap:
+We formally recognize the multi-client concurrency hazard and adopt a multi-phase implementation:
 
-1. **Phase 1 (Immediate / Stabilization)**:
-   * **Decouple TUI Camera Control**: Remove automatic `m.CurrentID = lastID` camera snapping on passive clients. Remote events will update the background graph and map view without stealing focus from the active user's viewport.
-   * **Explicit Session Identification**: Introduce a lightweight `session_id` header in `please connect` handshakes, laying the groundwork for per-connection cursor tracking.
-   * **Compaction Guards**: Prevent pruning of nodes that have active child branches or open session attachments.
+1. **Phase 1 (Stabilization)**:
+   * **Decouple TUI Camera Control**: Removed automatic `m.CurrentID = lastID` camera snapping on passive clients. Remote events update the background graph without stealing focus from the active user's viewport.
+   * **Explicit Session Identification**: Lightweight `X-Please-Session-ID` header transmission across remote providers and storage proxies.
 
-2. **Phase 2 (Evolutionary Roadmap)**:
-   * Evaluate Git worktree isolation for tool execution if multi-agent or multiplayer pair-programming becomes a core priority.
-   * Formalize branch-isolated supernodes where compaction is strictly scoped to the active trajectory path.
+2. **Phase 2 (Named Session Heads & Branch Concurrency Guards)**:
+   * **Named Session Heads**: Persist human-readable session heads (`main` by default, e.g. `felicia`, `experiment`) in a `sessions` table in SQLite (`id`, `head_node_id`, `updated_at`) and JSONL/Remote proxies.
+   * **Precise Resume Mechanics**: Standalone `please` and `please connect` resolve their active session (`--session <name>` flag $\rightarrow$ `cfg.Client.Session` $\rightarrow$ `"main"`) and resume directly at that session's `head_node_id`, eliminating cross-session camera/cursor jumping.
+   * **Compaction & Pruning Guards**: In `engine.Manager` (`PruneBranch` and `CompactRangeWithDirective`), query all active session heads from storage. Build ancestor protection sets via `Graph.GetPath(headID)` so that no node in the active lineage of *any* active session head can ever be pruned, deleted, or detached by another session's compaction.
+   * **Daemon REST & SSE Endpoints**: `GET /api/v1/sessions`, `GET /api/v1/sessions/{id}`, and `POST /api/v1/sessions`. SSE turns update session heads automatically.
+   * **TUI Ergonomics**: Added `/session` status, `/session list`, and `/session switch <name>` slash commands.
+
+3. **Phase 3 (Worktree Sandboxing - Implemented)**:
+   * **Opt-In Sandboxing**: Controlled via `--worktree` flag or `worktree_isolation: true` in `config.json`. Gracefully falls back to direct workspace mode if `git` is not installed or workspace is not a Git repo.
+   * **Out-of-Tree Storage**: Provisions isolated session checkouts under `<configDir>/worktrees/<repo-key>/<session-id>` on dedicated branches (`please/<session-id>`), preventing tooling and watcher pollution in the primary checkout.
+   * **Manager Cloning & Scoped Registries**: `Manager.CloneWithWorkspace` creates session-scoped tool registries and working directories so tools run in complete isolation per session.
+   * **Path Virtualization**: Transparently virtualizes absolute primary workspace paths inside worktree checkouts.
+   * **TUI Ergonomics**: Added `/worktree` status overview, `/worktree list`, `/worktree remove <session>`, and `/config worktree on|off`.
 
 ---
 

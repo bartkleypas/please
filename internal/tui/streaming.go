@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/bartkleypas/please/internal/engine"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -77,11 +78,18 @@ func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, te
 		return m, nil
 	}
 
-	if m.RemoteURL != "" {
-		// In connected mode, the remote daemon autonomously manages tool execution
-		// and persists assistant/tool turns directly in the vault.
+	if _, ok := m.Provider.(*engine.LocalHarnessProvider); ok || m.RemoteURL != "" {
+		// When driven by a SessionHarness (either remote daemon or in-process LocalHarnessProvider),
+		// the harness autonomously executes tools, records observations, and persists turns.
 		_, lastID, _ := m.Manager.Sync()
-		if lastID != "" {
+		if m.SessionID != "" && m.Manager != nil && m.Manager.Storage != nil {
+			if headID, err := m.Manager.Storage.GetSessionHead(m.SessionID); err == nil && headID != "" {
+				m.CurrentID = headID
+			} else if lastID != "" {
+				m.CurrentID = lastID
+				_ = m.Manager.Storage.SaveSessionHead(m.SessionID, m.CurrentID)
+			}
+		} else if lastID != "" {
 			m.CurrentID = lastID
 		}
 		m.LastActivity = time.Now()
@@ -91,6 +99,15 @@ func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, te
 		m.PendingToolCalls = nil
 		m.updateViewportContent()
 		return m, tea.Batch(tick())
+	}
+
+	// Fallback: If no structured tool calls were emitted by the provider,
+	// check if the model leaked raw tool calls directly into content (e.g. Gemma <call>...</call>)
+	if len(msg.toolCalls) == 0 {
+		if cleanedContent, rawCalls := engine.ExtractContentToolCalls(m.CurrentStreamingContent); len(rawCalls) > 0 {
+			m.CurrentStreamingContent = cleanedContent
+			msg.toolCalls = rawCalls
+		}
 	}
 
 	var activeID string
@@ -121,6 +138,17 @@ func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, te
 			Content: m.CurrentStreamingContent,
 			Thought: m.CurrentStreamingThought,
 		})
+		if len(msg.toolCalls) == 0 {
+			if clean, sig := engine.ExtractSignat(node.Content); sig != "" {
+				node.Content = clean
+				node.Metadata["signat"] = sig
+				if len(segments) > 0 {
+					if lastClean, lastSig := engine.ExtractSignat(segments[len(segments)-1].Content); lastSig != "" {
+						segments[len(segments)-1].Content = lastClean
+					}
+				}
+			}
+		}
 		if segJSON, err := json.Marshal(segments); err == nil {
 			node.Metadata["segments"] = string(segJSON)
 		}
@@ -139,10 +167,30 @@ func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, te
 			m.CurrentStreamingThought = ""
 			return m, nil
 		}
+		if len(msg.toolCalls) > 0 {
+			type AssistantSegment struct {
+				Content string `json:"content"`
+				Thought string `json:"thought"`
+			}
+			initialSegs := []AssistantSegment{{
+				Content: m.CurrentStreamingContent,
+				Thought: m.CurrentStreamingThought,
+			}}
+			if botNode.Metadata == nil {
+				botNode.Metadata = make(map[string]string)
+			}
+			if segBytes, err := json.Marshal(initialSegs); err == nil {
+				botNode.Metadata["segments"] = string(segBytes)
+				_ = m.Manager.Storage.SaveNode(botNode)
+			}
+		}
 		activeID = botNode.ID
 	}
 
 	m.CurrentID = activeID
+	if m.SessionID != "" && m.Manager != nil && m.Manager.Storage != nil {
+		_ = m.Manager.Storage.SaveSessionHead(m.SessionID, m.CurrentID)
+	}
 	m.LastActivity = time.Now()
 	m.updateViewportContent() // Full refresh to show final formatted node
 	m.CurrentStreamingContent = ""
@@ -267,7 +315,12 @@ func (m *Model) resumeStreamCmd(ctx context.Context, activeNodeID string) tea.Cm
 			return llmStreamFinishedMsg{err: err, activeNodeID: activeNodeID}
 		}
 
-		contentChan, thoughtChan, toolCallChan, errChan := m.Provider.GenerateResponseStream(ctx, messages, m.Manager.Registry.GetToolsForPolicy(m.Config.GetSandboxPolicy()))
+		var tools []engine.Tool
+		if m.Manager.Registry != nil {
+			tools = m.Manager.Registry.GetToolsForPolicy(m.Config.GetSandboxPolicy())
+		}
+
+		contentChan, thoughtChan, toolCallChan, errChan := m.Provider.GenerateResponseStream(ctx, messages, tools)
 		return streamResponseMsg{
 			contentChan:  contentChan,
 			thoughtChan:  thoughtChan,

@@ -65,6 +65,26 @@ please -c --jump $MSG_ID
 please --no-gen "This message is just for the graph history."
 ```
 
+### Inspect DAG Nodes & Resonance Scorecards
+Inspect node metadata, multi-turn tool observations, active path token costs, and context resonance decay tiers:
+```bash
+# Inspect latest active leaf node
+please inspect
+
+# Inspect a specific node by UUID or short ID prefix
+please inspect 01a08802 -v ./my_vault.db
+```
+
+### Inspect Reconstructed LLM Context
+View the exact linear message payload passed to the LLM (including compaction, signats, and system overlays):
+```bash
+# View human-readable transcript
+please context 01a08802
+
+# Dump exact JSON array of messages for piping/inspection
+please context 01a08802 --json | jq .
+```
+
 ---
 
 ## 🚀 Getting Started

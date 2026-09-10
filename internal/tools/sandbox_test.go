@@ -96,6 +96,25 @@ func TestValidateSafePath_SymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestValidateSafePath_WorktreeVirtualization(t *testing.T) {
+	primaryDir := t.TempDir()
+	worktreeDir := t.TempDir()
+
+	// An absolute path referencing the primary workspace
+	primaryFile := filepath.Join(primaryDir, "cmd", "main.go")
+
+	// ValidateSafePath with primaryWorkspace provided should rebase it onto worktreeDir
+	resolved, err := ValidateSafePath(worktreeDir, primaryFile, primaryDir)
+	if err != nil {
+		t.Fatalf("unexpected error virtualizing path: %v", err)
+	}
+
+	expected := canonicalizePath(filepath.Join(worktreeDir, "cmd", "main.go"))
+	if resolved != expected {
+		t.Errorf("expected virtualized path %s, got %s", expected, resolved)
+	}
+}
+
 func TestParseAndValidatePipeline(t *testing.T) {
 	strictList := StrictAllowedCommands
 

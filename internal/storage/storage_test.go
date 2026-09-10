@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -283,3 +284,178 @@ func TestSQLiteStorage_Concurrency(t *testing.T) {
 		t.Errorf("Expected %d nodes after stress test, got %d", expected, len(g.Nodes))
 	}
 }
+
+func TestSQLiteStorage_Sessions(t *testing.T) {
+	tmpDB := "test_sessions.db"
+	defer os.Remove(tmpDB)
+	defer os.Remove(tmpDB + "-shm")
+	defer os.Remove(tmpDB + "-wal")
+
+	storage, err := NewSQLiteStorage(tmpDB, "")
+	if err != nil {
+		t.Fatalf("Failed to create SQLite storage: %v", err)
+	}
+
+	// 1. Initial lookup on empty DB returns empty string and nil error
+	head, err := storage.GetSessionHead("main")
+	if err != nil {
+		t.Fatalf("GetSessionHead failed: %v", err)
+	}
+	if head != "" {
+		t.Errorf("expected empty head, got %s", head)
+	}
+
+	// 2. Save session head for main
+	if err := storage.SaveSessionHead("main", "node-101"); err != nil {
+		t.Fatalf("SaveSessionHead failed: %v", err)
+	}
+
+	head, err = storage.GetSessionHead("main")
+	if err != nil {
+		t.Fatalf("GetSessionHead failed: %v", err)
+	}
+	if head != "node-101" {
+		t.Errorf("expected node-101, got %s", head)
+	}
+
+	// 3. Save session head for another session
+	if err := storage.SaveSessionHead("experiment", "node-202"); err != nil {
+		t.Fatalf("SaveSessionHead failed: %v", err)
+	}
+
+	sessions, err := storage.ListSessions()
+	if err != nil {
+		t.Fatalf("ListSessions failed: %v", err)
+	}
+	if len(sessions) != 2 {
+		t.Errorf("expected 2 sessions, got %d", len(sessions))
+	}
+	if sessions["main"] != "node-101" || sessions["experiment"] != "node-202" {
+		t.Errorf("sessions mismatch: %v", sessions)
+	}
+
+	// 4. Update existing session head
+	if err := storage.SaveSessionHead("main", "node-102"); err != nil {
+		t.Fatalf("SaveSessionHead update failed: %v", err)
+	}
+	head, err = storage.GetSessionHead("main")
+	if err != nil || head != "node-102" {
+		t.Errorf("expected updated head node-102, got %s (err: %v)", head, err)
+	}
+}
+
+func TestJSONLStorage_Sessions(t *testing.T) {
+	tmpFile := "test_sessions.jsonl"
+	defer os.Remove(tmpFile)
+	defer os.Remove(tmpFile + ".sessions.json")
+
+	storage := NewJSONLStorage(tmpFile, "")
+
+	// 1. Empty lookup
+	head, err := storage.GetSessionHead("main")
+	if err != nil || head != "" {
+		t.Fatalf("expected empty head, got %q, err %v", head, err)
+	}
+
+	// 2. Save & List
+	if err := storage.SaveSessionHead("felicia", "node-555"); err != nil {
+		t.Fatalf("SaveSessionHead failed: %v", err)
+	}
+	head, err = storage.GetSessionHead("felicia")
+	if err != nil || head != "node-555" {
+		t.Fatalf("expected node-555, got %q, err %v", head, err)
+	}
+
+	sessions, err := storage.ListSessions()
+	if err != nil || sessions["felicia"] != "node-555" {
+		t.Fatalf("unexpected sessions list: %v", sessions)
+	}
+}
+
+func TestSQLiteStorage_SaveNodePreservesExistingObservations(t *testing.T) {
+	tmpDB := t.TempDir() + "/test_obs_preservation.db"
+	storage, err := NewSQLiteStorage(tmpDB, "")
+	if err != nil {
+		t.Fatalf("failed to init SQLiteStorage: %v", err)
+	}
+
+	// 1. Save assistant node with tool calls and observations
+	asstNode := &graph.Node{
+		ID:        "asst-1",
+		Role:      graph.RoleAssistant,
+		Content:   "Reading log file...",
+		Timestamp: time.Now(),
+		ToolCalls: []providers.ToolCall{
+			{
+				ID: "call_read_log",
+				Function: struct {
+					Name      string          `json:"name"`
+					Arguments json.RawMessage `json:"arguments"`
+				}{
+					Name:      "read_file",
+					Arguments: json.RawMessage(`{"path":"log.md"}`),
+				},
+			},
+		},
+		Observations: []providers.ToolObservation{
+			{
+				ToolCallID: "call_read_log",
+				Result:     "# Log Content\nYesterday we refactored the DAG.",
+			},
+		},
+	}
+
+	if err := storage.SaveNode(asstNode); err != nil {
+		t.Fatalf("SaveNode failed: %v", err)
+	}
+
+	// Verify observations stored
+	g, _, err := storage.LoadGraph()
+	if err != nil {
+		t.Fatalf("LoadGraph failed: %v", err)
+	}
+	loaded, err := g.GetNode("asst-1")
+	if err != nil || len(loaded.Observations) != 1 {
+		t.Fatalf("expected 1 observation, got %d (err: %v)", len(loaded.Observations), err)
+	}
+
+	// 2. Simulate subsequent update where caller provides empty/nil Observations
+	// (e.g. updating Content or Metadata without having observations loaded in-memory)
+	updatedNode := &graph.Node{
+		ID:           "asst-1",
+		Role:         graph.RoleAssistant,
+		Content:      "Based on the log, yesterday we refactored the DAG. 🦉☕",
+		Timestamp:    asstNode.Timestamp,
+		ToolCalls:    asstNode.ToolCalls,
+		Observations: nil, // Nil observations!
+		Metadata:     map[string]string{"signat": "🦉☕"},
+	}
+
+	if err := storage.SaveNode(updatedNode); err != nil {
+		t.Fatalf("second SaveNode failed: %v", err)
+	}
+
+	// 3. Load graph and verify observations were PRESERVED and not wiped out!
+	g2, _, err := storage.LoadGraph()
+	if err != nil {
+		t.Fatalf("LoadGraph 2 failed: %v", err)
+	}
+	loaded2, err := g2.GetNode("asst-1")
+	if err != nil {
+		t.Fatalf("node not found after second save: %v", err)
+	}
+
+	if len(loaded2.Observations) != 1 {
+		t.Fatalf("CRITICAL: observations were wiped out by SaveNode! Expected 1, got %d", len(loaded2.Observations))
+	}
+	if loaded2.Observations[0].ToolCallID != "call_read_log" {
+		t.Errorf("expected observation for call_read_log, got: %s", loaded2.Observations[0].ToolCallID)
+	}
+	if !strings.Contains(loaded2.Observations[0].Result, "Yesterday we refactored the DAG") {
+		t.Errorf("observation content was corrupted: %q", loaded2.Observations[0].Result)
+	}
+	if loaded2.Content != updatedNode.Content {
+		t.Errorf("content was not updated: %q", loaded2.Content)
+	}
+}
+

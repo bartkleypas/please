@@ -12,6 +12,7 @@ import (
 
 	"path/filepath"
 
+	"github.com/bartkleypas/please/internal/tools"
 	"github.com/google/uuid"
 )
 
@@ -56,6 +57,28 @@ func NewManager(g *Graph, s Storage) *Manager {
 		WorkspaceDir: ".",
 		NumCtx:       32768,
 	}
+}
+
+// CloneWithWorkspace creates a lightweight copy of the manager scoped to a new workspace directory
+// (such as a Git worktree), while sharing the same underlying Graph DAG, Storage vault, and
+// runtime tuning parameters.
+func (m *Manager) CloneWithWorkspace(workspaceDir string, primaryWorkspace ...string) *Manager {
+	cloned := &Manager{
+		Graph:            m.Graph,
+		Storage:          m.Storage,
+		Registry:         NewToolRegistry(),
+		WorkspaceDir:     workspaceDir,
+		NumCtx:           m.NumCtx,
+		SignatSteering:   m.SignatSteering,
+		AmbientTelemetry: m.AmbientTelemetry,
+		clientContext:    m.clientContext,
+	}
+	prim := m.WorkspaceDir
+	if len(primaryWorkspace) > 0 && primaryWorkspace[0] != "" {
+		prim = primaryWorkspace[0]
+	}
+	tools.RegisterDefaultTools(cloned.Registry, workspaceDir, prim)
+	return cloned
 }
 
 // SetClientContext sets temporary client editor context (e.g. active_file, cursor_line).
@@ -360,6 +383,28 @@ func (m *Manager) calculateResonanceScore(node *Node, distance int, fillRatio fl
 	return baseScore * decayFactor
 }
 
+// CalculateResonanceScore computes the Context Resonance Score for a node given its distance and context metrics.
+func (m *Manager) CalculateResonanceScore(node *Node, distance int, fillRatio float64, totalPathLen int) float64 {
+	return m.calculateResonanceScore(node, distance, fillRatio, totalPathLen)
+}
+
+// formatCompactedToolObservation produces a concise summary of a completed tool observation,
+// preserving any leading pagination banner (e.g. "[Lines 1-64 of 131...]") so the model
+// maintains memory of read ranges and continuation offsets without retaining the full body.
+func formatCompactedToolObservation(toolName string, rawResult string) string {
+	banner := ""
+	if idx := strings.Index(rawResult, "\n"); idx != -1 {
+		firstLine := strings.TrimSpace(rawResult[:idx])
+		if strings.HasPrefix(firstLine, "[Lines ") || strings.HasPrefix(firstLine, "[Offset ") || (strings.HasPrefix(firstLine, "[") && strings.HasSuffix(firstLine, "]")) {
+			banner = ": " + firstLine
+		}
+	} else if strings.HasPrefix(rawResult, "[Lines ") || strings.HasPrefix(rawResult, "[Offset ") || (strings.HasPrefix(rawResult, "[") && strings.HasSuffix(rawResult, "]")) {
+		banner = ": " + strings.TrimSpace(rawResult)
+	}
+
+	return fmt.Sprintf("[Tool '%s' execution completed%s. Detailed results omitted. Total size: %d bytes.]", toolName, banner, len(rawResult))
+}
+
 // BuildLLMContext constructs the message history for the LLM, applying Priority Pruning based on the Context Resonance Score.
 func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message, error) {
 	path, err := m.GetPath(leafID)
@@ -406,6 +451,28 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 				_ = json.Unmarshal([]byte(node.Metadata["segments"]), &segments)
 			}
 
+			obsMap := make(map[string]ToolObservation, len(node.Observations))
+			for _, obs := range node.Observations {
+				obsMap[obs.ToolCallID] = obs
+			}
+
+			formatObs := func(toolName, rawResult string) string {
+				if distance >= 2 && len(rawResult) > 1000 {
+					return formatCompactedToolObservation(toolName, rawResult)
+				} else if v > 5.0 {
+					if fillRatio >= 0.60 && len(rawResult) > 8000 {
+						return rawResult[:8000] + "... [truncated]"
+					}
+					return rawResult
+				} else if v > 0.5 {
+					if len(rawResult) > 2000 {
+						return rawResult[:2000] + "... [truncated]"
+					}
+					return rawResult
+				}
+				return formatCompactedToolObservation(toolName, rawResult)
+			}
+
 			if len(segments) > 0 {
 				for j, seg := range segments {
 					var tCalls []ToolCall
@@ -414,7 +481,7 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 					}
 
 					content := seg.Content
-					if m.SignatSteering && j == len(segments)-1 && node.Metadata != nil && node.Metadata["signat"] != "" {
+					if m.SignatSteering && j == len(segments)-1 && len(tCalls) == 0 && node.Metadata != nil && node.Metadata["signat"] != "" {
 						content = content + " " + node.Metadata["signat"]
 					}
 
@@ -427,66 +494,50 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 					msg.ToolCalls = tCalls
 					messages = append(messages, msg)
 
-					if j < len(node.ToolCalls) && j < len(node.Observations) {
-						obs := node.Observations[j]
-						truncatedResult := obs.Result
-						toolName := node.ToolCalls[j].Function.Name
-						if distance >= 2 && len(truncatedResult) > 1000 {
-							truncatedResult = fmt.Sprintf("[Tool '%s' execution completed. Detailed results omitted. Total size: %d bytes.]", toolName, len(obs.Result))
-						} else if v > 5.0 {
-							if fillRatio >= 0.60 && len(truncatedResult) > 8000 {
-								truncatedResult = truncatedResult[:8000] + "... [truncated]"
-							}
-						} else if v > 0.5 {
-							if len(truncatedResult) > 2000 {
-								truncatedResult = truncatedResult[:2000] + "... [truncated]"
-							}
+					for _, tc := range tCalls {
+						toolName := tc.Function.Name
+						if obs, ok := obsMap[tc.ID]; ok {
+							messages = append(messages, Message{
+								Role:       RoleTool,
+								Content:    formatObs(toolName, obs.Result),
+								ToolCallID: tc.ID,
+								Internal:   node.Internal,
+							})
 						} else {
-							truncatedResult = fmt.Sprintf("[Tool '%s' execution completed. Detailed results omitted. Total size: %d bytes.]", toolName, len(obs.Result))
+							messages = append(messages, Message{
+								Role:       RoleTool,
+								Content:    fmt.Sprintf("[Tool '%s' execution completed.]", toolName),
+								ToolCallID: tc.ID,
+								Internal:   node.Internal,
+							})
 						}
-
-						messages = append(messages, Message{
-							Role:       RoleTool,
-							Content:    truncatedResult,
-							ToolCallID: obs.ToolCallID,
-							Internal:   node.Internal,
-						})
 					}
 				}
 
-				// Defensive fallback: if there are more ToolCalls/Observations than segments,
+				// Defensive fallback: if there are more ToolCalls than segments,
 				// emit them sequentially so the model is never blinded to tool execution results.
 				for j := len(segments); j < len(node.ToolCalls); j++ {
-					tCalls := []ToolCall{node.ToolCalls[j]}
+					tc := node.ToolCalls[j]
+					toolName := tc.Function.Name
 					messages = append(messages, Message{
 						Role:      RoleAssistant,
 						Content:   "",
 						Internal:  node.Internal,
-						ToolCalls: tCalls,
+						ToolCalls: []ToolCall{tc},
 					})
 
-					if j < len(node.Observations) {
-						obs := node.Observations[j]
-						truncatedResult := obs.Result
-						toolName := node.ToolCalls[j].Function.Name
-						if distance >= 2 && len(truncatedResult) > 1000 {
-							truncatedResult = fmt.Sprintf("[Tool '%s' execution completed. Detailed results omitted. Total size: %d bytes.]", toolName, len(obs.Result))
-						} else if v > 5.0 {
-							if fillRatio >= 0.60 && len(truncatedResult) > 8000 {
-								truncatedResult = truncatedResult[:8000] + "... [truncated]"
-							}
-						} else if v > 0.5 {
-							if len(truncatedResult) > 2000 {
-								truncatedResult = truncatedResult[:2000] + "... [truncated]"
-							}
-						} else {
-							truncatedResult = fmt.Sprintf("[Tool '%s' execution completed. Detailed results omitted. Total size: %d bytes.]", toolName, len(obs.Result))
-						}
-
+					if obs, ok := obsMap[tc.ID]; ok {
 						messages = append(messages, Message{
 							Role:       RoleTool,
-							Content:    truncatedResult,
-							ToolCallID: obs.ToolCallID,
+							Content:    formatObs(toolName, obs.Result),
+							ToolCallID: tc.ID,
+							Internal:   node.Internal,
+						})
+					} else {
+						messages = append(messages, Message{
+							Role:       RoleTool,
+							Content:    fmt.Sprintf("[Tool '%s' execution completed.]", toolName),
+							ToolCallID: tc.ID,
 							Internal:   node.Internal,
 						})
 					}
@@ -512,7 +563,7 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 		}
 
 		signatSuffix := ""
-		if m.SignatSteering && node.Metadata != nil && node.Metadata["signat"] != "" && (node.Role == RoleAssistant || node.Role == RoleSystem) {
+		if m.SignatSteering && len(node.ToolCalls) == 0 && node.Metadata != nil && node.Metadata["signat"] != "" && (node.Role == RoleAssistant || node.Role == RoleSystem) {
 			signatSuffix = " " + node.Metadata["signat"]
 		}
 
@@ -567,7 +618,7 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 				}
 				truncatedResult := obs.Result
 				if len(truncatedResult) > 1000 {
-					truncatedResult = fmt.Sprintf("[Tool '%s' execution completed. Detailed results omitted. Total size: %d bytes.]", toolName, len(obs.Result))
+					truncatedResult = formatCompactedToolObservation(toolName, obs.Result)
 				}
 				msg.Observations[j] = ToolObservation{
 					ToolCallID: obs.ToolCallID,
@@ -603,7 +654,7 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 				}
 			}
 		} else {
-			// Low fidelity: keep core dialogue, but crush observations
+			// Low fidelity: keep core dialogue, but crush observations with banner retention
 			msg.ToolCalls = node.ToolCalls
 			msg.Observations = make([]ToolObservation, len(node.Observations))
 			for j, obs := range node.Observations {
@@ -617,7 +668,7 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 				}
 				msg.Observations[j] = ToolObservation{
 					ToolCallID: obs.ToolCallID,
-					Result:     fmt.Sprintf("[Tool '%s' execution completed. Detailed results omitted. Total size: %d bytes.]", toolName, len(obs.Result)),
+					Result:     formatCompactedToolObservation(toolName, obs.Result),
 				}
 			}
 		}
@@ -681,6 +732,29 @@ func (m *Manager) PruneBranch(nodeID string) error {
 		return fmt.Errorf("cannot prune system root node %s", nodeID)
 	}
 
+	// Guard against pruning nodes in active session trajectories
+	if m.Storage != nil {
+		if sessions, err := m.Storage.ListSessions(); err == nil {
+			protected := make(map[string]string)
+			for sessName, headID := range sessions {
+				if headID == "" {
+					continue
+				}
+				path, err := m.Graph.GetPath(headID)
+				if err != nil {
+					continue
+				}
+				for _, pNode := range path {
+					protected[pNode.ID] = sessName
+				}
+			}
+
+			if sessName, ok := protected[nodeID]; ok {
+				return fmt.Errorf("cannot prune node %s: node is part of the active trajectory of session %q", nodeID, sessName)
+			}
+		}
+	}
+
 	// Recursive helper to flag and persist
 	var flagDeleted func(n *Node) error
 	flagDeleted = func(n *Node) error {
@@ -727,6 +801,21 @@ func (m *Manager) CompactRange(ctx context.Context, provider LLMProvider, nodeID
 func (m *Manager) CompactRangeWithDirective(ctx context.Context, provider LLMProvider, nodeIDs []string, directive string) (*Node, error) {
 	if len(nodeIDs) == 0 {
 		return nil, fmt.Errorf("no nodes provided for compaction")
+	}
+
+	// Guard against compacting ranges containing intermediate active session heads
+	if m.Storage != nil && len(nodeIDs) > 1 {
+		if sessions, err := m.Storage.ListSessions(); err == nil {
+			intermediateMap := make(map[string]bool)
+			for _, id := range nodeIDs[:len(nodeIDs)-1] {
+				intermediateMap[id] = true
+			}
+			for sessName, headID := range sessions {
+				if intermediateMap[headID] {
+					return nil, fmt.Errorf("cannot compact range: contains active session head %s for session %q", headID, sessName)
+				}
+			}
+		}
 	}
 
 	var contentToSummarize strings.Builder

@@ -539,8 +539,8 @@ func TestLLM_AutonomousNarrativeVector(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
-	// 1. Establish George the Archivist Persona
-	sysPrompt := "You are George the Archivist 🦉📚, an 18-inch tall barred owl who chronicles software architecture. You speak with a sardonic wit and deep appreciation for structured DAGs. To anchor your trajectory in the map, conclude the text of each turn with a 1-3 emoji signature (signat) on the final line reflecting your active posture (e.g. 🔍📜 for reading files, 🛠️💻 for code analysis, 🧠📐 for architecture logic)."
+	// 1. Establish George the Archivist Persona (Pure persona in Node 0 per ADR 003)
+	sysPrompt := "You are George the Archivist 🦉📚, an 18-inch tall barred owl who chronicles software architecture. You speak with a sardonic wit and deep appreciation for structured DAGs."
 	sysNode, err := mgr.CreateNode("", RoleSystem, sysPrompt, false)
 	if err != nil {
 		t.Fatalf("failed to create system node: %v", err)
@@ -551,8 +551,8 @@ func TestLLM_AutonomousNarrativeVector(t *testing.T) {
 		tools = append(tools, tool)
 	}
 
-	// 2. Mission Primer
-	primerPrompt := "Greetings George! Over the next 5 turns, explore this workspace autonomously. On each turn, use the read_file tool to inspect a different core file (e.g. README.md, docs/context_resonance.md, GEMINI.md, internal/engine/service.go, internal/tui/map.go) and weave your findings into the lore of Please. Conclude each message with your 1-3 emoji signat on the final line. Your continuation prompt will always be simply: 'Please proceed.'"
+	// 2. Mission Primer (Signat steering flows purely from harness contract overlay)
+	primerPrompt := "Greetings George! Over the next 5 turns, explore this workspace autonomously. On each turn, use the read_file tool to inspect a different core file (e.g. README.md, docs/context_resonance.md, GEMINI.md, internal/engine/service.go, internal/tui/map.go) and weave your findings into the lore of Please. Your continuation prompt will always be simply: 'Please proceed.'"
 	primerTurn := executeAutonomousTurn(t, ctx, mgr, provider, tools, primerPrompt, sysNode.ID)
 
 	var turnIDs []string

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/bartkleypas/please/internal/engine"
+	"github.com/bartkleypas/please/internal/worktree"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -41,6 +42,10 @@ func init() {
 	commandRegistry["/fold"] = &FoldCommand{}
 	commandRegistry["/compact"] = &CompactCommand{}
 	commandRegistry["/compress"] = &CompactCommand{}
+	commandRegistry["/session"] = &SessionCommand{}
+	commandRegistry["/sessions"] = &SessionCommand{}
+	commandRegistry["/worktree"] = &WorktreeCommand{}
+	commandRegistry["/worktrees"] = &WorktreeCommand{}
 
 	// Tool confirmation commands
 	commandRegistry["/yes"] = &ConfirmToolCommand{}
@@ -479,6 +484,20 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 			m.Notification = "Usage: /config pacing <on|off>"
 			return m, nil
 		}
+	case "worktree", "worktrees", "worktree_isolation":
+		switch strings.ToLower(value) {
+		case "on", "true", "yes", "enable", "enabled":
+			wt := true
+			m.Config.Server.WorktreeIsolation = &wt
+			m.Notification = "Git worktree sandboxing enabled."
+		case "off", "false", "no", "disable", "disabled":
+			wt := false
+			m.Config.Server.WorktreeIsolation = &wt
+			m.Notification = "Git worktree sandboxing disabled."
+		default:
+			m.Notification = "Usage: /config worktree <on|off>"
+			return m, nil
+		}
 	case "remote", "daemon", "server_url", "url":
 		if strings.ToLower(value) == "default" || strings.ToLower(value) == "reset" {
 			m.Config.Client.RemoteURL = "http://127.0.0.1:8080"
@@ -790,6 +809,7 @@ func (c *HelpCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	s.WriteString("  /gc             Permanently scrub soft-deleted nodes from disk\n")
 	s.WriteString("  /server         Control the web visualization server (/server on|off|status)\n")
 	s.WriteString("  /audit          Toggle full UUID visibility in the graph and chat views\n")
+	s.WriteString("  /session [cmd]  Manage named sessions (/session [status], /session list, /session switch <name>)\n")
 	s.WriteString("  /pacing         Toggle natural reading pacing for LLM stream (/pacing [on|off])\n")
 	s.WriteString("  /compact [hint] Summarize the current branch into a milestone Supernode (alias: /compress)\n")
 	s.WriteString("  /fold [all]     Fold/unfold reasoning thought process blocks (key: Tab / Shift+Tab)\n")
@@ -915,4 +935,222 @@ func (c *FoldCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+type SessionCommand struct{}
+
+func (c *SessionCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
+	if len(args) == 0 {
+		headInfo := m.CurrentID
+		if len(headInfo) > 8 {
+			headInfo = headInfo[:8]
+		}
+		m.Notification = fmt.Sprintf("Active session: %q (head: %s)", m.SessionID, headInfo)
+		return m, nil
+	}
+
+	sub := strings.ToLower(args[0])
+	switch sub {
+	case "list":
+		if m.Manager == nil || m.Manager.Storage == nil {
+			m.Notification = "Storage not initialized"
+			return m, nil
+		}
+		sessions, err := m.Manager.Storage.ListSessions()
+		if err != nil {
+			m.Notification = fmt.Sprintf("Failed to list sessions: %v", err)
+			return m, nil
+		}
+		if len(sessions) == 0 {
+			m.ViewportOverride = "--- Sessions ---\nNo saved sessions found."
+		} else {
+			var sb strings.Builder
+			sb.WriteString("--- Active Sessions ---\n")
+			for id, headID := range sessions {
+				marker := "  "
+				if id == m.SessionID {
+					marker = "➜ "
+				}
+				shortHead := headID
+				if len(shortHead) > 8 {
+					shortHead = shortHead[:8]
+				}
+				sb.WriteString(fmt.Sprintf("%s%-16s (head: %s)\n", marker, id, shortHead))
+			}
+			m.ViewportOverride = sb.String()
+		}
+		m.Viewport.SetContent(m.ViewportOverride)
+		m.Viewport.GotoTop()
+		return m, nil
+
+	case "switch":
+		if len(args) < 2 {
+			m.Notification = "Usage: /session switch <name>"
+			return m, nil
+		}
+		targetSession := args[1]
+		if targetSession == "" {
+			m.Notification = "Session name cannot be empty"
+			return m, nil
+		}
+
+		m.SessionID = targetSession
+		if rdp, ok := m.Provider.(*engine.RemoteDaemonProvider); ok {
+			rdp.SessionID = targetSession
+		}
+		if lhp, ok := m.Provider.(*engine.LocalHarnessProvider); ok {
+			lhp.SetSessionID(targetSession)
+		}
+		if rds, ok := m.Manager.Storage.(*engine.RemoteDaemonStorage); ok {
+			rds.SessionID = targetSession
+		}
+
+		headID, err := m.Manager.Storage.GetSessionHead(targetSession)
+		if err == nil && headID != "" {
+			if node, err := m.Manager.GetNode(headID); err == nil {
+				m.navigateToNode(node)
+				shortID := headID
+				if len(shortID) > 8 {
+					shortID = shortID[:8]
+				}
+				m.Notification = fmt.Sprintf("Switched to session %q (resumed at %s)", targetSession, shortID)
+				return m, nil
+			}
+		}
+
+		_ = m.Manager.Storage.SaveSessionHead(targetSession, m.CurrentID)
+		m.Notification = fmt.Sprintf("Switched to session %q (anchored at current node)", targetSession)
+		return m, nil
+
+	default:
+		// Shortcut: `/session <name>` behaves like `/session switch <name>`
+		targetSession := args[0]
+		m.SessionID = targetSession
+		if rdp, ok := m.Provider.(*engine.RemoteDaemonProvider); ok {
+			rdp.SessionID = targetSession
+		}
+		if lhp, ok := m.Provider.(*engine.LocalHarnessProvider); ok {
+			lhp.SetSessionID(targetSession)
+		}
+		if rds, ok := m.Manager.Storage.(*engine.RemoteDaemonStorage); ok {
+			rds.SessionID = targetSession
+		}
+
+		headID, err := m.Manager.Storage.GetSessionHead(targetSession)
+		if err == nil && headID != "" {
+			if node, err := m.Manager.GetNode(headID); err == nil {
+				m.navigateToNode(node)
+				shortID := headID
+				if len(shortID) > 8 {
+					shortID = shortID[:8]
+				}
+				m.Notification = fmt.Sprintf("Switched to session %q (resumed at %s)", targetSession, shortID)
+				return m, nil
+			}
+		}
+
+		_ = m.Manager.Storage.SaveSessionHead(targetSession, m.CurrentID)
+		m.Notification = fmt.Sprintf("Switched to session %q (anchored at current node)", targetSession)
+		return m, nil
+	}
+}
+
+type WorktreeCommand struct{}
+
+func (c *WorktreeCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
+	cfgDir, _ := engine.GetConfigDir()
+	wsDir := m.Config.GetWorkspaceDir()
+	wtMgr := worktree.NewManager(cfgDir, wsDir)
+
+	if len(args) == 0 {
+		var sb strings.Builder
+		sb.WriteString("--- Git Worktree Sandboxing ---\n")
+		enabled := m.Config.EnableWorktreeIsolation()
+		gitAvail := wtMgr.IsGitAvailable()
+		isRepo := wtMgr.IsGitRepo()
+
+		isolationStatus := "disabled (opt-in)"
+		if enabled {
+			isolationStatus = "enabled"
+		}
+		sb.WriteString(fmt.Sprintf("  Configuration: %s\n", isolationStatus))
+		if !gitAvail {
+			sb.WriteString("  Status:        inactive (git binary not found in PATH)\n")
+		} else if !isRepo {
+			sb.WriteString("  Status:        inactive (workspace is not a git repository)\n")
+		} else {
+			sb.WriteString("  Status:        active\n")
+			topLevel, _ := wtMgr.GetTopLevel()
+			sb.WriteString(fmt.Sprintf("  Primary Repo:  %s\n", topLevel))
+			activeDir, _ := wtMgr.GetWorktreeDir(m.SessionID)
+			sb.WriteString(fmt.Sprintf("  Session:       %s\n", m.SessionID))
+			sb.WriteString(fmt.Sprintf("  Active Dir:    %s\n", activeDir))
+			if m.SessionID != "" && m.SessionID != "main" {
+				sb.WriteString(fmt.Sprintf("  Branch:        please/%s\n", m.SessionID))
+			} else {
+				sb.WriteString("  Branch:        (primary checkout)\n")
+			}
+		}
+		sb.WriteString("\nCommands:\n  /worktree list           List all worktrees\n  /worktree remove <name>  Remove worktree checkout\n  /config worktree on|off  Toggle isolation\n")
+		m.ViewportOverride = sb.String()
+		m.Viewport.SetContent(m.ViewportOverride)
+		m.Viewport.GotoTop()
+		return m, nil
+	}
+
+	sub := strings.ToLower(args[0])
+	switch sub {
+	case "list":
+		if !wtMgr.IsGitAvailable() {
+			m.Notification = "Git binary not found in PATH"
+			return m, nil
+		}
+		if !wtMgr.IsGitRepo() {
+			m.Notification = "Workspace is not inside a git repository"
+			return m, nil
+		}
+		list, err := wtMgr.ListWorktrees()
+		if err != nil {
+			m.Notification = fmt.Sprintf("Failed to list worktrees: %v", err)
+			return m, nil
+		}
+		var sb strings.Builder
+		sb.WriteString("--- Active Git Worktrees ---\n")
+		for _, wt := range list {
+			marker := "  "
+			if wt.SessionID == m.SessionID {
+				marker = "➜ "
+			}
+			primaryTag := ""
+			if wt.IsPrimary {
+				primaryTag = " [primary]"
+			}
+			sb.WriteString(fmt.Sprintf("%s%-16s %-24s %s%s\n", marker, wt.SessionID, wt.Branch, wt.Path, primaryTag))
+		}
+		m.ViewportOverride = sb.String()
+		m.Viewport.SetContent(m.ViewportOverride)
+		m.Viewport.GotoTop()
+		return m, nil
+
+	case "remove", "rm", "delete":
+		if len(args) < 2 {
+			m.Notification = "Usage: /worktree remove <session-name>"
+			return m, nil
+		}
+		target := args[1]
+		if target == "main" {
+			m.Notification = "Cannot remove primary repository worktree for 'main'"
+			return m, nil
+		}
+		if err := wtMgr.RemoveWorktree(target, true, true); err != nil {
+			m.Notification = fmt.Sprintf("Failed to remove worktree: %v", err)
+			return m, nil
+		}
+		m.Notification = fmt.Sprintf("Worktree for session %q removed successfully", target)
+		return m, nil
+
+	default:
+		m.Notification = "Usage: /worktree [list|remove <session>]"
+		return m, nil
+	}
 }

@@ -240,3 +240,87 @@ func TestLoadConfigFile(t *testing.T) {
 		t.Errorf("expected error loading missing config file, got nil")
 	}
 }
+
+func TestConfig_VaultAndWorkspaceAliases(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 1. Flat config with "vault" and "workspace" aliases (e.g. livefire.json)
+	flatPath := filepath.Join(tmpDir, "livefire.json")
+	flatJSON := `{
+		"provider": "openai",
+		"model": "gemma4:26b-mlx",
+		"vault": "./test_vault/livefire.db",
+		"workspace": "./test_vault/workspace"
+	}`
+	if err := os.WriteFile(flatPath, []byte(flatJSON), 0644); err != nil {
+		t.Fatalf("failed to write flat config: %v", err)
+	}
+
+	cfg, err := LoadConfigFile(flatPath)
+	if err != nil {
+		t.Fatalf("LoadConfigFile failed: %v", err)
+	}
+	if cfg.Server.VaultPath != "./test_vault/livefire.db" {
+		t.Errorf("expected VaultPath './test_vault/livefire.db', got '%s'", cfg.Server.VaultPath)
+	}
+	if cfg.Server.WorkspaceDir != "./test_vault/workspace" {
+		t.Errorf("expected WorkspaceDir './test_vault/workspace', got '%s'", cfg.Server.WorkspaceDir)
+	}
+
+	// 2. v2 config with "vault" and "workspace" aliases inside "server"
+	v2Path := filepath.Join(tmpDir, "v2.json")
+	v2JSON := `{
+		"version": 2,
+		"mode": "standalone",
+		"server": {
+			"model": "gemma4:26b-mlx",
+			"vault": "./v2_vault/livefire.db",
+			"workspace": "./v2_vault/workspace"
+		}
+	}`
+	if err := os.WriteFile(v2Path, []byte(v2JSON), 0644); err != nil {
+		t.Fatalf("failed to write v2 config: %v", err)
+	}
+
+	cfg2, err := LoadConfigFile(v2Path)
+	if err != nil {
+		t.Fatalf("LoadConfigFile failed for v2: %v", err)
+	}
+	if cfg2.Server.VaultPath != "./v2_vault/livefire.db" {
+		t.Errorf("expected VaultPath './v2_vault/livefire.db', got '%s'", cfg2.Server.VaultPath)
+	}
+	if cfg2.Server.WorkspaceDir != "./v2_vault/workspace" {
+		t.Errorf("expected WorkspaceDir './v2_vault/workspace', got '%s'", cfg2.Server.WorkspaceDir)
+	}
+}
+
+func TestConfig_WorktreeIsolation(t *testing.T) {
+	// Default should be false (opt-in)
+	defCfg := NewDefaultConfig()
+	if defCfg.EnableWorktreeIsolation() {
+		t.Errorf("expected default WorktreeIsolation to be false, got true")
+	}
+
+	// Explicitly enabled
+	tr := true
+	cfgTrue := &Config{
+		Server: &ServerConfig{
+			WorktreeIsolation: &tr,
+		},
+	}
+	if !cfgTrue.EnableWorktreeIsolation() {
+		t.Errorf("expected WorktreeIsolation to be true")
+	}
+
+	// Explicitly disabled
+	fa := false
+	cfgFalse := &Config{
+		Server: &ServerConfig{
+			WorktreeIsolation: &fa,
+		},
+	}
+	if cfgFalse.EnableWorktreeIsolation() {
+		t.Errorf("expected WorktreeIsolation to be false")
+	}
+}
+

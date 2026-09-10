@@ -26,17 +26,20 @@ type ServerConfig struct {
 	Model            string        `json:"model,omitempty"`
 	Endpoint         string        `json:"endpoint,omitempty"`
 	VaultPath        string        `json:"vault_path,omitempty"`
+	Vault            string        `json:"vault,omitempty"`
 	StorageType      string        `json:"storage_type,omitempty"` // "jsonl" or "sqlite"
 	EncryptionKey    string        `json:"encryption_key,omitempty"`
 	WorkspaceDir     string        `json:"workspace_dir,omitempty"`
+	Workspace        string        `json:"workspace,omitempty"`
 	AuthToken        string        `json:"auth_token,omitempty"`
 	TLSCertFile      string        `json:"tls_cert_file,omitempty"`
 	TLSKeyFile       string        `json:"tls_key_file,omitempty"`
 	SandboxPolicy    string        `json:"sandbox_policy,omitempty"` // "strict", "standard", "permissive"
 	MaxToolDepth     *int          `json:"max_tool_depth,omitempty"`
-	SignatSteering   *bool         `json:"signat_steering,omitempty"`
-	AmbientTelemetry *bool         `json:"ambient_telemetry,omitempty"`
-	Options          *ModelOptions `json:"options,omitempty"`
+	SignatSteering    *bool         `json:"signat_steering,omitempty"`
+	AmbientTelemetry  *bool         `json:"ambient_telemetry,omitempty"`
+	WorktreeIsolation *bool         `json:"worktree_isolation,omitempty"`
+	Options           *ModelOptions `json:"options,omitempty"`
 }
 
 // ClientConfig holds settings for connecting the TUI to a remote daemon
@@ -45,6 +48,7 @@ type ClientConfig struct {
 	AuthToken     string `json:"auth_token,omitempty"`
 	CACertPath    string `json:"ca_cert_path,omitempty"`
 	NaturalPacing *bool  `json:"natural_pacing,omitempty"`
+	Session       string `json:"session,omitempty"`
 }
 
 // Config is the top-level configuration container (v2 schema)
@@ -62,11 +66,13 @@ type legacyV1Config struct {
 	Model            string        `json:"model"`
 	Endpoint         string        `json:"endpoint"`
 	VaultPath        string        `json:"vault_path"`
+	Vault            string        `json:"vault"`
 	StorageType      string        `json:"storage_type"`
 	EncryptionKey    string        `json:"encryption_key"`
 	NaturalPacing    *bool         `json:"natural_pacing"`
 	Options          *ModelOptions `json:"options"`
 	WorkspaceDir     string        `json:"workspace_dir"`
+	Workspace        string        `json:"workspace"`
 	AuthToken        string        `json:"auth_token"`
 	TLSCertFile      string        `json:"tls_cert_file"`
 	TLSKeyFile       string        `json:"tls_key_file"`
@@ -136,6 +142,25 @@ func (c *Config) IsPacingEnabled() bool {
 	return c.EnableNaturalPacing()
 }
 
+// DefaultSessionName is the default session identifier used when no session is explicitly specified.
+const DefaultSessionName = "main"
+
+// GetSession returns the configured session name on ClientConfig, defaulting to "main".
+func (cl *ClientConfig) GetSession() string {
+	if cl == nil || cl.Session == "" {
+		return DefaultSessionName
+	}
+	return cl.Session
+}
+
+// GetSession returns the configured session name across the configuration, defaulting to "main".
+func (c *Config) GetSession() string {
+	if c == nil || c.Client == nil {
+		return DefaultSessionName
+	}
+	return c.Client.GetSession()
+}
+
 // GetMaxToolDepth returns the configured maximum multi-turn tool depth, or 50 by default.
 func (s *ServerConfig) GetMaxToolDepth() int {
 	if s != nil && s.MaxToolDepth != nil && *s.MaxToolDepth > 0 {
@@ -203,6 +228,23 @@ func (c *Config) EnableAmbientTelemetry() bool {
 	return false
 }
 
+// EnableWorktreeIsolation returns whether Git worktree isolation is enabled.
+// Defaults to false (opt-in).
+func (s *ServerConfig) EnableWorktreeIsolation() bool {
+	if s == nil || s.WorktreeIsolation == nil {
+		return false
+	}
+	return *s.WorktreeIsolation
+}
+
+// EnableWorktreeIsolation returns whether Git worktree isolation is enabled from ServerConfig.
+func (c *Config) EnableWorktreeIsolation() bool {
+	if c != nil && c.Server != nil {
+		return c.Server.EnableWorktreeIsolation()
+	}
+	return false
+}
+
 // GetConfigDir returns the directory where the configuration file is stored.
 func GetConfigDir() (string, error) {
 	if dir := os.Getenv("PLEASE_CONFIG_DIR"); dir != "" {
@@ -237,6 +279,14 @@ func migrateConfig(data []byte) (*Config, bool, error) {
 		if cfg.Version == 0 {
 			cfg.Version = CurrentConfigVersion
 		}
+		if cfg.Server != nil {
+			if cfg.Server.VaultPath == "" && cfg.Server.Vault != "" {
+				cfg.Server.VaultPath = cfg.Server.Vault
+			}
+			if cfg.Server.WorkspaceDir == "" && cfg.Server.Workspace != "" {
+				cfg.Server.WorkspaceDir = cfg.Server.Workspace
+			}
+		}
 		return &cfg, false, nil
 	}
 
@@ -264,8 +314,26 @@ func migrateConfig(data []byte) (*Config, bool, error) {
 	}
 	vaultPath := v1.VaultPath
 	if vaultPath == "" {
+		vaultPath = v1.Vault
+	}
+	if vaultPath == "" {
+		if v, ok := raw["vault"].(string); ok && v != "" {
+			vaultPath = v
+		}
+	}
+	if vaultPath == "" {
 		home, _ := os.UserHomeDir()
 		vaultPath = filepath.Join(home, ".local", "share", "please", "vault.db")
+	}
+
+	workspaceDir := v1.WorkspaceDir
+	if workspaceDir == "" {
+		workspaceDir = v1.Workspace
+	}
+	if workspaceDir == "" {
+		if w, ok := raw["workspace"].(string); ok && w != "" {
+			workspaceDir = w
+		}
 	}
 
 	pacing := true
@@ -286,7 +354,7 @@ func migrateConfig(data []byte) (*Config, bool, error) {
 			VaultPath:        vaultPath,
 			StorageType:      storageType,
 			EncryptionKey:    v1.EncryptionKey,
-			WorkspaceDir:     v1.WorkspaceDir,
+			WorkspaceDir:     workspaceDir,
 			AuthToken:        v1.AuthToken,
 			TLSCertFile:      v1.TLSCertFile,
 			TLSKeyFile:       v1.TLSKeyFile,

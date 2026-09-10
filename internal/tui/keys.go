@@ -456,6 +456,9 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 		_ = m.Manager.Storage.SaveNode(newNode)
 	}
 	m.CurrentID = newNode.ID
+	if m.SessionID != "" && m.Manager != nil && m.Manager.Storage != nil {
+		_ = m.Manager.Storage.SaveSessionHead(m.SessionID, m.CurrentID)
+	}
 	m.updateViewportWithNode(newNode)
 
 	m.TextInput.Reset()

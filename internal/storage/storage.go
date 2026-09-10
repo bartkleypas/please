@@ -15,6 +15,9 @@ type Storage interface {
 	UpdateNodeMetadata(node *graph.Node) error
 	UpdateNodeParentID(nodeID, newParentID string) error
 	UpdateNodeObservations(nodeID string, obs []providers.ToolObservation) error
+	SaveSessionHead(sessionID, nodeID string) error
+	GetSessionHead(sessionID string) (string, error)
+	ListSessions() (map[string]string, error)
 }
 
 var timeFormats = []string{

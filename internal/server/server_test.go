@@ -11,9 +11,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/bartkleypas/please/internal/engine"
 )
@@ -551,6 +554,52 @@ func TestChatStream_MultiTurnToolCascading(t *testing.T) {
 	if turnCounter != 2 {
 		t.Errorf("expected 2 turns executed on server, got %d", turnCounter)
 	}
+
+	// Verify that the server unified multi-turn tool calling into exactly ONE assistant node
+	loadedGraph, _, err := storage.LoadGraph()
+	if err != nil {
+		t.Fatalf("failed to load graph from storage: %v", err)
+	}
+	nodes := loadedGraph.GetAllNodes()
+	if len(nodes) != 2 {
+		for _, n := range nodes {
+			t.Logf("Found node: ID=%s, Role=%s, ParentID=%s, Content=%q", n.ID, n.Role, n.ParentID, n.Content)
+		}
+		t.Errorf("expected exactly 2 nodes in graph (1 user, 1 unified assistant), got %d", len(nodes))
+	}
+
+	var asstNode *engine.Node
+	for _, n := range nodes {
+		if n.Role == engine.RoleAssistant {
+			asstNode = n
+			break
+		}
+	}
+	if asstNode == nil {
+		t.Fatalf("expected assistant node to exist in storage")
+	}
+
+	if segJSON, ok := asstNode.Metadata["segments"]; !ok {
+		t.Errorf("expected segments in assistant metadata")
+	} else {
+		var segs []engine.AssistantSegment
+		if err := json.Unmarshal([]byte(segJSON), &segs); err != nil {
+			t.Errorf("failed to unmarshal segments: %v", err)
+		} else if len(segs) != 2 {
+			t.Errorf("expected 2 assistant segments, got %d", len(segs))
+		}
+	}
+
+	hasObservation := false
+	for _, obs := range asstNode.Observations {
+		if obs.ToolCallID == "call_123" && strings.Contains(obs.Result, "[Lines 1-64 of test content]") {
+			hasObservation = true
+			break
+		}
+	}
+	if !hasObservation {
+		t.Errorf("expected observation for call_123 on assistant node, got: %+v", asstNode.Observations)
+	}
 }
 
 func TestRemoteDaemonStorage_CreateSupernode(t *testing.T) {
@@ -678,3 +727,318 @@ func TestChatStream_WithAmbientTelemetryContext(t *testing.T) {
 		t.Errorf("expected Manager.clientContext to be reset to nil after turn completion, got: %v", mgr.GetClientContext())
 	}
 }
+
+func TestServer_Sessions(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+	storage, err := engine.NewSQLiteStorage(dbPath, "")
+	if err != nil {
+		t.Fatalf("failed to init storage: %v", err)
+	}
+	mgr := engine.NewManager(engine.NewGraph(), storage)
+	srv := NewServer(mgr)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// 1. Initial GET /api/v1/sessions -> empty map
+	resp, err := http.Get(ts.URL + "/api/v1/sessions")
+	if err != nil {
+		t.Fatalf("failed GET /api/v1/sessions: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var sessions map[string]string
+	_ = json.NewDecoder(resp.Body).Decode(&sessions)
+	resp.Body.Close()
+	if len(sessions) != 0 {
+		t.Fatalf("expected 0 sessions, got %v", sessions)
+	}
+
+	// 2. POST /api/v1/sessions -> create session head
+	payload := map[string]string{"session_id": "main", "head_node_id": "node-101"}
+	bodyBytes, _ := json.Marshal(payload)
+	resp, err = http.Post(ts.URL+"/api/v1/sessions", "application/json", bytes.NewReader(bodyBytes))
+	if err != nil {
+		t.Fatalf("failed POST /api/v1/sessions: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// 3. GET /api/v1/sessions/main -> returns node-101
+	resp, err = http.Get(ts.URL + "/api/v1/sessions/main")
+	if err != nil {
+		t.Fatalf("failed GET /api/v1/sessions/main: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var headResp struct {
+		SessionID  string `json:"session_id"`
+		HeadNodeID string `json:"head_node_id"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&headResp)
+	resp.Body.Close()
+	if headResp.HeadNodeID != "node-101" {
+		t.Fatalf("expected node-101, got %q", headResp.HeadNodeID)
+	}
+
+	// 4. GET /api/v1/sessions/missing -> 404
+	resp, err = http.Get(ts.URL + "/api/v1/sessions/missing")
+	if err != nil {
+		t.Fatalf("failed GET /api/v1/sessions/missing: %v", err)
+	}
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// 5. Test RemoteDaemonStorage proxying session calls
+	remoteStorage, err := engine.NewRemoteDaemonStorage(ts.URL, "", "")
+	if err != nil {
+		t.Fatalf("failed to init RemoteDaemonStorage: %v", err)
+	}
+
+	if err := remoteStorage.SaveSessionHead("experiment", "node-999"); err != nil {
+		t.Fatalf("RemoteDaemonStorage.SaveSessionHead failed: %v", err)
+	}
+	head, err := remoteStorage.GetSessionHead("experiment")
+	if err != nil || head != "node-999" {
+		t.Fatalf("expected node-999, got %q (err: %v)", head, err)
+	}
+
+	list, err := remoteStorage.ListSessions()
+	if err != nil {
+		t.Fatalf("RemoteDaemonStorage.ListSessions failed: %v", err)
+	}
+	if len(list) != 2 || list["main"] != "node-101" || list["experiment"] != "node-999" {
+		t.Fatalf("unexpected list: %v", list)
+	}
+}
+
+func TestServer_SessionActor_SerializedQueue(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	storage, _ := engine.NewSQLiteStorage(dbPath, "")
+	graph := engine.NewGraph()
+	mgr := engine.NewManager(graph, storage)
+
+	var executionOrder []string
+	var mu sync.Mutex
+
+	mockProvider := &engine.MockLLMProvider{
+		StreamHandler: func(messages []engine.Message, tools []engine.Tool) (string, string, []engine.ToolCall, error) {
+			mu.Lock()
+			lastMsg := messages[len(messages)-1].Content
+			executionOrder = append(executionOrder, lastMsg)
+			mu.Unlock()
+			time.Sleep(20 * time.Millisecond)
+			return "Response to " + lastMsg + " 🦉☕", "", nil, nil
+		},
+	}
+
+	cfg := engine.NewDefaultConfig()
+	srv := NewServerWithProvider(mgr, mockProvider, cfg)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	clientAlpha, err := engine.NewRemoteDaemonProvider(ts.URL, "", "")
+	if err != nil {
+		t.Fatalf("failed to init RemoteDaemonProvider: %v", err)
+	}
+	clientAlpha.SessionID = "session-alpha"
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Fire two requests concurrently to session-alpha
+	var res1, res2 *engine.Message
+	var err1, err2 error
+
+	go func() {
+		defer wg.Done()
+		res1, err1 = clientAlpha.GenerateResponse(context.Background(), []engine.Message{
+			{Role: engine.RoleUser, Content: "Alpha 1"},
+		}, nil)
+	}()
+
+	go func() {
+		defer wg.Done()
+		time.Sleep(5 * time.Millisecond) // Ensure Alpha 1 queues first
+		res2, err2 = clientAlpha.GenerateResponse(context.Background(), []engine.Message{
+			{Role: engine.RoleUser, Content: "Alpha 2"},
+		}, nil)
+	}()
+
+	wg.Wait()
+
+	if err1 != nil {
+		t.Fatalf("Alpha 1 failed: %v", err1)
+	}
+	if err2 != nil {
+		t.Fatalf("Alpha 2 failed: %v", err2)
+	}
+
+	if !strings.Contains(res1.Content, "Alpha 1") {
+		t.Errorf("expected response 1 to match Alpha 1, got: %s", res1.Content)
+	}
+	if !strings.Contains(res2.Content, "Alpha 2") {
+		t.Errorf("expected response 2 to match Alpha 2, got: %s", res2.Content)
+	}
+
+	mu.Lock()
+	if len(executionOrder) != 2 || executionOrder[0] != "Alpha 1" || executionOrder[1] != "Alpha 2" {
+		t.Errorf("expected sequential execution [Alpha 1, Alpha 2], got: %v", executionOrder)
+	}
+	mu.Unlock()
+
+	// Verify session head is the second response node
+	headID, err := storage.GetSessionHead("session-alpha")
+	if err != nil {
+		t.Fatalf("GetSessionHead failed: %v", err)
+	}
+	headNode, err := mgr.GetNode(headID)
+	if err != nil || headNode == nil {
+		t.Fatalf("head node %q not found in graph", headID)
+	}
+	if !strings.Contains(headNode.Content, "Alpha 2") {
+		t.Errorf("expected session head to point to Alpha 2 assistant node, got content: %q", headNode.Content)
+	}
+}
+
+func TestServer_SessionActor_WorktreeIsolation(t *testing.T) {
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git binary not found, skipping worktree isolation test")
+	}
+
+	tmpDir := t.TempDir()
+	if eval, err := filepath.EvalSymlinks(tmpDir); err == nil {
+		tmpDir = eval
+	}
+	repoDir := filepath.Join(tmpDir, "repo")
+	cfgDir := filepath.Join(tmpDir, "config")
+	_ = os.MkdirAll(repoDir, 0755)
+	_ = os.MkdirAll(cfgDir, 0755)
+	t.Setenv("PLEASE_CONFIG_DIR", cfgDir)
+
+	// Initialize git repo
+	execCmd := func(args ...string) {
+		cmd := exec.Command(gitPath, append([]string{"-C", repoDir}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s failed: %v\nOutput: %s", strings.Join(args, " "), err, string(out))
+		}
+	}
+	execCmd("init", "-b", "main")
+	execCmd("config", "user.name", "Test")
+	execCmd("config", "user.email", "test@test.com")
+	_ = os.WriteFile(filepath.Join(repoDir, "README.md"), []byte("# Hello\n"), 0644)
+	execCmd("add", "README.md")
+	execCmd("commit", "-m", "initial")
+
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	storage, _ := engine.NewSQLiteStorage(dbPath, "")
+	graph := engine.NewGraph()
+	mgr := engine.NewManager(graph, storage)
+	mgr.RegisterDefaultTools(repoDir)
+
+	mockProvider := &engine.MockLLMProvider{
+		StreamHandler: func(messages []engine.Message, tools []engine.Tool) (string, string, []engine.ToolCall, error) {
+			lastMsg := messages[len(messages)-1].Content
+			if strings.Contains(lastMsg, "Write Alpha") {
+				return "", "", []engine.ToolCall{
+					{
+						ID: "call_alpha",
+						Function: struct {
+							Name      string          `json:"name"`
+							Arguments json.RawMessage `json:"arguments"`
+						}{
+							Name:      "write_file",
+							Arguments: []byte(`{"path": "alpha.txt", "content": "hello from alpha"}`),
+						},
+					},
+				}, nil
+			}
+			if strings.Contains(lastMsg, "Write Beta") {
+				return "", "", []engine.ToolCall{
+					{
+						ID: "call_beta",
+						Function: struct {
+							Name      string          `json:"name"`
+							Arguments json.RawMessage `json:"arguments"`
+						}{
+							Name:      "write_file",
+							Arguments: []byte(`{"path": "beta.txt", "content": "hello from beta"}`),
+						},
+					},
+				}, nil
+			}
+			return "Done! 🦉☕", "", nil, nil
+		},
+	}
+
+	cfg := engine.NewDefaultConfig()
+	wtTrue := true
+	cfg.Server.WorktreeIsolation = &wtTrue
+	cfg.Server.WorkspaceDir = repoDir
+
+	srv := NewServerWithProvider(mgr, mockProvider, cfg)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	clientAlpha, _ := engine.NewRemoteDaemonProvider(ts.URL, "", "")
+	clientAlpha.SessionID = "alpha"
+
+	clientBeta, _ := engine.NewRemoteDaemonProvider(ts.URL, "", "")
+	clientBeta.SessionID = "beta"
+
+	// Execute turn for alpha
+	_, err = clientAlpha.GenerateResponse(context.Background(), []engine.Message{
+		{Role: engine.RoleUser, Content: "Write Alpha"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("clientAlpha turn failed: %v", err)
+	}
+
+	// Execute turn for beta
+	_, err = clientBeta.GenerateResponse(context.Background(), []engine.Message{
+		{Role: engine.RoleUser, Content: "Write Beta"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("clientBeta turn failed: %v", err)
+	}
+
+	// 1. Primary workspace should remain 100% clean
+	if _, err := os.Stat(filepath.Join(repoDir, "alpha.txt")); !os.IsNotExist(err) {
+		t.Errorf("alpha.txt leaked into primary repoDir!")
+	}
+	if _, err := os.Stat(filepath.Join(repoDir, "beta.txt")); !os.IsNotExist(err) {
+		t.Errorf("beta.txt leaked into primary repoDir!")
+	}
+
+	// 2. Find worktrees in cfgDir
+	worktreeRoot := filepath.Join(cfgDir, "worktrees")
+	var alphaFileFound, betaFileFound bool
+	_ = filepath.Walk(worktreeRoot, func(p string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() {
+			if strings.HasSuffix(p, "alpha/alpha.txt") {
+				alphaFileFound = true
+			}
+			if strings.HasSuffix(p, "beta/beta.txt") {
+				betaFileFound = true
+			}
+		}
+		return nil
+	})
+
+	if !alphaFileFound {
+		t.Errorf("alpha.txt was not found in alpha's isolated worktree under %s", worktreeRoot)
+	}
+	if !betaFileFound {
+		t.Errorf("beta.txt was not found in beta's isolated worktree under %s", worktreeRoot)
+	}
+}
+
+

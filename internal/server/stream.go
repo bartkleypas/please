@@ -126,225 +126,82 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	// Ingest optional client context for ambient telemetry
-	if s.Manager != nil {
-		clientCtx := make(map[string]string)
-		if req.Context != nil {
-			for k, v := range req.Context {
-				clientCtx[k] = v
-			}
-		}
-		if req.ActiveFile != "" {
-			clientCtx["active_file"] = req.ActiveFile
-		}
-		if req.CursorLine > 0 {
-			clientCtx["cursor_line"] = fmt.Sprintf("%d", req.CursorLine)
-		}
-		if len(clientCtx) > 0 {
-			s.Manager.SetClientContext(clientCtx)
-			defer s.Manager.SetClientContext(nil)
-		}
+	sessionID := r.Header.Get("X-Please-Session-ID")
+	if sessionID == "" && req.Context != nil {
+		sessionID = req.Context["session_id"]
+	}
+	if sessionID == "" {
+		sessionID = "main"
 	}
 
-	// 1. Resolve existing user node if specified (e.g. created by client beforehand)
-	var userNode *engine.Node
-	if req.NodeID != "" {
-		if existing, err := s.Manager.GetNode(req.NodeID); err == nil && existing != nil {
-			userNode = existing
-		} else {
-			// Sync graph in case node was just written by client via POST /api/v1/nodes
-			if _, _, syncErr := s.Manager.Sync(); syncErr == nil {
-				if syncedNode, err := s.Manager.GetNode(req.NodeID); err == nil && syncedNode != nil {
-					userNode = syncedNode
-				}
-			}
-		}
+	if s.Actors == nil {
+		_ = sendSSE(w, flusher, EventError, ErrorPayload{Error: "server actors registry not initialized"})
+		return
 	}
 
-	// 2. Resolve parent ID if a new user node must be created
-	parentID := req.ParentID
-	if userNode == nil && parentID == "" {
-		// Sync graph to get latest active leaf
-		_, lastID, err := s.Manager.Sync()
-		if err == nil && lastID != "" {
-			parentID = lastID
-		}
+	actor := s.Actors.GetOrCreate(sessionID)
+	eventCh := make(chan engine.HarnessEvent, 64)
+	turnReq := engine.TurnRequest{
+		SessionID:    sessionID,
+		UserNodeID:   req.NodeID,
+		ParentID:     req.ParentID,
+		Message:      req.Message,
+		Role:         req.Role,
+		Images:       req.Images,
+		MaxToolDepth: req.MaxToolDepth,
+		ActiveFile:   req.ActiveFile,
+		CursorLine:   req.CursorLine,
+		Context:      req.Context,
 	}
 
-	// 3. Create User Node if not already existing
-	if userNode == nil {
-		role := engine.RoleUser
-		if req.Role != "" {
-			role = engine.Role(req.Role)
-		}
-
-		var err error
-		userNode, err = s.Manager.CreateNode(parentID, role, req.Message, false)
-		if err != nil {
-			_ = sendSSE(w, flusher, EventError, ErrorPayload{Error: "Failed to create node: " + err.Error()})
-			return
-		}
-
-		if len(req.Images) > 0 {
-			s.Manager.AttachImages(userNode, req.Images)
-			_ = s.Manager.Storage.SaveNode(userNode)
-		}
-
-		if s.EventBus != nil {
-			s.EventBus.Publish(EventNodeSaved, map[string]interface{}{
-				"node_id":   userNode.ID,
-				"parent_id": userNode.ParentID,
-				"role":      userNode.Role,
-			})
-		}
+	resultChan, err := actor.Submit(r.Context(), turnReq, eventCh)
+	if err != nil {
+		_ = sendSSE(w, flusher, EventError, ErrorPayload{Error: err.Error()})
+		return
 	}
 
-	maxDepth := req.MaxToolDepth
-	if maxDepth <= 0 && s.Config != nil && s.Config.Server != nil {
-		maxDepth = s.Config.Server.GetMaxToolDepth()
-	}
-	if maxDepth <= 0 {
-		maxDepth = 50
-	}
-
-	ctx := r.Context()
-	currentParentID := userNode.ID
-
-	// Multi-turn tool execution loop
-	for depth := 0; depth < maxDepth; depth++ {
-		supportsVision := false
-		if s.Config != nil {
-			supportsVision = s.Config.SupportsVision()
-		}
-
-		messages, err := s.Manager.BuildLLMContext(currentParentID, supportsVision)
-		if err != nil {
-			_ = sendSSE(w, flusher, EventError, ErrorPayload{Error: "Context error: " + err.Error()})
-			return
-		}
-
-		// Retrieve active tools from manager registry filtered by sandbox policy
-		var tools []engine.Tool
-		if s.Manager.Registry != nil {
-			policy := ""
-			if s.Config != nil {
-				policy = s.Config.GetSandboxPolicy()
-			}
-			tools = s.Manager.Registry.GetToolsForPolicy(policy)
-		}
-
-		contentChan, thoughtChan, toolCallsChan, errChan := s.Provider.GenerateResponseStream(ctx, messages, tools)
-
-		var fullContent strings.Builder
-		var fullThought strings.Builder
-		var accumulatedToolCalls []engine.ToolCall
-
-		for contentChan != nil || thoughtChan != nil || toolCallsChan != nil || errChan != nil {
-			select {
-			case <-ctx.Done():
-				return
-
-			case thought, ok := <-thoughtChan:
-				if !ok {
-					thoughtChan = nil
-				} else if thought != "" {
-					fullThought.WriteString(thought)
-					_ = sendSSE(w, flusher, EventThought, ThoughtPayload{Chunk: thought})
-				}
-
-			case chunk, ok := <-contentChan:
-				if !ok {
-					contentChan = nil
-				} else if chunk != "" {
-					fullContent.WriteString(chunk)
-					_ = sendSSE(w, flusher, EventToken, TokenPayload{Chunk: chunk})
-				}
-
-			case toolCalls, ok := <-toolCallsChan:
-				if !ok {
-					toolCallsChan = nil
-				} else if len(toolCalls) > 0 {
-					accumulatedToolCalls = append(accumulatedToolCalls, toolCalls...)
-				}
-
-			case streamErr, ok := <-errChan:
-				if !ok {
-					errChan = nil
-				} else if streamErr != nil {
-					_ = sendSSE(w, flusher, EventError, ErrorPayload{Error: streamErr.Error()})
-					return
-				}
-			}
-		}
-
-		// Save the Assistant Turn Node
-		asstNode, err := s.Manager.CreateAssistantNode(
-			currentParentID,
-			fullContent.String(),
-			fullThought.String(),
-			accumulatedToolCalls,
-			false,
-		)
-		if err != nil {
-			_ = sendSSE(w, flusher, EventError, ErrorPayload{Error: "Failed to persist assistant turn: " + err.Error()})
-			return
-		}
-
-		currentParentID = asstNode.ID
-
-		if s.EventBus != nil {
-			s.EventBus.Publish(EventNodeSaved, map[string]interface{}{
-				"node_id":   asstNode.ID,
-				"parent_id": asstNode.ParentID,
-				"role":      asstNode.Role,
-			})
-		}
-
-		// If no tools were called, generation turn is complete!
-		if len(accumulatedToolCalls) == 0 {
-			_ = sendSSE(w, flusher, EventNodeComplete, NodeCompletePayload{
-				NodeID:    asstNode.ID,
-				ParentID:  asstNode.ParentID,
-				Role:      string(asstNode.Role),
-				Timestamp: asstNode.Timestamp.Format(time.RFC3339),
-			})
-			return
-		}
-
-		// Execute Tool Calls and stream tool results
-		for _, call := range accumulatedToolCalls {
-			var argsMap map[string]interface{}
-			_ = json.Unmarshal(call.Function.Arguments, &argsMap)
-
+	for ev := range eventCh {
+		switch ev.Kind {
+		case engine.HarnessEventToken:
+			_ = sendSSE(w, flusher, EventToken, TokenPayload{Chunk: ev.Chunk})
+		case engine.HarnessEventThought:
+			_ = sendSSE(w, flusher, EventThought, ThoughtPayload{Chunk: ev.Chunk})
+		case engine.HarnessEventToolCall:
 			_ = sendSSE(w, flusher, EventToolCall, ToolCallPayload{
-				ID:        call.ID,
-				Tool:      call.Function.Name,
-				Arguments: argsMap,
+				ID:        ev.ToolCallID,
+				Tool:      ev.ToolName,
+				Arguments: ev.ToolArgs,
 			})
-
-			result, execErr := s.Manager.ExecuteToolCall(ctx, call)
-			errStr := ""
-			if execErr != nil {
-				errStr = execErr.Error()
-				result = fmt.Sprintf("Error: %s", execErr.Error())
-			}
-
-			// Update assistant observations or create tool node
-			_ = s.Manager.UpdateAssistantObservations(asstNode.ID, call.ID, result)
-
+		case engine.HarnessEventToolResult:
 			_ = sendSSE(w, flusher, EventToolResult, ToolResultPayload{
-				ID:     call.ID,
-				Tool:   call.Function.Name,
-				Output: result,
-				Error:  errStr,
+				ID:     ev.ToolCallID,
+				Tool:   ev.ToolName,
+				Output: ev.ToolResult,
+				Error:  ev.ToolError,
 			})
+		case engine.HarnessEventNodeComplete:
+			if ev.Node != nil {
+				_ = sendSSE(w, flusher, EventNodeComplete, NodeCompletePayload{
+					NodeID:    ev.Node.ID,
+					ParentID:  ev.Node.ParentID,
+					Role:      string(ev.Node.Role),
+					Timestamp: ev.Node.Timestamp.Format(time.RFC3339),
+				})
+			}
+		case engine.HarnessEventError:
+			if ev.Err != nil {
+				_ = sendSSE(w, flusher, EventError, ErrorPayload{Error: ev.Err.Error()})
+			}
 		}
 	}
 
-	// If maximum depth reached, notify completion with the latest assistant node
-	_ = sendSSE(w, flusher, EventNodeComplete, NodeCompletePayload{
-		NodeID:    currentParentID,
-		ParentID:  userNode.ID,
-		Role:      string(engine.RoleAssistant),
-		Timestamp: time.Now().Format(time.RFC3339),
-	})
+	// Wait for turn completion
+	select {
+	case <-r.Context().Done():
+		return
+	case res := <-resultChan:
+		if res.err != nil && r.Context().Err() == nil {
+			_ = sendSSE(w, flusher, EventError, ErrorPayload{Error: res.err.Error()})
+		}
+	}
 }

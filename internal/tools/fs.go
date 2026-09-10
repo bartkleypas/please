@@ -21,16 +21,13 @@ func getStringArg(args map[string]interface{}, key string) (string, error) {
 }
 
 // ReadFileTool constructs the read_file tool scoped to workspaceDir.
-func ReadFileTool(workspaceDir string) Tool {
-	ws := workspaceDir
-	if ws == "" {
-		ws = "."
-	}
+func ReadFileTool(workspaceDir ...string) Tool {
+	ws, prim := parseWorkspaceArgs(workspaceDir...)
 
 	return Tool{
 		Name:        "read_file",
 		Category:    CategorySensory,
-		Description: "Read the contents of a file from the local filesystem with optional line slicing and byte windowing. Supports pagination for large files.",
+		Description: "Read the contents of a file from the local filesystem with optional line slicing and byte windowing. Supports pagination for large files. If a file is truncated, inspect the pagination header and call read_file again with offset set to the next offset indicated.",
 		Interactive: false,
 		Parameters: map[string]interface{}{
 			"type": "object",
@@ -49,7 +46,7 @@ func ReadFileTool(workspaceDir string) Tool {
 				},
 				"max_bytes": map[string]interface{}{
 					"type":        "integer",
-					"description": "Optional maximum byte budget for output (default: 8192)",
+					"description": "Optional maximum byte budget for output (default: 65536)",
 				},
 			},
 			"required": []string{"path"},
@@ -59,7 +56,7 @@ func ReadFileTool(workspaceDir string) Tool {
 			if err != nil {
 				return "", err
 			}
-			safePath, err := ValidateSafePath(ws, path)
+			safePath, err := ValidateSafePath(ws, path, prim)
 			if err != nil {
 				return "", err
 			}
@@ -100,7 +97,7 @@ func ReadFileTool(workspaceDir string) Tool {
 				}
 			}
 
-			maxBytes := 8192
+			maxBytes := 65536
 			if mb, ok := args["max_bytes"]; ok {
 				switch v := mb.(type) {
 				case float64:
@@ -183,10 +180,11 @@ func ReadFileTool(workspaceDir string) Tool {
 			var sb strings.Builder
 			var paginationHint string
 			if endLine < totalLines {
+				remainingLines := totalLines - endLine
 				if hitByteLimit {
-					paginationHint = fmt.Sprintf(" (Byte budget reached. To continue, call read_file with offset=%d)", endLine+1)
+					paginationHint = fmt.Sprintf(" (Byte budget reached; %d lines remaining. To read further, call read_file with path: %q, offset: %d)", remainingLines, path, endLine+1)
 				} else {
-					paginationHint = fmt.Sprintf(" (To continue, call read_file with offset=%d)", endLine+1)
+					paginationHint = fmt.Sprintf(" (Limit reached; %d lines remaining. To read further, call read_file with path: %q, offset: %d)", remainingLines, path, endLine+1)
 				}
 			}
 
@@ -199,11 +197,8 @@ func ReadFileTool(workspaceDir string) Tool {
 }
 
 // WriteFileTool constructs the write_file tool scoped to workspaceDir.
-func WriteFileTool(workspaceDir string) Tool {
-	ws := workspaceDir
-	if ws == "" {
-		ws = "."
-	}
+func WriteFileTool(workspaceDir ...string) Tool {
+	ws, prim := parseWorkspaceArgs(workspaceDir...)
 
 	return Tool{
 		Name:        "write_file",
@@ -237,7 +232,7 @@ func WriteFileTool(workspaceDir string) Tool {
 			if err != nil {
 				return "", err
 			}
-			safePath, err := ValidateSafePath(ws, path)
+			safePath, err := ValidateSafePath(ws, path, prim)
 			if err != nil {
 				return "", err
 			}
@@ -277,11 +272,8 @@ func WriteFileTool(workspaceDir string) Tool {
 }
 
 // AppendFileTool constructs the append_file tool scoped to workspaceDir.
-func AppendFileTool(workspaceDir string) Tool {
-	ws := workspaceDir
-	if ws == "" {
-		ws = "."
-	}
+func AppendFileTool(workspaceDir ...string) Tool {
+	ws, prim := parseWorkspaceArgs(workspaceDir...)
 
 	return Tool{
 		Name:        "append_file",
@@ -311,7 +303,7 @@ func AppendFileTool(workspaceDir string) Tool {
 			if err != nil {
 				return "", err
 			}
-			safePath, err := ValidateSafePath(ws, path)
+			safePath, err := ValidateSafePath(ws, path, prim)
 			if err != nil {
 				return "", err
 			}
@@ -372,11 +364,8 @@ func AppendFileTool(workspaceDir string) Tool {
 }
 
 // EditFileTool constructs the edit_file tool scoped to workspaceDir.
-func EditFileTool(workspaceDir string) Tool {
-	ws := workspaceDir
-	if ws == "" {
-		ws = "."
-	}
+func EditFileTool(workspaceDir ...string) Tool {
+	ws, prim := parseWorkspaceArgs(workspaceDir...)
 
 	return Tool{
 		Name:        "edit_file",
@@ -420,7 +409,7 @@ func EditFileTool(workspaceDir string) Tool {
 				mode = m
 			}
 
-			safePath, err := ValidateSafePath(ws, path)
+			safePath, err := ValidateSafePath(ws, path, prim)
 			if err != nil {
 				return "", err
 			}

@@ -100,3 +100,48 @@ func (s *JSONLStorage) LoadGraph() (*graph.Graph, string, error) {
 
 	return g, lastID, nil
 }
+
+func (s *JSONLStorage) getSessionsFilePath() string {
+	return s.FilePath + ".sessions.json"
+}
+
+func (s *JSONLStorage) readSessionsMap() map[string]string {
+	sessions := make(map[string]string)
+	data, err := os.ReadFile(s.getSessionsFilePath())
+	if err == nil {
+		_ = json.Unmarshal(data, &sessions)
+	}
+	return sessions
+}
+
+func (s *JSONLStorage) writeSessionsMap(sessions map[string]string) error {
+	data, err := json.MarshalIndent(sessions, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.getSessionsFilePath(), data, 0644)
+}
+
+// SaveSessionHead records the head node ID for a session in sidecar JSON.
+func (s *JSONLStorage) SaveSessionHead(sessionID, nodeID string) error {
+	if sessionID == "" {
+		sessionID = "main"
+	}
+	sessions := s.readSessionsMap()
+	sessions[sessionID] = nodeID
+	return s.writeSessionsMap(sessions)
+}
+
+// GetSessionHead retrieves the head node ID for a session. Returns ("", nil) if not found.
+func (s *JSONLStorage) GetSessionHead(sessionID string) (string, error) {
+	if sessionID == "" {
+		sessionID = "main"
+	}
+	sessions := s.readSessionsMap()
+	return sessions[sessionID], nil
+}
+
+// ListSessions returns a map of all session IDs to their head node IDs.
+func (s *JSONLStorage) ListSessions() (map[string]string, error) {
+	return s.readSessionsMap(), nil
+}
