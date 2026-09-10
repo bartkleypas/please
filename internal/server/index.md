@@ -20,6 +20,8 @@ The `server` package provides the headless daemon, REST v1 API, and real-time Se
 
 *   [server.go](server.go) - Core `Server` lifecycle (`StartWithHost`, `StartTLS`, `Stop`), CORS and Bearer auth middlewares, and REST API v1 route controllers.
 *   [stream.go](stream.go) - Server-Sent Events (`SSE`) multiplexer and handler (`POST /api/v1/chat/stream`), managing multi-turn agent tool execution loops on the host machine.
+*   [session_actor.go](session_actor.go) - Per-session single-threaded actor mailbox ensuring sequential execution per session without SQLite observation stomping.
+*   [bus.go](bus.go) - Internal publish/subscribe event bus routing SSE streaming events and tool execution updates to connected clients.
 *   [cert.go](cert.go) - Self-contained 20-year (7,300 days) ECDSA Root CA and Leaf Server Certificate generator with Subject Alternative Names (SANs) for secure local network encryption.
 *   [server_test.go](server_test.go) - Comprehensive unit and integration test suite covering cert generation, auth rejection/acceptance, REST v1 endpoints, and SSE stream flushing.
 *   [assets/](assets/) - Embedded web visualization single-page application (`assets/index.html`).
@@ -31,7 +33,7 @@ The `server` package provides the headless daemon, REST v1 API, and real-time Se
 | Method | Route | Description |
 |---|---|---|
 | `GET` | `/api/v1/health` | Service healthcheck, version, provider, and model information. |
-| `GET` | `/api/v1/graph` | Synchronizes storage and returns complete serialized DAG topology. |
+| `GET` | `/api/v1/graph?session={id}` | Synchronizes storage and returns complete serialized DAG topology for the session. |
 | `GET` | `/api/v1/nodes/{id}` | Retrieves full node metadata, observations, and timestamps. |
 | `POST` | `/api/v1/nodes` | Inserts a new node into the graph (system, user, assistant, tool). |
 | `DELETE` | `/api/v1/branches/{id}` | Recursively soft-prunes a conversation branch. |
@@ -39,7 +41,8 @@ The `server` package provides the headless daemon, REST v1 API, and real-time Se
 | `POST` | `/api/v1/supernodes` | Summarizes a range of node IDs into a compacted Supernode. |
 | `POST` | `/api/v1/gc` | Permanently deletes soft-pruned records from storage. |
 | `GET` | `/api/v1/tools` | Lists registered workspace tools and JSON schemas. |
-| `POST` | `/api/v1/chat/stream` | Initiates real-time SSE streaming dialogue turn. |
+| `POST` | `/api/v1/chat/stream?session={id}` | Initiates real-time SSE streaming dialogue turn dispatched to the session actor mailbox. |
+
 
 ---
 

@@ -11,32 +11,29 @@ timestamp: "2026-07-05T14:44:42-07:00"
 
 # Package internal/engine Index
 
-The `internal/engine` package contains the core logic of the `Please` application. It coordinates conversational memory graphs, database storage, LLM APIs, and command execution.
+The `internal/engine` package contains the core orchestration harness of the `Please` application. It coordinates conversational memory graphs, multi-turn LLM generation loops, function calling/tool execution, and streaming handlers across both standalone TUI and daemon environments.
 
 ## Core Files & Components
 
-### 1. Conversational Graph Model
-*   [node.go](node.go) - Defines the `Node` struct representing a single message, role, timestamp, token sizes, and parent links.
-*   [graph.go](graph.go) - Implements the `Graph` struct to manage node relationships, build branch trails, and perform cycle detection.
+### 1. Canonical Session Harness & Providers
+*   [harness.go](harness.go) - Declares `SessionHarness`, the unified, canonical engine responsible for coordinating LLM calls, streaming tokens, parsing function calls, executing host tools, and persisting nodes.
+*   [local_provider.go](local_provider.go) - Implements `LocalHarnessProvider`, connecting Bubble Tea TUI instances directly to an in-process `SessionHarness` to match remote daemon behavior bit-for-bit.
+*   [service.go](service.go) - Contains `Manager` which coordinates historical compactions (`CompactRange`), branch pruning (`PruneBranch`), and adversarial validation.
 
-### 2. Coordination & Compaction (The Service layer)
-*   [service.go](service.go) - Contains `Manager` which coordinates TUI interactions. Implements:
-    *   `CompactRange`: Summarizes historical nodes to create Supernodes.
-    *   `PruneBranch`: Soft-deletes sub-trees.
-    *   **Adversarial Validation**: Ensures the DAG structure remains consistent and free of cycles.
+### 2. Function Calling & Tool Extraction
+*   [tool_extract.go](tool_extract.go) - Extracts and parses tool calls from raw LLM responses (JSON blocks, markdown code blocks, XML blocks) and pairs observations deterministically by `ToolCallID`.
+*   [signat.go](signat.go) - Manages tool schemas, signatures, and LLM function calling prompts.
 
-### 3. Database Persistence
-*   [storage.go](storage.go) - Connects to the local SQLite database (`vault.db`), manages schemas, indexes parent paths, and executes structural queries.
+### 3. Telemetry & Versioning
+*   [telemetry.go](telemetry.go) - Lightweight event recording and diagnostic metrics tracking.
+*   [version.go](version.go) - Canonical runtime version information for Please.
 
-### 4. LLM Providers & Remote Client
-*   [llm.go](llm.go) - Interfaces for LLM endpoints, options payload building, and the default local Ollama client driver.
-*   [openai.go](openai.go) - Client integration for the OpenAI API and OpenAI-compatible endpoints with streaming reasoning token extraction.
-*   [remote.go](remote.go) - `RemoteDaemonProvider` consuming the `/api/v1/chat/stream` SSE protocol to power `please connect` client mode.
+### 4. Modular Extractions (Decoupled Packages)
+The following subsystems have been extracted from `internal/engine` into dedicated high-cohesion packages per ADRs:
+*   [internal/graph](../graph/index.md) - Pure in-memory DAG `Graph` and `Node` structures (ADR-010).
+*   [internal/tools](../tools/index.md) - Host tools, filesystem isolation, path virtualization, and command sandboxing (ADR-005).
+*   [internal/providers](../providers/index.md) - LLM provider drivers (Ollama, OpenAI, Remote Daemon) (ADR-006).
+*   [internal/config](../config/index.md) - Configuration loading and schemas (ADR-008).
+*   [internal/storage](../storage/index.md) - SQLite, JSONL, and encrypted vault storage drivers (ADR-009).
+*   [internal/worktree](../worktree/index.md) - Git worktree isolation for concurrent agent sessions (ADR-007).
 
-### 5. Function Calling & Tools
-*   [tool.go](tool.go) - Declares tool definition schemas.
-*   [tool_defaults.go](tool_defaults.go) - Defines standard system tools (file I/O, regex editing, command execution) strictly sandboxed to the active workspace directory.
-
-### 6. Configurations & Security
-*   [config.go](config.go) - Parses local configurations (`~/.config/please/config.json`), resolves workspace paths, manages model options, and isolates test directories.
-*   [crypto.go](crypto.go) - Handles AES-256 payload encryption to protect database conversations on disk.
