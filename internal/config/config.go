@@ -2,10 +2,12 @@ package config
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/bartkleypas/please/internal/providers"
 	"github.com/bartkleypas/please/internal/tools"
@@ -246,10 +248,35 @@ func (c *Config) EnableWorktreeIsolation() bool {
 	return false
 }
 
+var (
+	testDirOnce sync.Once
+	testAutoDir string
+)
+
+func isTestEnvironment() bool {
+	return flag.Lookup("test.v") != nil || strings.HasSuffix(os.Args[0], ".test")
+}
+
+func getTestFallbackDir() string {
+	testDirOnce.Do(func() {
+		dir, err := os.MkdirTemp("", "please-test-fallback-*")
+		if err == nil {
+			testAutoDir = dir
+		} else {
+			testAutoDir = filepath.Join(os.TempDir(), "please-test-fallback")
+			_ = os.MkdirAll(testAutoDir, 0755)
+		}
+	})
+	return testAutoDir
+}
+
 // GetConfigDir returns the directory where the configuration file is stored.
 func GetConfigDir() (string, error) {
 	if dir := os.Getenv("PLEASE_CONFIG_DIR"); dir != "" {
 		return dir, nil
+	}
+	if isTestEnvironment() {
+		return getTestFallbackDir(), nil
 	}
 	configDir, err := os.UserConfigDir()
 	if err != nil {
@@ -451,6 +478,13 @@ func (c *Config) Save() error {
 	}
 
 	configPath := filepath.Join(appDir, "config.json")
+
+	// Backup existing config if present and non-empty
+	if existingData, err := os.ReadFile(configPath); err == nil && len(existingData) > 0 {
+		backupPath := filepath.Join(appDir, "config.json.bak")
+		_ = os.WriteFile(backupPath, existingData, 0600)
+	}
+
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err

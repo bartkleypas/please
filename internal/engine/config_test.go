@@ -6,6 +6,16 @@ import (
 	"testing"
 )
 
+func TestMain(m *testing.M) {
+	tmpDir, err := os.MkdirTemp("", "please-engine-test-*")
+	if err != nil {
+		panic(err)
+	}
+	defer os.RemoveAll(tmpDir)
+	_ = os.Setenv("PLEASE_CONFIG_DIR", tmpDir)
+	os.Exit(m.Run())
+}
+
 func TestEngineConfig_ReExportsAndAliases(t *testing.T) {
 	cfg := NewDefaultConfig()
 	if cfg == nil {

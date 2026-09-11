@@ -16,6 +16,16 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+func TestMain(m *testing.M) {
+	tmpDir, err := os.MkdirTemp("", "please-tui-test-*")
+	if err != nil {
+		panic(err)
+	}
+	defer os.RemoveAll(tmpDir)
+	_ = os.Setenv("PLEASE_CONFIG_DIR", tmpDir)
+	os.Exit(m.Run())
+}
+
 func TestUpdateStateTransitions(t *testing.T) {
 	// 1. Setup dependencies
 	tmpDir, err := os.MkdirTemp("", "please-test")
@@ -1301,6 +1311,7 @@ func TestLocalHarnessProvider_TUIIntegration(t *testing.T) {
 
 func TestConfigCommand_Worktree(t *testing.T) {
 	tmpDir := t.TempDir()
+	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
 	dbPath := filepath.Join(tmpDir, "vault.db")
 	storage, _ := engine.NewSQLiteStorage(dbPath, "")
 	graph := engine.NewGraph()
@@ -1329,6 +1340,7 @@ func TestConfigCommand_Worktree(t *testing.T) {
 
 func TestWorktreeCommand(t *testing.T) {
 	tmpDir := t.TempDir()
+	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
 	dbPath := filepath.Join(tmpDir, "vault.db")
 	storage, _ := engine.NewSQLiteStorage(dbPath, "")
 	graph := engine.NewGraph()
@@ -1353,6 +1365,7 @@ func TestWorktreeCommand(t *testing.T) {
 
 func TestConfigCommand_ReadOnlyMode(t *testing.T) {
 	tmpDir := t.TempDir()
+	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
 	dbPath := filepath.Join(tmpDir, "vault.db")
 	storage, _ := engine.NewSQLiteStorage(dbPath, "")
 	graph := engine.NewGraph()
