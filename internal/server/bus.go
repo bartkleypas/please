@@ -24,7 +24,6 @@ type DaemonEvent struct {
 	Payload   map[string]interface{} `json:"payload,omitempty"`
 }
 
-
 // EventSubscription provides a channel for a subscriber and an unsubscribe func.
 type EventSubscription struct {
 	ID      string
@@ -115,4 +114,3 @@ func (b *EventBus) PublishSession(eventType DaemonEventType, sessionID string, p
 		}
 	}
 }
-

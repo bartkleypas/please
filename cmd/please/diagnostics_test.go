@@ -111,4 +111,3 @@ func TestNormalizeFlagArgs(t *testing.T) {
 		}
 	}
 }
-

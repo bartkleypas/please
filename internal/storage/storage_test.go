@@ -458,4 +458,3 @@ func TestSQLiteStorage_SaveNodePreservesExistingObservations(t *testing.T) {
 		t.Errorf("content was not updated: %q", loaded2.Content)
 	}
 }
-

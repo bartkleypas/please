@@ -136,7 +136,6 @@ func NewSessionActorRegistry(mgr *engine.Manager, provider engine.Provider, cfg 
 	}
 }
 
-
 // GetOrCreate returns an existing SessionActor or instantiates a new one if needed.
 func (r *SessionActorRegistry) GetOrCreate(sessionID string) *SessionActor {
 	if sessionID == "" {

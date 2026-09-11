@@ -168,4 +168,3 @@ func TestSignatSteering_IntermediateToolCallNotPolluted(t *testing.T) {
 		}
 	}
 }
-

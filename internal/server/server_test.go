@@ -1040,5 +1040,3 @@ func TestServer_SessionActor_WorktreeIsolation(t *testing.T) {
 		t.Errorf("beta.txt was not found in beta's isolated worktree under %s", worktreeRoot)
 	}
 }
-
-

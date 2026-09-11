@@ -323,4 +323,3 @@ func TestConfig_WorktreeIsolation(t *testing.T) {
 		t.Errorf("expected WorktreeIsolation to be false")
 	}
 }
-

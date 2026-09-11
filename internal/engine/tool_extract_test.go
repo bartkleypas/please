@@ -124,4 +124,3 @@ func TestExtractContentToolCalls_OrphanTokenCleanup(t *testing.T) {
 		t.Errorf("expected cleaned text without delimiter, got: %q", cleanedMixed)
 	}
 }
-

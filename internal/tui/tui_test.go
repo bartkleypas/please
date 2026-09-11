@@ -1350,5 +1350,3 @@ func TestWorktreeCommand(t *testing.T) {
 		t.Errorf("expected Usage notification, got: %s", m.Notification)
 	}
 }
-
-

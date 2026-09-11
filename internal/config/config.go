@@ -19,23 +19,23 @@ type ModelOptions = providers.ModelOptions
 
 // ServerConfig holds settings for running the engine daemon / standalone backend
 type ServerConfig struct {
-	Host             string        `json:"host,omitempty"`
-	Port             int           `json:"port,omitempty"`
-	Provider         string        `json:"provider,omitempty"`
-	APIKey           string        `json:"api_key,omitempty"`
-	Model            string        `json:"model,omitempty"`
-	Endpoint         string        `json:"endpoint,omitempty"`
-	VaultPath        string        `json:"vault_path,omitempty"`
-	Vault            string        `json:"vault,omitempty"`
-	StorageType      string        `json:"storage_type,omitempty"` // "jsonl" or "sqlite"
-	EncryptionKey    string        `json:"encryption_key,omitempty"`
-	WorkspaceDir     string        `json:"workspace_dir,omitempty"`
-	Workspace        string        `json:"workspace,omitempty"`
-	AuthToken        string        `json:"auth_token,omitempty"`
-	TLSCertFile      string        `json:"tls_cert_file,omitempty"`
-	TLSKeyFile       string        `json:"tls_key_file,omitempty"`
-	SandboxPolicy    string        `json:"sandbox_policy,omitempty"` // "strict", "standard", "permissive"
-	MaxToolDepth     *int          `json:"max_tool_depth,omitempty"`
+	Host              string        `json:"host,omitempty"`
+	Port              int           `json:"port,omitempty"`
+	Provider          string        `json:"provider,omitempty"`
+	APIKey            string        `json:"api_key,omitempty"`
+	Model             string        `json:"model,omitempty"`
+	Endpoint          string        `json:"endpoint,omitempty"`
+	VaultPath         string        `json:"vault_path,omitempty"`
+	Vault             string        `json:"vault,omitempty"`
+	StorageType       string        `json:"storage_type,omitempty"` // "jsonl" or "sqlite"
+	EncryptionKey     string        `json:"encryption_key,omitempty"`
+	WorkspaceDir      string        `json:"workspace_dir,omitempty"`
+	Workspace         string        `json:"workspace,omitempty"`
+	AuthToken         string        `json:"auth_token,omitempty"`
+	TLSCertFile       string        `json:"tls_cert_file,omitempty"`
+	TLSKeyFile        string        `json:"tls_key_file,omitempty"`
+	SandboxPolicy     string        `json:"sandbox_policy,omitempty"` // "strict", "standard", "permissive"
+	MaxToolDepth      *int          `json:"max_tool_depth,omitempty"`
 	SignatSteering    *bool         `json:"signat_steering,omitempty"`
 	AmbientTelemetry  *bool         `json:"ambient_telemetry,omitempty"`
 	WorktreeIsolation *bool         `json:"worktree_isolation,omitempty"`

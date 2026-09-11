@@ -1246,7 +1246,3 @@ func TestManager_CloneWithWorkspace(t *testing.T) {
 		t.Errorf("hello.txt leaked into primaryDir!")
 	}
 }
-
-
-
-

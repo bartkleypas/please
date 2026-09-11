@@ -57,7 +57,6 @@ func NewServer(mgr *engine.Manager) *Server {
 	return srv
 }
 
-
 // NewServerWithProvider creates a Server instance with provider and configuration
 func NewServerWithProvider(mgr *engine.Manager, provider engine.LLMProvider, cfg *engine.Config) *Server {
 	token := ""
@@ -87,7 +86,6 @@ func NewServerWithProvider(mgr *engine.Manager, provider engine.LLMProvider, cfg
 	})
 	return srv
 }
-
 
 // SetProvider updates the LLMProvider on the server
 func (s *Server) SetProvider(p engine.LLMProvider) {
@@ -409,7 +407,6 @@ func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 }
-
 
 func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
