@@ -125,3 +125,54 @@ func TestLocalHarnessProvider_MultiTurnStream(t *testing.T) {
 		t.Errorf("expected head node to have 1 observation with '12:00 PM UTC', got: %v", headNode.Observations)
 	}
 }
+
+func TestLocalHarnessProvider_GenerateResponse_StatelessOneShot(t *testing.T) {
+	storage := &MockStorage{}
+	graph := NewGraph()
+	mgr := NewManager(graph, storage)
+
+	mockProvider := &MockLLMProvider{
+		ResponseContent: "Stateless summary paragraph",
+	}
+
+	cfg := NewDefaultConfig()
+	harness := NewSessionHarness(mgr, mockProvider, cfg)
+	localProvider := NewLocalHarnessProvider(harness, "main")
+
+	// RawProvider should expose the underlying mock provider
+	if localProvider.RawProvider() != mockProvider {
+		t.Errorf("expected RawProvider to return underlying mock provider")
+	}
+
+	// 1. Initial graph has 0 nodes
+	if len(graph.Nodes) != 0 {
+		t.Fatalf("expected 0 initial graph nodes, got %d", len(graph.Nodes))
+	}
+
+	// 2. Execute one-shot GenerateResponse (e.g. as used in /compact)
+	messages := []Message{
+		{Role: RoleSystem, Content: "You are an archivist."},
+		{Role: RoleUser, Content: "Summarize this segment."},
+	}
+
+	resp, err := localProvider.GenerateResponse(context.Background(), messages, nil)
+	if err != nil {
+		t.Fatalf("GenerateResponse failed: %v", err)
+	}
+
+	if resp.Content != "Stateless summary paragraph" {
+		t.Errorf("expected 'Stateless summary paragraph', got: %s", resp.Content)
+	}
+
+	// 3. Verify ZERO nodes were created in the graph
+	if len(graph.Nodes) != 0 {
+		t.Errorf("CRITICAL: GenerateResponse mutated the graph! Expected 0 nodes, got %d", len(graph.Nodes))
+	}
+
+	// 4. Verify no session head was created/modified
+	headID, _ := storage.GetSessionHead("main")
+	if headID != "" {
+		t.Errorf("expected empty session head, got %s", headID)
+	}
+}
+

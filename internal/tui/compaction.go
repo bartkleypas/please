@@ -74,8 +74,12 @@ func (m *Model) runCompaction() tea.Cmd {
 			return compactionFinishedMsg{node: node, err: nil}
 		}
 
-		// Standalone mode
-		node, err := m.Manager.CompactRangeWithDirective(ctx, m.Provider, targetIDs, directive)
+		// Standalone mode: pass raw underlying provider for one-shot summary generation
+		provider := m.Provider
+		if lh, ok := m.Provider.(*engine.LocalHarnessProvider); ok && lh.RawProvider() != nil {
+			provider = lh.RawProvider()
+		}
+		node, err := m.Manager.CompactRangeWithDirective(ctx, provider, targetIDs, directive)
 		return compactionFinishedMsg{node: node, err: err}
 	}
 }
