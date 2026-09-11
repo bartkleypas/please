@@ -323,3 +323,31 @@ func TestConfig_WorktreeIsolation(t *testing.T) {
 		t.Errorf("expected WorktreeIsolation to be false")
 	}
 }
+
+func TestConfig_ReadOnlyGuard(t *testing.T) {
+	tempDir := t.TempDir()
+	configFile := filepath.Join(tempDir, "custom_config.json")
+	content := `{
+		"version": 2,
+		"server": {
+			"model": "custom-model"
+		}
+	}`
+	if err := os.WriteFile(configFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write custom config: %v", err)
+	}
+
+	cfg, err := LoadConfigFile(configFile)
+	if err != nil {
+		t.Fatalf("LoadConfigFile failed: %v", err)
+	}
+
+	if !cfg.ReadOnly {
+		t.Fatalf("expected cfg.ReadOnly to be true for externally loaded config")
+	}
+
+	// Attempting to save a ReadOnly config must return an error
+	if err := cfg.Save(); err == nil {
+		t.Errorf("expected cfg.Save() to fail on ReadOnly config, got nil")
+	}
+}

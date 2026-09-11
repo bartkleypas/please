@@ -108,7 +108,9 @@ func (c *PacingCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		m.Notification = "Natural reading pacing disabled."
 	}
 
-	_ = m.Config.Save()
+	if !m.Config.ReadOnly {
+		_ = m.Config.Save()
+	}
 	return m, nil
 }
 
@@ -717,11 +719,14 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if err := m.Config.Save(); err != nil {
+	if m.Config.ReadOnly {
+		m.Notification = "Configuration updated in-memory only (saving disabled for external config)."
+	} else if err := m.Config.Save(); err != nil {
 		m.Notification = fmt.Sprintf("Error saving config: %v", err)
 	}
 
 	if m.ViewportOverride != "" && strings.Contains(m.ViewportOverride, "Configuration") {
+
 		m.ViewportOverride = m.renderConfigString()
 		m.Viewport.SetContent(m.ViewportOverride)
 	}

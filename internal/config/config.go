@@ -53,10 +53,11 @@ type ClientConfig struct {
 
 // Config is the top-level configuration container (v2 schema)
 type Config struct {
-	Version int           `json:"version"`
-	Mode    string        `json:"mode,omitempty"` // "standalone", "server", "client"
-	Server  *ServerConfig `json:"server"`
-	Client  *ClientConfig `json:"client"`
+	Version  int           `json:"version"`
+	Mode     string        `json:"mode,omitempty"` // "standalone", "server", "client"
+	Server   *ServerConfig `json:"server"`
+	Client   *ClientConfig `json:"client"`
+	ReadOnly bool          `json:"-"` // Prevents persisting mutations to disk when loaded via external file
 }
 
 // legacyV1Config mirrors the flat v1 schema for migration
@@ -385,6 +386,7 @@ func LoadConfigFile(configPath string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	cfg.ReadOnly = true
 	return cfg, nil
 }
 
@@ -429,6 +431,10 @@ func LoadConfig() (*Config, error) {
 
 // Save writes the current configuration to the user's config directory in v2 format
 func (c *Config) Save() error {
+	if c.ReadOnly {
+		return fmt.Errorf("cannot save configuration: running in read-only mode (loaded via external file)")
+	}
+
 	appDir, err := GetConfigDir()
 	if err != nil {
 		return err

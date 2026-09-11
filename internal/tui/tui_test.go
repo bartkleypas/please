@@ -1350,3 +1350,30 @@ func TestWorktreeCommand(t *testing.T) {
 		t.Errorf("expected Usage notification, got: %s", m.Notification)
 	}
 }
+
+func TestConfigCommand_ReadOnlyMode(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	storage, _ := engine.NewSQLiteStorage(dbPath, "")
+	graph := engine.NewGraph()
+	mockProvider := &engine.MockLLMProvider{}
+	cfg := engine.NewDefaultConfig()
+	cfg.ReadOnly = true // External config passed via -c
+
+	m := NewModel(cfg, graph, storage, mockProvider, "")
+
+	// 1. Modifying config in read-only mode should update in-memory and warn user
+	m.HandleCommand("/config model test-model")
+	if cfg.Server.Model != "test-model" {
+		t.Errorf("expected in-memory model to update to 'test-model', got: %s", cfg.Server.Model)
+	}
+	if !strings.Contains(m.Notification, "in-memory only") {
+		t.Errorf("expected in-memory notification, got: %s", m.Notification)
+	}
+
+	// 2. /pacing should update in-memory without error
+	m.HandleCommand("/pacing off")
+	if cfg.EnableNaturalPacing() {
+		t.Errorf("expected natural pacing to be disabled in-memory")
+	}
+}
