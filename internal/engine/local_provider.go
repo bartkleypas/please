@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/bartkleypas/please/internal/tools"
@@ -172,18 +171,19 @@ func (p *LocalHarnessProvider) GenerateResponseStream(ctx context.Context, messa
 	return contentChan, thoughtChan, toolCallChan, errChan
 }
 
-// GenerateResponse executes the stream synchronously and returns the aggregated message.
+// RawProvider returns the underlying stateless LLM client.
+func (p *LocalHarnessProvider) RawProvider() Provider {
+	if p.Harness != nil {
+		return p.Harness.Provider
+	}
+	return nil
+}
+
+// GenerateResponse delegates directly to the underlying stateless LLM client
+// for one-shot completions (e.g. summaries), avoiding harness state mutation or node creation.
 func (p *LocalHarnessProvider) GenerateResponse(ctx context.Context, messages []Message, availableTools []tools.Tool) (*Message, error) {
-	contentChan, _, _, errChan := p.GenerateResponseStream(ctx, messages, availableTools)
-	var sb strings.Builder
-	for chunk := range contentChan {
-		sb.WriteString(chunk)
+	if p.Harness != nil && p.Harness.Provider != nil {
+		return p.Harness.Provider.GenerateResponse(ctx, messages, availableTools)
 	}
-	if err := <-errChan; err != nil {
-		return nil, err
-	}
-	return &Message{
-		Role:    RoleAssistant,
-		Content: sb.String(),
-	}, nil
+	return nil, fmt.Errorf("underlying LLM provider not available")
 }

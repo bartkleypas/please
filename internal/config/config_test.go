@@ -3,10 +3,21 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/bartkleypas/please/internal/tools"
 )
+
+func TestMain(m *testing.M) {
+	tmpDir, err := os.MkdirTemp("", "please-config-test-*")
+	if err != nil {
+		panic(err)
+	}
+	defer os.RemoveAll(tmpDir)
+	_ = os.Setenv("PLEASE_CONFIG_DIR", tmpDir)
+	os.Exit(m.Run())
+}
 
 func TestConfig_MigrationV1ToV2(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -351,3 +362,50 @@ func TestConfig_ReadOnlyGuard(t *testing.T) {
 		t.Errorf("expected cfg.Save() to fail on ReadOnly config, got nil")
 	}
 }
+
+func TestConfig_IsolatedDirFallback(t *testing.T) {
+	// Unset PLEASE_CONFIG_DIR to verify test sandbox fallback
+	t.Setenv("PLEASE_CONFIG_DIR", "")
+	dir, err := GetConfigDir()
+	if err != nil {
+		t.Fatalf("GetConfigDir failed: %v", err)
+	}
+	realConfigDir, _ := os.UserConfigDir()
+	if realConfigDir != "" && strings.HasPrefix(dir, realConfigDir) {
+		t.Fatalf("CRITICAL: GetConfigDir returned user real config directory %s during test execution!", dir)
+	}
+}
+
+func TestConfig_SaveBackup(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
+
+	cfg := defaultConfig()
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("initial Save failed: %v", err)
+	}
+
+	// Verify initial config.json exists
+	configPath := filepath.Join(tmpDir, "config.json")
+	if _, err := os.Stat(configPath); err != nil {
+		t.Fatalf("expected config.json to exist: %v", err)
+	}
+
+	// Mutate and save again
+	cfg.Server.Model = "upgraded-model"
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("second Save failed: %v", err)
+	}
+
+	// Verify backup config.json.bak was created
+	backupPath := filepath.Join(tmpDir, "config.json.bak")
+	backupData, err := os.ReadFile(backupPath)
+	if err != nil {
+		t.Fatalf("expected config.json.bak to exist: %v", err)
+	}
+
+	if strings.Contains(string(backupData), "upgraded-model") {
+		t.Errorf("expected backup file to contain previous config without 'upgraded-model'")
+	}
+}
+
