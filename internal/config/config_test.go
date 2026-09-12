@@ -409,3 +409,49 @@ func TestConfig_SaveBackup(t *testing.T) {
 	}
 }
 
+func TestCanonPresets(t *testing.T) {
+	// Locate repository root relative to internal/config
+	repoRoot := filepath.Join("..", "..")
+	configsDir := filepath.Join(repoRoot, "examples", "configs")
+
+	entries, err := os.ReadDir(configsDir)
+	if err != nil {
+		t.Skipf("skipping canon presets test; examples/configs not found: %v", err)
+		return
+	}
+
+	found := 0
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		found++
+		presetPath := filepath.Join(configsDir, entry.Name())
+		t.Run(entry.Name(), func(t *testing.T) {
+			cfg, err := LoadConfigFile(presetPath)
+			if err != nil {
+				t.Fatalf("failed to load canon preset %s: %v", entry.Name(), err)
+			}
+			if cfg.Version != CurrentConfigVersion {
+				t.Errorf("expected version %d, got %d", CurrentConfigVersion, cfg.Version)
+			}
+			if cfg.Mode == "" {
+				t.Errorf("expected mode to be specified")
+			}
+			if cfg.Mode == "client" {
+				if cfg.Client == nil {
+					t.Errorf("client mode config requires client block")
+				}
+			} else {
+				if cfg.Server == nil {
+					t.Errorf("server/standalone mode config requires server block")
+				}
+			}
+		})
+	}
+
+	if found == 0 {
+		t.Errorf("expected to find canon presets in %s, found none", configsDir)
+	}
+}
+

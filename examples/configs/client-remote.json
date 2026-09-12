@@ -1,0 +1,9 @@
+{
+  "version": 2,
+  "mode": "client",
+  "client": {
+    "remote_url": "http://localhost:9190",
+    "auth_token": "replace-with-secure-daemon-token",
+    "natural_pacing": true
+  }
+}

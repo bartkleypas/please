@@ -1,0 +1,26 @@
+{
+  "version": 2,
+  "mode": "server",
+  "server": {
+    "host": "0.0.0.0",
+    "port": 9190,
+    "auth_token": "replace-with-secure-daemon-token",
+    "provider": "openai",
+    "model": "gemma4:26b-mlx",
+    "endpoint": "http://localhost:11434",
+    "api_key": "ollama",
+    "storage_type": "sqlite",
+    "vault": "./test_vault/daemon.db",
+    "signat_steering": true,
+    "ambient_telemetry": true,
+    "sandbox_policy": "standard",
+    "options": {
+      "temperature": 1.0,
+      "top_p": 0.95,
+      "top_k": 64,
+      "min_p": 0.05,
+      "num_ctx": 131072,
+      "max_tokens": 16384
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "version": 2,
+  "mode": "standalone",
+  "server": {
+    "provider": "openai",
+    "model": "anthropic/claude-3.7-sonnet",
+    "endpoint": "https://openrouter.ai/api/v1",
+    "api_key": "your-openrouter-api-key",
+    "storage_type": "sqlite",
+    "vault": "./vault.db",
+    "signat_steering": true,
+    "ambient_telemetry": true,
+    "sandbox_policy": "standard",
+    "options": {
+      "temperature": 0.7,
+      "top_p": 0.95,
+      "max_tokens": 8192
+    }
+  }
+}

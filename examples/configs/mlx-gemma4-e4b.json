@@ -1,0 +1,24 @@
+{
+  "version": 2,
+  "mode": "standalone",
+  "server": {
+    "provider": "openai",
+    "model": "gemma4:e4b-mlx",
+    "endpoint": "http://localhost:8080",
+    "api_key": "local",
+    "storage_type": "sqlite",
+    "vault": "./vault.db",
+    "signat_steering": true,
+    "ambient_telemetry": true,
+    "sandbox_policy": "standard",
+    "options": {
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "top_k": 40,
+      "min_p": 0.05,
+      "num_ctx": 32768,
+      "max_tokens": 4096,
+      "repeat_penalty": 1.05
+    }
+  }
+}

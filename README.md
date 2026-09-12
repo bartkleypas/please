@@ -1,13 +1,3 @@
----
-type: Reference
-title: "🦉 The Please Application"
-description: "Please is a lightweight terminal user interface (TUI) application designed for fast, dynamic interaction with Large Language Models (LLMs)."
-tags:
-  - please
-  - go
-timestamp: "2026-05-21T12:10:44-07:00"
----
-
 # 🦉 The Please Application
 
 `Please` is a lightweight terminal user interface (TUI) application designed for fast, dynamic interaction with Large Language Models (LLMs).
@@ -150,44 +140,86 @@ Or start the TUI with the embedded web visualizer directly:
 ```
 
 ### Configuration
-`Please` reads from `~/.config/please/config.json` (or `~/Library/Application Support/please/config.json` on macOS). You can configure the LLM provider, inference parameters, workspace root, and encryption settings here:
+`Please` reads from `~/.config/please/config.json` (or `~/Library/Application Support/please/config.json` on macOS). All configurations use **Schema Version 2** with distinct `server` and `client` blocks.
 
-**Local Ollama (Default)**
+Ready-to-use canon presets are located in [`examples/configs/`](examples/configs/README.md) and can be test-driven directly using `please -c <path>`.
+
+**Local Apple Silicon / MLX Preset (`examples/configs/mlx-gemma4-26b.json`)**
 ```json
 {
-  "provider": "ollama",
-  "endpoint": "http://localhost:11434/api/chat",
-  "model": "gemma4:e4b",
-  "workspace_dir": "~/Code",
-  "natural_pacing": true,
-  "options": {
-    "temperature": 0.7,
-    "top_p": 0.9,
-    "top_k": 40,
-    "num_ctx": 16384,
-    "max_tokens": 4096
+  "version": 2,
+  "mode": "standalone",
+  "server": {
+    "provider": "openai",
+    "model": "gemma4:26b-mlx",
+    "endpoint": "http://localhost:11434",
+    "api_key": "ollama",
+    "storage_type": "sqlite",
+    "vault": "./test_vault/livefire.db",
+    "signat_steering": true,
+    "ambient_telemetry": true,
+    "options": {
+      "temperature": 1.0,
+      "top_p": 0.95,
+      "top_k": 64,
+      "min_p": 0.05,
+      "num_ctx": 131072,
+      "max_tokens": 16384,
+      "repeat_penalty": 1.05,
+      "repeat_last_n": 128,
+      "frequency_penalty": 0.15
+    }
   }
 }
 ```
 
-**OpenAI API / Local OpenAI-Compatible Server**
+**Local Ollama Runner (`examples/configs/ollama-local.json`)**
 ```json
 {
-  "provider": "openai",
-  "endpoint": "https://api.openai.com/v1/chat/completions",
-  "model": "gpt-4o",
-  "api_key": "sk-your-api-key",
-  "workspace_dir": "$HOME/Code/my-project",
-  "encryption_key": "your-secret-encryption-key",
-  "options": {
-    "temperature": 0.7,
-    "top_p": 0.9,
-    "max_tokens": 4096
+  "version": 2,
+  "mode": "standalone",
+  "server": {
+    "provider": "ollama",
+    "endpoint": "http://localhost:11434",
+    "model": "gemma4:9b",
+    "storage_type": "sqlite",
+    "vault": "./vault.db",
+    "signat_steering": true,
+    "options": {
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "top_k": 40,
+      "num_ctx": 16384,
+      "max_tokens": 4096
+    }
   }
 }
 ```
 
-*Note: `workspace_dir` supports `~` expansion, `$HOME` environment variable expansion, relative paths, and trailing slashes.*
+**Cloud Gateway / OpenRouter (`examples/configs/openrouter-cloud.json`)**
+```json
+{
+  "version": 2,
+  "mode": "standalone",
+  "server": {
+    "provider": "openai",
+    "endpoint": "https://openrouter.ai/api/v1",
+    "model": "anthropic/claude-3.7-sonnet",
+    "api_key": "your-openrouter-api-key",
+    "storage_type": "sqlite",
+    "vault": "./vault.db",
+    "signat_steering": true,
+    "ambient_telemetry": true,
+    "options": {
+      "temperature": 0.7,
+      "top_p": 0.95,
+      "max_tokens": 8192
+    }
+  }
+}
+```
+
+*See [`examples/configs/README.md`](examples/configs/README.md) for headless daemon, remote thin-client, and lightweight laptop presets.*
 
 ---
 
