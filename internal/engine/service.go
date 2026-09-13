@@ -28,7 +28,9 @@ type AssistantSegment struct {
 
 // SignatSteeringContract defines the invariant output formatting instruction for turn signatures.
 // Layered ephemerally onto the Genesis root node (RoleSystem) when signat_steering is enabled.
-const SignatSteeringContract = "To anchor your trajectory in the conversation map, conclude the text of each turn with a 1-3 emoji signature (signat) on the final line reflecting your active posture (e.g. 🛠️💻 for code/impl, 🧠📐 for logic/math, 🔍📜 for research/inspection, 🎨✨ for design/styling, 📝💡 for ideation, 🦉☕ for reflection)."
+const SignatSteeringContract = "Conclude your response with a 1-3 emoji posture signature in `<signat></signat>` tags (e.g. <signat>🛠️💻</signat> for code/impl, <signat>🧠📐</signat> for logic/math, <signat>🔍📜</signat> for research/inspection, <signat>🎨✨</signat> for design/styling, <signat>📝💡</signat> for ideation, <signat>🦉☕</signat> for reflection)."
+
+// const SignatSteeringContract = "To anchor your trajectory in the conversation map, conclude the text of each turn with a 1-3 emoji signature (signat) on the final line reflecting your active posture (e.g. 🛠️💻 for code/impl, 🧠📐 for logic/math, 🔍📜 for research/inspection, 🎨✨ for design/styling, 📝💡 for ideation, 🦉☕ for reflection)."
 
 // AmbientTelemetryContract defines the attentional de-weighting instruction for peripheral environment data.
 // Layered ephemerally onto the Genesis root node (RoleSystem) when ambient_telemetry is enabled.
@@ -568,21 +570,21 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 		}
 
 		content := node.Content + signatSuffix + metadataText
-		// Layered Genesis Prompt (ADR 003 refined):
-		// Dynamically layer the signat formatting contract onto the root node (messages[0])
-		// if signat_steering is enabled, keeping SQLite storage 100% pure persona.
-		if m.SignatSteering && (node.Role == RoleSystem || (i == 0 && node.Role != RoleUser)) {
-			if !strings.Contains(content, "signat") && !strings.Contains(content, "emoji signature") {
-				content += "\n\n" + SignatSteeringContract
-			}
-		}
-
 		// Layered Genesis Prompt for Ambient Telemetry (ADR 003 Synthesis):
 		// Dynamically layer the attentional de-weighting contract onto the root node (messages[0])
 		// if ambient_telemetry is enabled, keeping SQLite storage 100% pure persona.
 		if m.AmbientTelemetry && (node.Role == RoleSystem || (i == 0 && node.Role != RoleUser)) {
 			if !strings.Contains(content, "ADDITIONAL_METADATA") && !strings.Contains(content, "peripheral environmental telemetry") {
 				content += "\n\n" + AmbientTelemetryContract
+			}
+		}
+
+		// Layered Genesis Prompt for Signat Steering (ADR 003 refined):
+		// Dynamically layer the signat formatting contract onto the root node (messages[0])
+		// if signat_steering is enabled, keeping SQLite storage 100% pure persona.
+		if m.SignatSteering && (node.Role == RoleSystem || (i == 0 && node.Role != RoleUser)) {
+			if !strings.Contains(content, "signat") && !strings.Contains(content, "emoji signature") {
+				content += "\n\n" + SignatSteeringContract
 			}
 		}
 
