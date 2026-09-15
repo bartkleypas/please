@@ -26,4 +26,6 @@ This index tracks key architectural decisions and engineering conventions throug
 *   [008-modular-config-extraction](008-modular-config-extraction.md) - Extraction of configuration schemas, directory discovery, and migration into internal/config.
 *   [009-modular-storage-extraction](009-modular-storage-extraction.md) - Extraction of SQLite WAL, JSONL, remote storage proxy, and vault encryption into internal/storage.
 *   [010-pure-dag-graph-extraction](010-pure-dag-graph-extraction.md) - Extraction of the pure in-memory conversation Node and DAG Graph data structures into internal/graph.
+*   [011-agent-sandboxing-execution-isolation](011-agent-sandboxing-execution-isolation.md) - Hardened agent sandboxing, credential quarantine, policy tiering (demoting raw shell access), and execution isolation without external container dependencies.
+*   [012-agent-client-protocol-support](012-agent-client-protocol-support.md) - Agent Client Protocol (ACP) support, stdio JSON-RPC harness integration, and human-in-the-loop tool authorization for modern IDEs (Zed, JetBrains, Xcode).
 
