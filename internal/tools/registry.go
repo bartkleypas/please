@@ -87,6 +87,7 @@ var toolFamilyPriority = map[string]int{
 	"write_file":           20,
 	"append_file":          21,
 	"edit_file":            22,
+	"delete_file":          23,
 	"execute_command":      30,
 }
 

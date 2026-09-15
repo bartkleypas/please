@@ -530,3 +530,53 @@ func EditFileTool(workspaceDir ...string) Tool {
 		},
 	}
 }
+
+// DeleteFileTool constructs the delete_file tool scoped to workspaceDir.
+func DeleteFileTool(workspaceDir ...string) Tool {
+	ws, prim := parseWorkspaceArgs(workspaceDir...)
+
+	return Tool{
+		Name:        "delete_file",
+		Category:    CategoryMutate,
+		Description: "Delete a file from the workspace. Path must be inside workspace and not match quarantined patterns.",
+		Interactive: true,
+		Parameters: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"path": map[string]interface{}{
+					"type":        "string",
+					"description": "The path to the file to delete",
+				},
+			},
+			"required": []string{"path"},
+		},
+		Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
+			path, err := getStringArg(args, "path")
+			if err != nil {
+				return "", err
+			}
+			safePath, err := ValidateSafePath(ws, path, prim)
+			if err != nil {
+				return "", err
+			}
+
+			info, err := os.Stat(safePath)
+			if err != nil {
+				if os.IsNotExist(err) {
+					return "", fmt.Errorf("file does not exist: %s", path)
+				}
+				return "", fmt.Errorf("failed to access file: %w", err)
+			}
+			if info.IsDir() {
+				return "", fmt.Errorf("'%s' is a directory, not a file", path)
+			}
+
+			if err := os.Remove(safePath); err != nil {
+				return "", fmt.Errorf("failed to delete file: %w", err)
+			}
+
+			return fmt.Sprintf("file '%s' deleted successfully", path), nil
+		},
+	}
+}
+

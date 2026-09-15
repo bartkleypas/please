@@ -14,6 +14,7 @@ func GetDefaultTools(workspaceDir ...string) []Tool {
 		ExecuteCommandTool(ws),
 		EditFileTool(ws, prim),
 		ListFilesRecursiveTool(ws, prim),
+		DeleteFileTool(ws, prim),
 	}
 }
 
