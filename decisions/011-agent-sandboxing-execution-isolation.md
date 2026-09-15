@@ -132,6 +132,24 @@ When the `exec` tool runs a command under `permissive` policy:
 
 ---
 
+### 4. Cybernetic Package Structural Alignment
+
+To ensure that capability boundaries are physically visible, auditable at compile-time, and aligned with cybernetic prompt ordering, `internal/tools/` transitions away from legacy POSIX resource divisions (`fs.go`, `search.go`) toward capability-based partitioning:
+
+1. **`sense.go` (`CategorySensory`)**:
+   - **Tools**: `read_file`, `list_directory`, `list_files_recursive`, `grep_search`.
+   - **Hard Invariant**: Read-only perception and discovery. Guarantees zero disk mutations and zero subprocess executions.
+2. **`mutate.go` (`CategoryMutate`)**:
+   - **Tools**: `write_file`, `append_file`, `edit_file`, `delete_file`.
+   - **Hard Invariant**: Bounded workspace modifications. Every file modification is bounded strictly by `ValidateSafePath`. Zero subprocess executions.
+3. **`exec.go` (`CategoryExecute`)**:
+   - **Tools**: `execute_command`.
+   - **Hard Invariant**: Host compute and subprocess execution. Governed by compile-time allow-lists (`DefaultAllowedCommands`), environment scrubbing (`sanitizeEnvironment`), subshell injection validation (`ParseAndValidatePipeline`), and interactive user confirmation gates (ADR 012).
+4. **`sandbox.go` (Perimeter Gatekeeper)**:
+   - Shared boundary validator (`ValidateSafePath`), `SensitivePathPatterns` quarantine, symlink traversal prevention, and worktree virtualization.
+
+---
+
 ## Consequences
 
 ### Positive

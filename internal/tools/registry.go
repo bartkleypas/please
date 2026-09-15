@@ -115,19 +115,35 @@ func (r *ToolRegistry) GetTools() []Tool {
 	return tools
 }
 
-// GetToolsForPolicy returns tools filtered and ordered according to the active sandbox policy.
-// In SandboxPolicyStrict, execution-class tools are excluded entirely from model context.
+// GetToolsForPolicy returns tools filtered and ordered according to the active sandbox policy:
+// - SandboxPolicyStrict: only CategorySensory tools (read-only perception). Drops Mutate and Execute.
+// - SandboxPolicyStandard (default): CategorySensory + CategoryMutate (workspace modifications). Drops Execute.
+// - SandboxPolicyPermissive: all tool categories (CategorySensory, CategoryMutate, CategoryExecute).
 func (r *ToolRegistry) GetToolsForPolicy(policy string) []Tool {
 	allTools := r.GetTools()
-	if strings.ToLower(policy) != SandboxPolicyStrict {
+	pol := strings.ToLower(strings.TrimSpace(policy))
+	if pol == "" {
+		pol = SandboxPolicyStandard
+	}
+
+	if pol == SandboxPolicyPermissive {
 		return allTools
 	}
+
 	filtered := make([]Tool, 0, len(allTools))
 	for _, t := range allTools {
-		if t.Category == CategoryExecute || t.Name == "execute_command" {
-			continue // Drop execution tools under strict sandbox policy
+		switch pol {
+		case SandboxPolicyStrict:
+			if t.Category == CategorySensory {
+				filtered = append(filtered, t)
+			}
+		case SandboxPolicyStandard:
+			fallthrough
+		default:
+			if t.Category != CategoryExecute && t.Name != "execute_command" {
+				filtered = append(filtered, t)
+			}
 		}
-		filtered = append(filtered, t)
 	}
 	return filtered
 }
