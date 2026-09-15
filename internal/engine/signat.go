@@ -25,6 +25,7 @@ func ExtractSignat(text string) (string, string) {
 	}
 
 	// 1. Check for explicit <signat>...</signat>
+	// SO! We _can_ hint for models to use xml tags for containing the signats! Thanks "past us"...
 	startTag := "<signat>"
 	endTag := "</signat>"
 	if sIdx := strings.LastIndex(trimmed, startTag); sIdx != -1 {
