@@ -10,9 +10,6 @@ const (
 )
 
 var (
-	StrictAllowedCommands    = tools.StrictAllowedCommands
-	StandardAllowedCommands  = tools.StandardAllowedCommands
-	GetAllowedCommands       = tools.GetAllowedCommands
 	ValidateSafePath         = tools.ValidateSafePath
 	ParseAndValidatePipeline = tools.ParseAndValidatePipeline
 )

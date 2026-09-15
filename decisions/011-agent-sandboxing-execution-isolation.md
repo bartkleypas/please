@@ -149,6 +149,9 @@ When the `exec` tool runs a command under `permissive` policy:
 ## Next Steps
 
 1. Update `internal/tools/sandbox.go` to implement `SensitivePathPatterns` quarantine in `ValidateSafePath`.
-2. Update `internal/tools/defaults.go` and `internal/engine/service.go` so `GetToolsForPolicy` dynamically excludes `exec` in `standard` mode and `write_file` in `strict` mode.
-3. Update `StandardAllowedCommands` to strip `python3`, `node`, `ssh`, and `rm`.
-4. Proceed to **ADR 012: Interactive Staged Execution & Human-in-the-Loop Consent Gate** to define the TUI approval bumper and diff-buffering protocol.
+   * Did some work to move `exec` stuff out of sandbox evaluation routines.
+2. Add safe, workspace-bounded `delete_file` tool to `internal/tools/fs.go` and register it in `defaults.go`.
+3. Update `internal/tools/registry.go` so `GetToolsForPolicy` dynamically excludes `exec` in `standard` mode and `write_file`/`delete_file` in `strict` mode.
+4. Update `StandardAllowedCommands` to strip `python3`, `node`, `ssh`, and `rm`.
+5. Verify all quarantine boundaries and policy filtering via hermetic unit tests (`go test ./internal/tools/...`).
+6. Conclude ADR 011 milestone with clean commit and review. Interactive TUI consent gates and ACP protocol integration will be handled in a completely separate, dedicated milestone under ADR 012.

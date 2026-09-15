@@ -12,29 +12,56 @@ const (
 	SandboxPolicyPermissive = "permissive"
 )
 
-// StrictAllowedCommands contains minimal read-only and benign inspection tools.
-var StrictAllowedCommands = []string{
-	"git", "go", "swift", "ls", "grep", "cat", "echo", "find", "pwd", "date", "mkdir",
+// SensitivePathPatterns defines segments and prefixes quarantined from tool access.
+var SensitivePathPatterns = []string{
+	".secrets",
+	".env",
+	".ssh",
+	"id_rsa",
+	"id_ed25519",
+	"id_ecdsa",
+	"id_dsa",
+	".aws",
+	".config/gcloud",
+	".gnupg",
+	"vault.db",
 }
 
-// StandardAllowedCommands includes build and workspace file manipulation utilities.
-var StandardAllowedCommands = []string{
-	"git", "go", "swift", "ls", "grep", "cat", "echo", "find", "pwd", "date", "mkdir",
-	"make", "npm", "cargo", "rm", "diff", "wc", "head", "tail", "touch", "node", "python3", "ssh",
-}
+// isQuarantinedPath checks if a path matches quarantined credential or conversation database patterns.
+func isQuarantinedPath(path string) (string, bool) {
+	normalized := filepath.ToSlash(path)
+	clean := filepath.Clean(normalized)
+	lower := strings.ToLower(clean)
+	segments := strings.Split(clean, "/")
+	baseLower := strings.ToLower(filepath.Base(clean))
 
-// GetAllowedCommands returns the allowed binaries for a given policy name.
-func GetAllowedCommands(policy string) []string {
-	switch strings.ToLower(policy) {
-	case SandboxPolicyStrict:
-		return StrictAllowedCommands
-	case SandboxPolicyPermissive:
-		return nil // Nil indicates unrestricted
-	case SandboxPolicyStandard, "":
-		fallthrough
-	default:
-		return StandardAllowedCommands
+	for _, pattern := range SensitivePathPatterns {
+		pLower := strings.ToLower(pattern)
+
+		// 1. Exact match on any directory or path segment (e.g. ".secrets", ".ssh", ".aws", ".gnupg")
+		for _, seg := range segments {
+			if strings.ToLower(seg) == pLower {
+				return pattern, true
+			}
+		}
+
+		// 2. Prefix match on base filename (e.g. ".env.local" matching ".env", or "id_ed25519")
+		if strings.HasPrefix(baseLower, pLower+".") || (strings.HasPrefix(pLower, "id_") && strings.HasPrefix(baseLower, pLower)) {
+			return pattern, true
+		}
+
+		// 3. Subpath or prefix directory match (e.g. ".config/gcloud" or "sub/.secrets/key")
+		if strings.Contains(lower, "/"+pLower+"/") || strings.HasPrefix(lower, pLower+"/") || (strings.Contains(pLower, "/") && strings.Contains(lower, pLower)) {
+			return pattern, true
+		}
+
+		// 4. Database filename match (e.g. "vault.db", "vault.db-wal", "vault.db-shm")
+		if strings.HasSuffix(pLower, ".db") && (baseLower == pLower || strings.HasPrefix(baseLower, pLower+"-")) {
+			return pattern, true
+		}
 	}
+
+	return "", false
 }
 
 // parseWorkspaceArgs extracts workspaceDir and optional primaryWorkspace from variadic arguments.
@@ -85,6 +112,17 @@ func ValidateSafePath(workspaceDir, path string, primaryWorkspace ...string) (st
 		return "", fmt.Errorf("security error: path '%s' is outside of workspace root (%s)", path, absRoot)
 	}
 
+	// Quarantine check on requested path, relative path, and resolved canonical path
+	if matched, quarantined := isQuarantinedPath(path); quarantined {
+		return "", fmt.Errorf("security error: path '%s' matches quarantined sensitive pattern '%s'", path, matched)
+	}
+	if matched, quarantined := isQuarantinedPath(rel); quarantined {
+		return "", fmt.Errorf("security error: path '%s' matches quarantined sensitive pattern '%s'", path, matched)
+	}
+	if matched, quarantined := isQuarantinedPath(canonicalPath); quarantined {
+		return "", fmt.Errorf("security error: path '%s' resolves to quarantined sensitive pattern '%s'", path, matched)
+	}
+
 	return canonicalPath, nil
 }
 
@@ -113,70 +151,4 @@ func canonicalizePath(p string) string {
 		checkPath = parent
 	}
 	return abs
-}
-
-// ParseAndValidatePipeline decomposes compound shell commands and verifies that every binary is permitted.
-func ParseAndValidatePipeline(command string, allowedList []string) error {
-	trimmed := strings.TrimSpace(command)
-	if trimmed == "" {
-		return fmt.Errorf("empty command")
-	}
-
-	// Permissive mode allows all commands
-	if allowedList == nil {
-		return nil
-	}
-
-	// 1. Forbid dangerous subshell substitutions and privileged escalations
-	if strings.Contains(trimmed, "$(") || strings.Contains(trimmed, "`") {
-		return fmt.Errorf("security error: subshell execution ($(...) or backticks) is prohibited in sandbox")
-	}
-	if strings.Contains(trimmed, "<(") || strings.Contains(trimmed, ">(") {
-		return fmt.Errorf("security error: process substitution (<(...) or >(...)) is prohibited in sandbox")
-	}
-
-	// 2. Split pipeline on shell separators: &&, ||, ;, |, and newlines
-	// Normalize separators to a common delimiter
-	normalized := trimmed
-	normalized = strings.ReplaceAll(normalized, "&&", "\n")
-	normalized = strings.ReplaceAll(normalized, "||", "\n")
-	normalized = strings.ReplaceAll(normalized, ";", "\n")
-	normalized = strings.ReplaceAll(normalized, "|", "\n")
-
-	lines := strings.Split(normalized, "\n")
-	for _, segment := range lines {
-		seg := strings.TrimSpace(segment)
-		if seg == "" {
-			continue
-		}
-
-		parts := strings.Fields(seg)
-		if len(parts) == 0 {
-			continue
-		}
-
-		rawBinary := parts[0]
-
-		// Disallow sudo explicitly
-		if rawBinary == "sudo" {
-			return fmt.Errorf("security error: sudo is strictly prohibited")
-		}
-
-		// Extract base name if full path is used (e.g. /usr/bin/git -> git)
-		binary := filepath.Base(rawBinary)
-
-		allowed := false
-		for _, a := range allowedList {
-			if binary == a {
-				allowed = true
-				break
-			}
-		}
-
-		if !allowed {
-			return fmt.Errorf("security error: command '%s' is not in the allow-list under active sandbox policy", binary)
-		}
-	}
-
-	return nil
 }
