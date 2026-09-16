@@ -108,11 +108,11 @@ func TestConfig_MigrationV1ToV2(t *testing.T) {
 func TestConfig_GetMaxToolDepth(t *testing.T) {
 	// 1. Default fallback when nil
 	cfg := NewDefaultConfig()
-	if cfg.GetMaxToolDepth() != 50 {
-		t.Errorf("expected default max tool depth 50, got %d", cfg.GetMaxToolDepth())
+	if cfg.GetMaxToolDepth() != 15 {
+		t.Errorf("expected default max tool depth 15, got %d", cfg.GetMaxToolDepth())
 	}
-	if cfg.Server.GetMaxToolDepth() != 50 {
-		t.Errorf("expected default server max tool depth 50, got %d", cfg.Server.GetMaxToolDepth())
+	if cfg.Server.GetMaxToolDepth() != 15 {
+		t.Errorf("expected default server max tool depth 15, got %d", cfg.Server.GetMaxToolDepth())
 	}
 
 	// 2. Custom override
@@ -124,8 +124,8 @@ func TestConfig_GetMaxToolDepth(t *testing.T) {
 
 	// 3. Nil receiver safety
 	var nilServer *ServerConfig
-	if nilServer.GetMaxToolDepth() != 50 {
-		t.Errorf("expected nil server to return 50, got %d", nilServer.GetMaxToolDepth())
+	if nilServer.GetMaxToolDepth() != 15 {
+		t.Errorf("expected nil server to return 15, got %d", nilServer.GetMaxToolDepth())
 	}
 }
 

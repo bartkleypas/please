@@ -141,6 +141,36 @@ func setupLiveFire(t *testing.T) (*Manager, LLMProvider) {
 	return mgr, provider
 }
 
+func finalizeAssistantTurn(mgr *Manager, asstNode *Node) *Node {
+	if asstNode == nil {
+		return nil
+	}
+	if latest, err := mgr.GetNode(asstNode.ID); err == nil && latest != nil {
+		asstNode = latest
+	}
+	if clean, sig := ExtractSignat(asstNode.Content); sig != "" {
+		asstNode.Content = clean
+		if asstNode.Metadata == nil {
+			asstNode.Metadata = make(map[string]string)
+		}
+		asstNode.Metadata["signat"] = sig
+		var segments []AssistantSegment
+		if segStr, ok := asstNode.Metadata["segments"]; ok && segStr != "" {
+			_ = json.Unmarshal([]byte(segStr), &segments)
+		}
+		if len(segments) > 0 {
+			if lastClean, lastSig := ExtractSignat(segments[len(segments)-1].Content); lastSig != "" {
+				segments[len(segments)-1].Content = lastClean
+			}
+			if segJSON, err := json.Marshal(segments); err == nil {
+				asstNode.Metadata["segments"] = string(segJSON)
+			}
+		}
+		_ = mgr.Storage.SaveNode(asstNode)
+	}
+	return asstNode
+}
+
 func simulateTurn(t *testing.T, ctx context.Context, mgr *Manager, provider LLMProvider, input string, parentID string) *Node {
 	userNode, err := mgr.CreateNode(parentID, RoleUser, input, false)
 	if err != nil {
@@ -162,7 +192,8 @@ func simulateTurn(t *testing.T, ctx context.Context, mgr *Manager, provider LLMP
 	if err != nil {
 		t.Fatalf("failed to create assistant node: %v", err)
 	}
-	t.Logf("### [Node ID: %s] Assistant says: %s", assistantNode.ID, resp.Content)
+	assistantNode = finalizeAssistantTurn(mgr, assistantNode)
+	t.Logf("### [Node ID: %s] Assistant says: %s", assistantNode.ID, assistantNode.Content)
 
 	return assistantNode
 }
@@ -202,7 +233,8 @@ func simulateImageTurn(t *testing.T, ctx context.Context, mgr *Manager, provider
 	if err != nil {
 		t.Fatalf("failed to create assistant node: %v", err)
 	}
-	t.Logf("### [Node ID: %s] Assistant says: %s", assistantNode.ID, resp.Content)
+	assistantNode = finalizeAssistantTurn(mgr, assistantNode)
+	t.Logf("### [Node ID: %s] Assistant says: %s", assistantNode.ID, assistantNode.Content)
 
 	return assistantNode
 }
@@ -324,6 +356,7 @@ func executeToolTurn(t *testing.T, ctx context.Context, mgr *Manager, provider L
 		t.Logf("### Warning: Max tool loops reached")
 	}
 
+	assistantNode = finalizeAssistantTurn(mgr, assistantNode)
 	return assistantNode
 }
 
@@ -400,11 +433,11 @@ func TestLLM_ToolExecution(t *testing.T) {
 	turn7 := executeToolTurn(t, ctx, mgr, provider, tools, input, turn6.ID)
 
 	// cleanup
-	input = "Please use the execute_command tool to run 'rm test_vault/demo.txt'."
+	input = "Please use the delete_file tool to remove 'test_vault/demo.txt'."
 	turn8 := executeToolTurn(t, ctx, mgr, provider, tools, input, turn7.ID)
 
 	// Feedback
-	input = "We just tested write_file, list_directory, list_files_recursive, grep_search, edit_file, and execute_command. Summarize your experience with these tools and their ease of use."
+	input = "We just tested write_file, list_directory, list_files_recursive, grep_search, edit_file, execute_command, and delete_file. Summarize your experience with these tools and their ease of use."
 	summaryTurn := simulateTurn(t, ctx, mgr, provider, input, turn8.ID)
 
 	// Image Reflection: Ask George to reflect on his portrait in Lore/George_image.png
@@ -531,6 +564,7 @@ func executeAutonomousTurn(t *testing.T, ctx context.Context, mgr *Manager, prov
 		}
 	}
 
+	assistantNode = finalizeAssistantTurn(mgr, assistantNode)
 	return assistantNode
 }
 

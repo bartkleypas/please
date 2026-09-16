@@ -29,7 +29,7 @@ As `please` evolves from conversational narrative branching to active workspace 
 Live testing across these diverse models revealed a critical architectural vulnerability: **the trust boundary between the model's intent and the user's host environment is fundamentally unbalanced.**
 
 ### 1. The Overeager Agent Problem ("The Unhinged Driver")
-Certain models have been heavily post-trained (via RLHF/DPO) on autonomous benchmarks (e.g. SWE-bench) to immediately fire raw shell commands, edit files in-place without confirmation, and hammer system tools in long autonomous loops. When paired with `please`'s generous default runway (`max_tool_depth = 50`), an uncalibrated model can inflict severe unintended filesystem mutations, loop through broken shell scripts, or attempt to inspect environment credentials before the user can intervene.
+Certain models have been heavily post-trained (via RLHF/DPO) on autonomous benchmarks (e.g. SWE-bench) to immediately fire raw shell commands, edit files in-place without confirmation, and hammer system tools in long autonomous loops. When paired with `please`'s generous initial default runway (`max_tool_depth = 50`), an uncalibrated model can inflict severe unintended filesystem mutations, loop through broken shell scripts, exhaust the context window with raw file observations from Genesis forward, or attempt to inspect environment credentials before the user can intervene.
 
 ### 2. Flaws in Current Sandbox Policy Design
 In [ADR 005](005-modular-tools-extraction.md) and [`internal/tools/sandbox.go`](../internal/tools/sandbox.go), sandboxing was implemented as a simple binary allow-list checked against command strings. This suffers from several severe vulnerabilities:
@@ -150,11 +150,31 @@ To ensure that capability boundaries are physically visible, auditable at compil
 
 ---
 
+### 5. Runway Calibration & Ephemeral Tool Scratchpad Compaction
+
+To decisively solve **The Overeager Agent Problem ("The Unhinged Driver")** and prevent single turns from exhausting the conversation's context window budget from Genesis forward, we introduce calibrated execution runways, rolling scratchpad compaction, and defensive circuit breakers in `internal/engine`:
+
+1. **Default Runway Calibration (`max_tool_depth = 15`)**:
+   - Reduced the default multi-turn tool depth ceiling from `50` to `15` in `ServerConfig` and `SessionHarness`.
+   - Binds the autonomous blast radius of uncalibrated models during interactive sessions while leaving ample runway for typical multi-step code inspection and edits. Users requiring deep autonomous loops can configure `max_tool_depth` explicitly via config or CLI flags.
+2. **Ephemeral Scratchpad Compaction & Capacity Refresh**:
+   - **Eager Turn-Boundary Compaction (`distance >= 1`)**: As soon as an assistant turn completes and the user enters a follow-up turn, bulky tool observations (> 1,000 bytes) from the prior turn collapse into compact pagination banners.
+   - **Intra-Turn Rolling Compaction (`distance == 0`)**: On active turns executing sequential tool calls, observations older than the most recent 2 tool calls are compacted to concise summaries, preventing earlier file reads from re-accumulating on every subsequent sub-turn.
+   - **Compacted Fill Ratio Calculation**: `BuildLLMContext` and `EstimateContextFill` calculate context fill ratio based on the compacted size of historical observations, naturally refreshing available context capacity across turns without requiring manual `/compact`.
+3. **`SessionHarness` Circuit Breakers**:
+   - **Runway Wrap-Up**: On the final iteration of the runway (`depth == maxDepth - 1`), tool declarations are suppressed (`tools = nil`). This forces the model to synthesize a final natural language response and yield control to the user rather than initiating an orphaned tool call.
+   - **Context Budget Circuit Breaker**: If `EstimateContextFill` detects `fillRatio >= 0.85` during a multi-turn tool loop, tool declarations are suppressed to force a final summary before triggering provider context length overflow errors.
+   - **Loop Detection Circuit Breaker**: If an agent invokes the identical tool with identical arguments 3 times consecutively, the harness intercepts the call, returns a loop detection error observation, and halts execution spinning.
+
+---
+
 ## Consequences
 
 ### Positive
 - **Guaranteed Zero-Damage Standard Mode**: In `standard` mode (the default), `please` cannot execute arbitrary bash commands or scripts under any circumstances. A rogue model literally cannot take the wheel.
 - **Credential Quarantine**: Accidental leaks of `.secrets/`, SSH private keys, or cloud credentials to LLM provider endpoints are blocked deterministically at the filesystem layer.
+- **Bounded Runway & No Context Exhaustion**: Calibrating runway depth to 15, eagerly compacting ephemeral tool scratchpads, and refreshing available capacity stops models from burning through the entire conversation context budget in a single turn.
+- **Runaway Loop Immunity**: Circuit breakers halt infinite loops, runaway tool hammering, and context overflow before provider crashes occur.
 - **Zero Heavy Dependencies**: Preserves the single-binary Go architecture—no Docker, no microVMs, no background daemons required.
 - **Clear Psychological Alignment**: The user knows exactly what power the model possesses in each mode.
 
@@ -166,11 +186,14 @@ To ensure that capability boundaries are physically visible, auditable at compil
 
 ## Next Steps
 
-1. Update `internal/tools/sandbox.go` to implement `SensitivePathPatterns` quarantine in `ValidateSafePath`.
-   * Did some work to move `exec` stuff out of sandbox evaluation routines.
-2. Add safe, workspace-bounded `delete_file` tool to `internal/tools/fs.go` and register it in `defaults.go`.
-3. Update `internal/tools/registry.go` so `GetToolsForPolicy` dynamically excludes `exec` in `standard` mode and `write_file`/`delete_file` in `strict` mode.
-4. Update `StandardAllowedCommands` to strip `python3`, `node`, `ssh`, and `rm`.
-5. Verify all quarantine boundaries and policy filtering via hermetic unit tests (`go test ./internal/tools/...`).
-6. Did a *bunch* of refactoring in the `tools/` package while we were here. (fullfilling the review below)
-7. Conclude ADR 011 milestone with clean commit and review. Interactive TUI consent gates and ACP protocol integration will be handled in a completely separate, dedicated milestone under ADR 012.
+1. [x] Update `internal/tools/sandbox.go` to implement `SensitivePathPatterns` quarantine in `ValidateSafePath`.
+2. [x] Add safe, workspace-bounded `delete_file` tool to `internal/tools/mutate.go` and register it in `registry.go`.
+3. [x] Update `internal/tools/registry.go` so `GetToolsForPolicy` dynamically excludes `exec` in `standard` mode and `write_file`/`delete_file` in `strict` mode.
+4. [x] Update `StandardAllowedCommands` to strip `python3`, `node`, `ssh`, and `rm`.
+5. [x] Reorganize `internal/tools/` into cybernetic taxonomy (`sense.go`, `mutate.go`, `exec.go`, `sandbox.go`).
+6. [x] Calibrate `max_tool_depth = 15` in `internal/config/config.go` and `internal/engine/harness.go`.
+7. [x] Implement eager turn-boundary compaction (`distance >= 1`) and intra-turn rolling scratchpad compaction in `internal/engine/service.go`.
+8. [x] Implement runway wrap-up, context budget exhaustion, and loop detection circuit breakers in `internal/engine/harness.go`.
+9. [x] Verify all quarantine boundaries, policy filtering, scratchpad compaction, and circuit breakers via hermetic unit tests (`go test ./...`).
+10. Conclude ADR 011 milestone with clean commit and review. Interactive TUI consent gates and ACP protocol integration will be handled in a completely separate, dedicated milestone under ADR 012.
+

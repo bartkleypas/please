@@ -37,8 +37,8 @@ func TestEngineConfig_ReExportsAndAliases(t *testing.T) {
 	if !cfg.IsPacingEnabled() {
 		t.Errorf("expected backward-compatible IsPacingEnabled() to be true by default")
 	}
-	if cfg.GetMaxToolDepth() != 50 {
-		t.Errorf("expected default max tool depth 50, got %d", cfg.GetMaxToolDepth())
+	if cfg.GetMaxToolDepth() != 15 {
+		t.Errorf("expected default max tool depth 15, got %d", cfg.GetMaxToolDepth())
 	}
 	if cfg.EnableSignatSteering() {
 		t.Errorf("expected EnableSignatSteering() to be false by default")
