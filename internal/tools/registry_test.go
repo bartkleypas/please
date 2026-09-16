@@ -28,7 +28,7 @@ func TestToolRegistry(t *testing.T) {
 	}
 }
 
-func TestToolRegistry_Execute(t *testing.T) {
+func TestToolRegistry_Dispatch(t *testing.T) {
 	registry := NewToolRegistry()
 	registry.Register(Tool{
 		Name: "echo",
@@ -39,7 +39,7 @@ func TestToolRegistry_Execute(t *testing.T) {
 	})
 
 	rawArgs := json.RawMessage(`{"msg": "hello world"}`)
-	res, err := registry.Execute(context.Background(), "echo", rawArgs)
+	res, err := registry.Dispatch(context.Background(), "echo", rawArgs)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestToolRegistry_Execute(t *testing.T) {
 	}
 
 	// Missing tool
-	_, err = registry.Execute(context.Background(), "nonexistent", rawArgs)
+	_, err = registry.Dispatch(context.Background(), "nonexistent", rawArgs)
 	if err == nil {
 		t.Fatalf("expected error for nonexistent tool, got nil")
 	}

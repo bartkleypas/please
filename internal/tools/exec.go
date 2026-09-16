@@ -10,6 +10,13 @@ import (
 	"time"
 )
 
+// ExecTools returns the host execution tools.
+func ExecTools(workspaceDir string) []Tool {
+	return []Tool{
+		ExecuteCommandTool(workspaceDir),
+	}
+}
+
 // DefaultAllowedCommands defines the baseline build and inspection utilities permitted under permissive shell execution.
 // Under ADR 011, execute_command is only registered under permissive policy; strict and standard policies omit shell execution entirely.
 // Dangerous interpreters (python3, node), network utilities (ssh, curl, wget), and destructive builtins (rm) are excluded from this baseline.

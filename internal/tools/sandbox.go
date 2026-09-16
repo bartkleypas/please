@@ -3,6 +3,7 @@ package tools
 import (
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -152,3 +153,64 @@ func canonicalizePath(p string) string {
 	}
 	return abs
 }
+
+// getStringArg extracts a string argument from the tool argument map.
+func getStringArg(args map[string]interface{}, key string) (string, error) {
+	val, ok := args[key].(string)
+	if !ok {
+		return "", fmt.Errorf("missing or invalid '%s' argument", key)
+	}
+	return val, nil
+}
+
+// getIntArg extracts an integer argument from the tool argument map with type coercion and default fallback.
+func getIntArg(args map[string]interface{}, key string, defaultVal int) int {
+	v, ok := args[key]
+	if !ok {
+		return defaultVal
+	}
+	switch n := v.(type) {
+	case float64:
+		if int(n) > 0 {
+			return int(n)
+		}
+	case int:
+		if n > 0 {
+			return n
+		}
+	case string:
+		if parsed, err := strconv.Atoi(n); err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+	return defaultVal
+}
+
+// getBoolArg extracts a boolean argument with fallback to defaultVal.
+func getBoolArg(args map[string]interface{}, key string, defaultVal bool) bool {
+	v, ok := args[key]
+	if !ok {
+		return defaultVal
+	}
+	switch val := v.(type) {
+	case bool:
+		return val
+	case string:
+		return strings.ToLower(val) == "true"
+	}
+	return defaultVal
+}
+
+// resolveToolPath extracts the 'path' argument and verifies it against the active sandbox boundary.
+func resolveToolPath(args map[string]interface{}, ws, prim string) (string, string, error) {
+	path, err := getStringArg(args, "path")
+	if err != nil {
+		return "", "", err
+	}
+	safePath, err := ValidateSafePath(ws, path, prim)
+	if err != nil {
+		return "", "", err
+	}
+	return path, safePath, nil
+}
+

@@ -16,10 +16,9 @@ The `internal/tools` package provides safe host workspace interaction tools, sch
 
 ## Core Files & Components
 
-*   [registry.go](registry.go) - Central registry managing available tools and generating OpenAI/Ollama function calling JSON schemas.
-*   [sandbox.go](sandbox.go) - Sandboxing boundaries (`ValidateSafePath`), path canonicalization (`canonicalizePath` evaluating symlinks), and path virtualization (`primaryWorkspace` rebasing).
-*   [fs.go](fs.go) - Filesystem tools: `read_file` (with 64KB budget and pagination headers), `write_file`, and `edit_file` (atomic regex/chunk replacement).
-*   [exec.go](exec.go) - Shell command execution tool (`run_command`) with timeout handling and output buffering.
-*   [search.go](search.go) - Directory search tools: `search_web`, `list_directory`, and file pattern matching.
-*   [defaults.go](defaults.go) - Default registration factory populating tools with active sandbox constraints.
-*   [tools_test.go](tools_test.go) & [sandbox_test.go](sandbox_test.go) - Test suites verifying boundary escape prevention, path virtualization, and file edits.
+*   [registry.go](registry.go) - Central registry managing tool capabilities, built-in tool registration (`RegisterDefaults`), deterministic KV-cache sequence ordering, and three-tiered policy filtering (`strict`, `standard`, `permissive`).
+*   [sandbox.go](sandbox.go) - Perimeter gatekeeper: workspace boundaries (`ValidateSafePath`), `SensitivePathPatterns` credential quarantine, path canonicalization, and tool argument helpers.
+*   [sense.go](sense.go) - Perception tools (`CategorySensory`): `read_file` (with byte windowing and pagination), `list_directory`, `list_files_recursive`, and `grep_search` using unified safe tree traversal.
+*   [mutate.go](mutate.go) - State modification tools (`CategoryMutate`): `write_file`, `append_file`, `edit_file` (targeted surgical edits), and `delete_file` bounded by workspace sandboxing.
+*   [exec.go](exec.go) - Host compute tools (`CategoryExecute`): `execute_command` with environment sanitization (`sanitizeEnvironment`), compile-time allow-lists (`DefaultAllowedCommands`), and pipeline injection validation.
+*   [tools_test.go](tools_test.go), [sandbox_test.go](sandbox_test.go), & [exec_test.go](exec_test.go) - Hermetic test suites verifying sensory pagination, mutations, path quarantine, and shell execution isolation.

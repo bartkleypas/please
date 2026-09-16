@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -11,188 +10,13 @@ import (
 	"strings"
 )
 
-// getStringArg extracts a string argument from the tool argument map.
-func getStringArg(args map[string]interface{}, key string) (string, error) {
-	val, ok := args[key].(string)
-	if !ok {
-		return "", fmt.Errorf("missing or invalid '%s' argument", key)
-	}
-	return val, nil
-}
-
-// ReadFileTool constructs the read_file tool scoped to workspaceDir.
-func ReadFileTool(workspaceDir ...string) Tool {
-	ws, prim := parseWorkspaceArgs(workspaceDir...)
-
-	return Tool{
-		Name:        "read_file",
-		Category:    CategorySensory,
-		Description: "Read the contents of a file from the local filesystem with optional line slicing and byte windowing. Supports pagination for large files. If a file is truncated, inspect the pagination header and call read_file again with offset set to the next offset indicated.",
-		Interactive: false,
-		Parameters: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"path": map[string]interface{}{
-					"type":        "string",
-					"description": "The path to the file to read",
-				},
-				"offset": map[string]interface{}{
-					"type":        "integer",
-					"description": "Optional line number to start reading from (1-indexed, default: 1)",
-				},
-				"limit": map[string]interface{}{
-					"type":        "integer",
-					"description": "Optional maximum number of lines to read (default: 150)",
-				},
-				"max_bytes": map[string]interface{}{
-					"type":        "integer",
-					"description": "Optional maximum byte budget for output (default: 65536)",
-				},
-			},
-			"required": []string{"path"},
-		},
-		Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
-			path, err := getStringArg(args, "path")
-			if err != nil {
-				return "", err
-			}
-			safePath, err := ValidateSafePath(ws, path, prim)
-			if err != nil {
-				return "", err
-			}
-
-			offset := 1
-			if o, ok := args["offset"]; ok {
-				switch v := o.(type) {
-				case float64:
-					if int(v) > 0 {
-						offset = int(v)
-					}
-				case int:
-					if v > 0 {
-						offset = v
-					}
-				case string:
-					if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
-						offset = parsed
-					}
-				}
-			}
-
-			limit := 150
-			if l, ok := args["limit"]; ok {
-				switch v := l.(type) {
-				case float64:
-					if int(v) > 0 {
-						limit = int(v)
-					}
-				case int:
-					if v > 0 {
-						limit = v
-					}
-				case string:
-					if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
-						limit = parsed
-					}
-				}
-			}
-
-			maxBytes := 65536
-			if mb, ok := args["max_bytes"]; ok {
-				switch v := mb.(type) {
-				case float64:
-					if int(v) > 0 {
-						maxBytes = int(v)
-					}
-				case int:
-					if v > 0 {
-						maxBytes = v
-					}
-				case string:
-					if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
-						maxBytes = parsed
-					}
-				}
-			}
-
-			info, err := os.Stat(safePath)
-			if err != nil {
-				return "", fmt.Errorf("failed to access file: %w", err)
-			}
-			if info.IsDir() {
-				return "", fmt.Errorf("'%s' is a directory, not a file (use list_directory instead)", path)
-			}
-
-			file, err := os.Open(safePath)
-			if err != nil {
-				return "", fmt.Errorf("failed to open file: %w", err)
-			}
-			defer file.Close()
-
-			var lines []string
-			scanner := bufio.NewScanner(file)
-			buf := make([]byte, 64*1024)
-			scanner.Buffer(buf, 1024*1024)
-
-			lineNum := 0
-			totalBytes := 0
-			hitByteLimit := false
-			endLine := 0
-
-			for scanner.Scan() {
-				lineNum++
-				if lineNum < offset {
-					continue
-				}
-				if len(lines) >= limit {
-					break
-				}
-
-				line := scanner.Text()
-				const maxSingleLineChars = 2000
-				if len(line) > maxSingleLineChars {
-					line = line[:maxSingleLineChars] + fmt.Sprintf(" ... [line truncated, %d chars remaining]", len(line)-maxSingleLineChars)
-				}
-
-				lineBytes := len(line) + 1
-				if totalBytes+lineBytes > maxBytes && len(lines) > 0 {
-					hitByteLimit = true
-					break
-				}
-
-				lines = append(lines, line)
-				totalBytes += lineBytes
-				endLine = lineNum
-			}
-
-			totalLines := lineNum
-			for scanner.Scan() {
-				totalLines++
-			}
-			if err := scanner.Err(); err != nil {
-				return "", fmt.Errorf("error reading file: %w", err)
-			}
-
-			if endLine == 0 && totalLines > 0 && offset > totalLines {
-				return fmt.Sprintf("[Offset %d exceeds total file lines (%d)]", offset, totalLines), nil
-			}
-
-			var sb strings.Builder
-			var paginationHint string
-			if endLine < totalLines {
-				remainingLines := totalLines - endLine
-				if hitByteLimit {
-					paginationHint = fmt.Sprintf(" (Byte budget reached; %d lines remaining. To read further, call read_file with path: %q, offset: %d)", remainingLines, path, endLine+1)
-				} else {
-					paginationHint = fmt.Sprintf(" (Limit reached; %d lines remaining. To read further, call read_file with path: %q, offset: %d)", remainingLines, path, endLine+1)
-				}
-			}
-
-			fmt.Fprintf(&sb, "[Lines %d-%d of %d (Showing %.1f KB)%s]\n\n", offset, endLine, totalLines, float64(totalBytes)/1024.0, paginationHint)
-			sb.WriteString(strings.Join(lines, "\n"))
-
-			return sb.String(), nil
-		},
+// MutateTools returns the standard suite of workspace state-modifying tools.
+func MutateTools(workspaceDir, primaryWorkspaceDir string) []Tool {
+	return []Tool{
+		WriteFileTool(workspaceDir, primaryWorkspaceDir),
+		AppendFileTool(workspaceDir, primaryWorkspaceDir),
+		EditFileTool(workspaceDir, primaryWorkspaceDir),
+		DeleteFileTool(workspaceDir, primaryWorkspaceDir),
 	}
 }
 
@@ -237,15 +61,7 @@ func WriteFileTool(workspaceDir ...string) Tool {
 				return "", err
 			}
 
-			overwrite := false
-			if ov, ok := args["overwrite"]; ok {
-				switch v := ov.(type) {
-				case bool:
-					overwrite = v
-				case string:
-					overwrite = strings.ToLower(v) == "true"
-				}
-			}
+			overwrite := getBoolArg(args, "overwrite", false)
 
 			if err := os.MkdirAll(filepath.Dir(safePath), 0755); err != nil {
 				return "", fmt.Errorf("failed to create directories: %w", err)
@@ -363,6 +179,66 @@ func AppendFileTool(workspaceDir ...string) Tool {
 	}
 }
 
+// applyReplaceString replaces a single exact occurrence of search in content.
+func applyReplaceString(content, search, replace, path string) (string, error) {
+	if search == "" {
+		return "", fmt.Errorf("search parameter cannot be empty")
+	}
+	matchCount := strings.Count(content, search)
+	if matchCount == 0 {
+		return "", fmt.Errorf("search string not found in file '%s'. Ensure exact match including whitespace/indentation", path)
+	}
+	if matchCount > 1 {
+		return "", fmt.Errorf("search string matched %d occurrences in '%s'. Provide more surrounding context lines to uniquely identify the target", matchCount, path)
+	}
+	return strings.Replace(content, search, replace, 1), nil
+}
+
+// applyReplaceRegex replaces matches of pattern in content.
+func applyReplaceRegex(content, pattern, replace, path string) (string, error) {
+	if pattern == "" {
+		return "", fmt.Errorf("search parameter cannot be empty")
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return "", fmt.Errorf("invalid regex: %w", err)
+	}
+	if !re.MatchString(content) {
+		return "", fmt.Errorf("regex pattern '%s' matched no content in file '%s'", pattern, path)
+	}
+	return re.ReplaceAllString(content, replace), nil
+}
+
+// applyReplaceLine replaces a specific 1-indexed line in lines.
+func applyReplaceLine(lines []string, lineNumVal interface{}, replace, path string) (string, error) {
+	if lineNumVal == nil {
+		return "", fmt.Errorf("missing line_number for replace_line mode")
+	}
+	lineNum, err := strconv.Atoi(fmt.Sprintf("%v", lineNumVal))
+	if err != nil {
+		return "", fmt.Errorf("invalid line_number: %w", err)
+	}
+	if lineNum < 1 || lineNum > len(lines) {
+		return "", fmt.Errorf("line number %d out of range (1-%d) in file '%s'", lineNum, len(lines), path)
+	}
+	lines[lineNum-1] = replace
+	return strings.Join(lines, "\n"), nil
+}
+
+// applyInsertAfter inserts replace immediately after the first line containing search.
+func applyInsertAfter(lines []string, search, replace, path string) (string, error) {
+	if search == "" {
+		return "", fmt.Errorf("search parameter cannot be empty")
+	}
+	for i, line := range lines {
+		if strings.Contains(line, search) {
+			newLines := append(lines[:i+1], append([]string{replace}, lines[i+1:]...)...)
+			return strings.Join(newLines, "\n"), nil
+		}
+	}
+	return "", fmt.Errorf("search pattern '%s' not found in file '%s'", search, path)
+}
+
 // EditFileTool constructs the edit_file tool scoped to workspaceDir.
 func EditFileTool(workspaceDir ...string) Tool {
 	ws, prim := parseWorkspaceArgs(workspaceDir...)
@@ -422,107 +298,64 @@ func EditFileTool(workspaceDir ...string) Tool {
 			lines := strings.Split(content, "\n")
 
 			var newContent string
+			var editErr error
 
 			switch mode {
 			case "replace_string":
-				search, err := getStringArg(args, "search")
-				if err != nil {
-					search, err = getStringArg(args, "search_block")
+				search, sErr := getStringArg(args, "search")
+				if sErr != nil {
+					search, sErr = getStringArg(args, "search_block")
 				}
-				if err != nil {
-					return "", fmt.Errorf("missing 'search' parameter: %w", err)
+				if sErr != nil {
+					return "", fmt.Errorf("missing 'search' parameter: %w", sErr)
 				}
-				if search == "" {
-					return "", fmt.Errorf("search parameter cannot be empty")
+				replace, rErr := getStringArg(args, "replace")
+				if rErr != nil {
+					replace, rErr = getStringArg(args, "replace_block")
 				}
-				replace, err := getStringArg(args, "replace")
-				if err != nil {
-					replace, err = getStringArg(args, "replace_block")
+				if rErr != nil {
+					return "", fmt.Errorf("missing 'replace' parameter: %w", rErr)
 				}
-				if err != nil {
-					return "", fmt.Errorf("missing 'replace' parameter: %w", err)
-				}
-				matchCount := strings.Count(content, search)
-				if matchCount == 0 {
-					return "", fmt.Errorf("search string not found in file '%s'. Ensure exact match including whitespace/indentation", path)
-				}
-				if matchCount > 1 {
-					return "", fmt.Errorf("search string matched %d occurrences in '%s'. Provide more surrounding context lines to uniquely identify the target", matchCount, path)
-				}
-				newContent = strings.Replace(content, search, replace, 1)
+				newContent, editErr = applyReplaceString(content, search, replace, path)
 
 			case "replace_regex":
-				search, err := getStringArg(args, "search")
-				if err != nil {
-					return "", err
+				search, sErr := getStringArg(args, "search")
+				if sErr != nil {
+					return "", sErr
 				}
-				if search == "" {
-					return "", fmt.Errorf("search parameter cannot be empty")
+				replace, rErr := getStringArg(args, "replace")
+				if rErr != nil {
+					return "", rErr
 				}
-				replace, err := getStringArg(args, "replace")
-				if err != nil {
-					return "", err
-				}
-				re, err := regexp.Compile(search)
-				if err != nil {
-					return "", fmt.Errorf("invalid regex: %w", err)
-				}
-				if !re.MatchString(content) {
-					return "", fmt.Errorf("regex pattern '%s' matched no content in file '%s'", search, path)
-				}
-				newContent = re.ReplaceAllString(content, replace)
+				newContent, editErr = applyReplaceRegex(content, search, replace, path)
 
 			case "replace_line":
-				lineNumVal, ok := args["line_number"]
-				if !ok {
-					return "", fmt.Errorf("missing line_number for replace_line mode")
+				replace, rErr := getStringArg(args, "replace")
+				if rErr != nil {
+					return "", rErr
 				}
-				lineNum, err := strconv.Atoi(fmt.Sprintf("%v", lineNumVal))
-				if err != nil {
-					return "", fmt.Errorf("invalid line_number: %w", err)
-				}
-				if lineNum < 1 || lineNum > len(lines) {
-					return "", fmt.Errorf("line number %d out of range (1-%d)", lineNum, len(lines))
-				}
-				replace, err := getStringArg(args, "replace")
-				if err != nil {
-					return "", err
-				}
-				lines[lineNum-1] = replace
-				newContent = strings.Join(lines, "\n")
+				newContent, editErr = applyReplaceLine(lines, args["line_number"], replace, path)
 
 			case "insert_after":
-				search, err := getStringArg(args, "search")
-				if err != nil {
-					return "", err
+				search, sErr := getStringArg(args, "search")
+				if sErr != nil {
+					return "", sErr
 				}
-				if search == "" {
-					return "", fmt.Errorf("search parameter cannot be empty")
+				replace, rErr := getStringArg(args, "replace")
+				if rErr != nil {
+					return "", rErr
 				}
-				replace, err := getStringArg(args, "replace")
-				if err != nil {
-					return "", err
-				}
-				found := false
-				for i, line := range lines {
-					if strings.Contains(line, search) {
-						newLines := append(lines[:i+1], append([]string{replace}, lines[i+1:]...)...)
-						lines = newLines
-						found = true
-						break
-					}
-				}
-				if !found {
-					return "", fmt.Errorf("search pattern '%s' not found in file '%s'", search, path)
-				}
-				newContent = strings.Join(lines, "\n")
+				newContent, editErr = applyInsertAfter(lines, search, replace, path)
 
 			default:
 				return "", fmt.Errorf("unknown mode: %s", mode)
 			}
 
-			err = os.WriteFile(safePath, []byte(newContent), 0644)
-			if err != nil {
+			if editErr != nil {
+				return "", editErr
+			}
+
+			if err := os.WriteFile(safePath, []byte(newContent), 0644); err != nil {
 				return "", fmt.Errorf("failed to write file: %w", err)
 			}
 
@@ -551,11 +384,7 @@ func DeleteFileTool(workspaceDir ...string) Tool {
 			"required": []string{"path"},
 		},
 		Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
-			path, err := getStringArg(args, "path")
-			if err != nil {
-				return "", err
-			}
-			safePath, err := ValidateSafePath(ws, path, prim)
+			path, safePath, err := resolveToolPath(args, ws, prim)
 			if err != nil {
 				return "", err
 			}
@@ -579,4 +408,3 @@ func DeleteFileTool(workspaceDir ...string) Tool {
 		},
 	}
 }
-

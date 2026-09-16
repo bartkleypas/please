@@ -283,7 +283,7 @@ func (m *Manager) ExecuteToolCall(ctx context.Context, call ToolCall) (string, e
 	if m.Registry == nil {
 		return "", fmt.Errorf("tool registry is nil")
 	}
-	return m.Registry.Execute(ctx, call.Function.Name, call.Function.Arguments)
+	return m.Registry.Dispatch(ctx, call.Function.Name, call.Function.Arguments)
 }
 
 // Sync reloads the graph from storage, effectively synchronizing the in-memory state
