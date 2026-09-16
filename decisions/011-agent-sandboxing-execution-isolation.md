@@ -18,7 +18,7 @@ timestamp: "2026-09-14T10:15:00-07:00"
 
 ## Status
 
-Proposed (Draft)
+Accepted
 
 ---
 
@@ -172,4 +172,5 @@ To ensure that capability boundaries are physically visible, auditable at compil
 3. Update `internal/tools/registry.go` so `GetToolsForPolicy` dynamically excludes `exec` in `standard` mode and `write_file`/`delete_file` in `strict` mode.
 4. Update `StandardAllowedCommands` to strip `python3`, `node`, `ssh`, and `rm`.
 5. Verify all quarantine boundaries and policy filtering via hermetic unit tests (`go test ./internal/tools/...`).
-6. Conclude ADR 011 milestone with clean commit and review. Interactive TUI consent gates and ACP protocol integration will be handled in a completely separate, dedicated milestone under ADR 012.
+6. Did a *bunch* of refactoring in the `tools/` package while we were here. (fullfilling the review below)
+7. Conclude ADR 011 milestone with clean commit and review. Interactive TUI consent gates and ACP protocol integration will be handled in a completely separate, dedicated milestone under ADR 012.
