@@ -89,7 +89,8 @@ func (m *Model) renderNode(node *engine.Node) string {
 				}
 			}
 			if seg.Content != "" {
-				s.WriteString(wrapText(seg.Content, wrapWidth))
+				cleanSeg, _ := engine.ExtractSignat(seg.Content)
+				s.WriteString(wrapText(cleanSeg, wrapWidth))
 				s.WriteString("\n")
 			}
 		}
@@ -128,7 +129,8 @@ func (m *Model) renderNode(node *engine.Node) string {
 
 		// 3. Render Final Response (Lane D)
 		if node.Content != "" {
-			s.WriteString(wrapText(node.Content, wrapWidth))
+			cleanContent, _ := engine.ExtractSignat(node.Content)
+			s.WriteString(wrapText(cleanContent, wrapWidth))
 			s.WriteString("\n")
 		}
 	}

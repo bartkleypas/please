@@ -287,8 +287,14 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 			}
 		}
 
+		cleanChunk, sigChunk := ExtractSignat(contentChunk)
+		segContent := contentChunk
+		if sigChunk != "" {
+			segContent = cleanChunk
+		}
+
 		segments = append(segments, AssistantSegment{
-			Content: contentChunk,
+			Content: segContent,
 			Thought: thoughtChunk,
 		})
 		segBytes, _ := json.Marshal(segments)
@@ -297,7 +303,7 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 			var err error
 			asstNode, err = h.Manager.CreateAssistantNode(
 				userNode.ID,
-				contentChunk,
+				cleanChunk,
 				thoughtChunk,
 				accumulatedToolCalls,
 				false,
@@ -309,6 +315,9 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 			if asstNode.Metadata == nil {
 				asstNode.Metadata = make(map[string]string)
 			}
+			if sigChunk != "" {
+				asstNode.Metadata["signat"] = sigChunk
+			}
 			asstNode.Metadata["segments"] = string(segBytes)
 			_ = h.Manager.Storage.SaveNode(asstNode)
 
@@ -319,11 +328,14 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 			if latest, err := h.Manager.GetNode(asstNode.ID); err == nil && latest != nil {
 				asstNode = latest
 			}
-			asstNode.Content += contentChunk
+			asstNode.Content += cleanChunk
 			asstNode.Thought += thoughtChunk
 			asstNode.ToolCalls = append(asstNode.ToolCalls, accumulatedToolCalls...)
 			if asstNode.Metadata == nil {
 				asstNode.Metadata = make(map[string]string)
+			}
+			if sigChunk != "" {
+				asstNode.Metadata["signat"] = sigChunk
 			}
 			asstNode.Metadata["segments"] = string(segBytes)
 			_ = h.Manager.Storage.SaveNode(asstNode)
@@ -335,22 +347,25 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 				asstNode = latest
 			}
 			// Clean any trailing signat from the final assistant content into metadata
-			if clean, sig := ExtractSignat(asstNode.Content); sig != "" {
-				asstNode.Content = clean
-				if asstNode.Metadata == nil {
-					asstNode.Metadata = make(map[string]string)
-				}
-				asstNode.Metadata["signat"] = sig
-				if len(segments) > 0 {
-					if lastClean, lastSig := ExtractSignat(segments[len(segments)-1].Content); lastSig != "" {
-						segments[len(segments)-1].Content = lastClean
-					}
-					if segJSON, err := json.Marshal(segments); err == nil {
-						asstNode.Metadata["segments"] = string(segJSON)
-					}
-				}
-				_ = h.Manager.Storage.SaveNode(asstNode)
+			clean, sig := ExtractSignat(asstNode.Content)
+			if sig == "" && asstNode.Metadata != nil {
+				sig = asstNode.Metadata["signat"]
 			}
+			asstNode.Content = clean
+			if asstNode.Metadata == nil {
+				asstNode.Metadata = make(map[string]string)
+			}
+			if sig != "" {
+				asstNode.Metadata["signat"] = sig
+			}
+			if len(segments) > 0 {
+				lastClean, _ := ExtractSignat(segments[len(segments)-1].Content)
+				segments[len(segments)-1].Content = lastClean
+				if segJSON, err := json.Marshal(segments); err == nil {
+					asstNode.Metadata["segments"] = string(segJSON)
+				}
+			}
+			_ = h.Manager.Storage.SaveNode(asstNode)
 
 			if h.Manager != nil && h.Manager.Storage != nil {
 				_ = h.Manager.Storage.SaveSessionHead(sessionID, asstNode.ID)
