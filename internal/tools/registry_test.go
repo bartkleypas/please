@@ -28,7 +28,7 @@ func TestToolRegistry(t *testing.T) {
 	}
 }
 
-func TestToolRegistry_Execute(t *testing.T) {
+func TestToolRegistry_Dispatch(t *testing.T) {
 	registry := NewToolRegistry()
 	registry.Register(Tool{
 		Name: "echo",
@@ -39,7 +39,7 @@ func TestToolRegistry_Execute(t *testing.T) {
 	})
 
 	rawArgs := json.RawMessage(`{"msg": "hello world"}`)
-	res, err := registry.Execute(context.Background(), "echo", rawArgs)
+	res, err := registry.Dispatch(context.Background(), "echo", rawArgs)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestToolRegistry_Execute(t *testing.T) {
 	}
 
 	// Missing tool
-	_, err = registry.Execute(context.Background(), "nonexistent", rawArgs)
+	_, err = registry.Dispatch(context.Background(), "nonexistent", rawArgs)
 	if err == nil {
 		t.Fatalf("expected error for nonexistent tool, got nil")
 	}
@@ -95,10 +95,10 @@ func TestToolCategory_TaxonomyAndPolicyFiltering(t *testing.T) {
 	registry := NewToolRegistry()
 	RegisterDefaultTools(registry, "/tmp")
 
-	// Standard/Permissive returns all tools including execute_command
-	stdTools := registry.GetToolsForPolicy(SandboxPolicyStandard)
+	// 1. Permissive returns all tools including execute_command
+	permTools := registry.GetToolsForPolicy(SandboxPolicyPermissive)
 	hasExec := false
-	for _, tool := range stdTools {
+	for _, tool := range permTools {
 		if tool.Name == "execute_command" {
 			hasExec = true
 			if tool.Category != CategoryExecute {
@@ -107,14 +107,38 @@ func TestToolCategory_TaxonomyAndPolicyFiltering(t *testing.T) {
 		}
 	}
 	if !hasExec {
-		t.Errorf("expected standard policy to include execute_command")
+		t.Errorf("expected permissive policy to include execute_command")
 	}
 
-	// Strict drops CategoryExecute tools
+	// 2. Standard policy includes Mutate & Sensory, but drops execute_command
+	stdTools := registry.GetToolsForPolicy(SandboxPolicyStandard)
+	hasMutate := false
+	for _, tool := range stdTools {
+		if tool.Category == CategoryExecute || tool.Name == "execute_command" {
+			t.Errorf("standard policy leaked execution tool: %s (%s)", tool.Name, tool.Category)
+		}
+		if tool.Category == CategoryMutate {
+			hasMutate = true
+		}
+	}
+	if !hasMutate {
+		t.Errorf("expected standard policy to include mutate tools")
+	}
+
+	// 3. Strict drops BOTH CategoryExecute and CategoryMutate tools (Sensory only)
 	strictTools := registry.GetToolsForPolicy(SandboxPolicyStrict)
 	for _, tool := range strictTools {
 		if tool.Category == CategoryExecute || tool.Name == "execute_command" {
 			t.Errorf("strict policy leaked execution tool: %s (%s)", tool.Name, tool.Category)
 		}
+		if tool.Category == CategoryMutate {
+			t.Errorf("strict policy leaked mutate tool: %s (%s)", tool.Name, tool.Category)
+		}
+		if tool.Category != CategorySensory {
+			t.Errorf("strict policy allowed non-sensory tool: %s (%s)", tool.Name, tool.Category)
+		}
+	}
+	if len(strictTools) == 0 {
+		t.Errorf("expected strict policy to retain sensory tools, got 0")
 	}
 }

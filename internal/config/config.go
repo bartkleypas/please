@@ -164,20 +164,20 @@ func (c *Config) GetSession() string {
 	return c.Client.GetSession()
 }
 
-// GetMaxToolDepth returns the configured maximum multi-turn tool depth, or 50 by default.
+// GetMaxToolDepth returns the configured maximum multi-turn tool depth, or 15 by default.
 func (s *ServerConfig) GetMaxToolDepth() int {
 	if s != nil && s.MaxToolDepth != nil && *s.MaxToolDepth > 0 {
 		return *s.MaxToolDepth
 	}
-	return 50
+	return 15
 }
 
-// GetMaxToolDepth returns the configured maximum multi-turn tool depth, or 50 by default.
+// GetMaxToolDepth returns the configured maximum multi-turn tool depth, or 15 by default.
 func (c *Config) GetMaxToolDepth() int {
 	if c != nil && c.Server != nil {
 		return c.Server.GetMaxToolDepth()
 	}
-	return 50
+	return 15
 }
 
 // GetSandboxPolicy returns the active sandbox policy ("strict", "standard", "permissive").

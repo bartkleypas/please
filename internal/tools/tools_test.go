@@ -454,3 +454,71 @@ func TestEditFile_FailureSignaling(t *testing.T) {
 		t.Errorf("expected empty search parameter error, got: %v", err)
 	}
 }
+
+func TestDeleteFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	registry := NewToolRegistry()
+	RegisterDefaultTools(registry, tmpDir)
+
+	ctx := context.Background()
+	delTool, ok := registry.Tools["delete_file"]
+	if !ok {
+		t.Fatalf("delete_file tool not found in registry")
+	}
+
+	// 1. Successfully delete existing file
+	filePath := filepath.Join(tmpDir, "to_delete.txt")
+	if err := os.WriteFile(filePath, []byte("temp"), 0644); err != nil {
+		t.Fatalf("failed to create test file: %v", err)
+	}
+
+	res, err := delTool.Function(ctx, map[string]interface{}{"path": "to_delete.txt"})
+	if err != nil {
+		t.Fatalf("unexpected error deleting file: %v", err)
+	}
+	if !strings.Contains(res, "deleted successfully") {
+		t.Errorf("expected deleted successfully in response, got: %s", res)
+	}
+	if _, err := os.Stat(filePath); !os.IsNotExist(err) {
+		t.Errorf("expected file to be deleted from disk")
+	}
+
+	// 2. Delete non-existent file
+	_, err = delTool.Function(ctx, map[string]interface{}{"path": "nonexistent.txt"})
+	if err == nil {
+		t.Fatalf("expected error deleting non-existent file, got nil")
+	}
+	if !strings.Contains(err.Error(), "does not exist") {
+		t.Errorf("expected 'does not exist' error, got: %v", err)
+	}
+
+	// 3. Attempt to delete a directory
+	subDir := filepath.Join(tmpDir, "sub_dir")
+	if err := os.Mkdir(subDir, 0755); err != nil {
+		t.Fatalf("failed to create directory: %v", err)
+	}
+	_, err = delTool.Function(ctx, map[string]interface{}{"path": "sub_dir"})
+	if err == nil {
+		t.Fatalf("expected error when attempting to delete directory, got nil")
+	}
+	if !strings.Contains(err.Error(), "is a directory") {
+		t.Errorf("expected directory error, got: %v", err)
+	}
+
+	// 4. Path traversal attempt outside workspace
+	_, err = delTool.Function(ctx, map[string]interface{}{"path": "../../outside.txt"})
+	if err == nil {
+		t.Fatalf("expected security error on path traversal, got nil")
+	}
+
+	// 5. Quarantined file access attempt
+	quarantinedFile := filepath.Join(tmpDir, ".env")
+	_ = os.WriteFile(quarantinedFile, []byte("SECRET=1"), 0644)
+	_, err = delTool.Function(ctx, map[string]interface{}{"path": ".env"})
+	if err == nil {
+		t.Fatalf("expected quarantine error for .env file, got nil")
+	}
+	if !strings.Contains(err.Error(), "matches quarantined sensitive pattern") {
+		t.Errorf("expected quarantine security violation, got: %v", err)
+	}
+}

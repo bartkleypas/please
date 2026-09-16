@@ -169,11 +169,13 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 		maxDepth = h.Config.Server.GetMaxToolDepth()
 	}
 	if maxDepth <= 0 {
-		maxDepth = 50
+		maxDepth = 15
 	}
 
 	var asstNode *Node
 	var segments []AssistantSegment
+	var lastToolKey string
+	repeatCount := 0
 
 	// Multi-turn tool execution loop
 	for depth := 0; depth < maxDepth; depth++ {
@@ -210,6 +212,23 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 				policy = h.Config.GetSandboxPolicy()
 			}
 			tools = h.Manager.Registry.GetToolsForPolicy(policy)
+		}
+
+		// Circuit Breaker 1: Runway Wrap-Up
+		// On the final iteration of the runway (depth >= maxDepth - 1), suppress tools.
+		// This forces the model to synthesize a final natural language response rather
+		// than initiating a tool call that would be truncated abruptly without execution.
+		if depth >= maxDepth-1 {
+			tools = nil
+		}
+
+		// Circuit Breaker 2: Context Budget Exhaustion
+		// If context fill ratio reaches or exceeds 85% capacity during multi-turn tool execution,
+		// suppress tools to force a natural language summary before context overflow errors occur.
+		if depth > 0 && h.Manager != nil {
+			if fillRatio, _, err := h.Manager.EstimateContextFill(contextNodeID); err == nil && fillRatio >= 0.85 {
+				tools = nil
+			}
 		}
 
 		contentChan, thoughtChan, toolCallsChan, errChan := h.Provider.GenerateResponseStream(ctx, messages, tools)
@@ -363,11 +382,28 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 				ToolArgs:   argsMap,
 			})
 
-			result, execErr := h.Manager.ExecuteToolCall(ctx, call)
-			errStr := ""
-			if execErr != nil {
+			callKey := fmt.Sprintf("%s:%s", call.Function.Name, string(call.Function.Arguments))
+			if callKey == lastToolKey {
+				repeatCount++
+			} else {
+				lastToolKey = callKey
+				repeatCount = 1
+			}
+
+			var result string
+			var execErr error
+			var errStr string
+
+			if repeatCount >= 3 {
+				execErr = fmt.Errorf("loop circuit breaker triggered: tool %q invoked with identical arguments 3 times consecutively", call.Function.Name)
 				errStr = execErr.Error()
-				result = fmt.Sprintf("Error: %s", execErr.Error())
+				result = fmt.Sprintf("Error: %s. Please synthesize your final response or adjust parameters.", execErr.Error())
+			} else {
+				result, execErr = h.Manager.ExecuteToolCall(ctx, call)
+				if execErr != nil {
+					errStr = execErr.Error()
+					result = fmt.Sprintf("Error: %s", execErr.Error())
+				}
 			}
 
 			// Update assistant observations on the unified assistant node

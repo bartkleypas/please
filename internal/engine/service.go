@@ -283,7 +283,7 @@ func (m *Manager) ExecuteToolCall(ctx context.Context, call ToolCall) (string, e
 	if m.Registry == nil {
 		return "", fmt.Errorf("tool registry is nil")
 	}
-	return m.Registry.Execute(ctx, call.Function.Name, call.Function.Arguments)
+	return m.Registry.Dispatch(ctx, call.Function.Name, call.Function.Arguments)
 }
 
 // Sync reloads the graph from storage, effectively synchronizing the in-memory state
@@ -414,12 +414,20 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 		return nil, err
 	}
 
-	// Calculate total path cost to determine fill ratio
+	// Calculate total path cost to determine fill ratio, accounting for ephemeral observation compaction
 	var totalChars int
-	for _, node := range path {
+	for i, node := range path {
+		distance := len(path) - 1 - i
 		totalChars += len(node.Content) + len(node.Thought)
-		for _, obs := range node.Observations {
-			totalChars += len(obs.Result)
+		totalObs := len(node.Observations)
+		for j, obs := range node.Observations {
+			obsLen := len(obs.Result)
+			if distance >= 1 && obsLen > 1000 {
+				obsLen = 150 // estimated compacted banner size
+			} else if distance == 0 && totalObs > 2 && j < totalObs-2 && obsLen > 1000 {
+				obsLen = 150
+			}
+			totalChars += obsLen
 		}
 	}
 
@@ -458,10 +466,18 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 				obsMap[obs.ToolCallID] = obs
 			}
 
-			formatObs := func(toolName, rawResult string) string {
-				if distance >= 2 && len(rawResult) > 1000 {
+			totalCalls := len(node.ToolCalls)
+			formatObs := func(toolName, rawResult string, callIdx int) string {
+				// Turn-boundary compaction: historical turns (distance >= 1) compact large observations
+				if distance >= 1 && len(rawResult) > 1000 {
 					return formatCompactedToolObservation(toolName, rawResult)
-				} else if v > 5.0 {
+				}
+				// Intra-turn rolling scratchpad compaction: on active turn (distance == 0),
+				// compact older observations beyond the last 2 tool calls if they exceed 1000 bytes.
+				if distance == 0 && totalCalls > 2 && callIdx < totalCalls-2 && len(rawResult) > 1000 {
+					return formatCompactedToolObservation(toolName, rawResult)
+				}
+				if v > 5.0 {
 					if fillRatio >= 0.60 && len(rawResult) > 8000 {
 						return rawResult[:8000] + "... [truncated]"
 					}
@@ -501,7 +517,7 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 						if obs, ok := obsMap[tc.ID]; ok {
 							messages = append(messages, Message{
 								Role:       RoleTool,
-								Content:    formatObs(toolName, obs.Result),
+								Content:    formatObs(toolName, obs.Result, j),
 								ToolCallID: tc.ID,
 								Internal:   node.Internal,
 							})
@@ -531,7 +547,7 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 					if obs, ok := obsMap[tc.ID]; ok {
 						messages = append(messages, Message{
 							Role:       RoleTool,
-							Content:    formatObs(toolName, obs.Result),
+							Content:    formatObs(toolName, obs.Result, j),
 							ToolCallID: tc.ID,
 							Internal:   node.Internal,
 						})
@@ -606,8 +622,8 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 			Images:     nodeImages,
 		}
 
-		if distance >= 2 && len(node.Observations) > 0 {
-			// Older turns (distance >= 2): compact large tool observations (ephemeral scratchpad)
+		if distance >= 1 && len(node.Observations) > 0 {
+			// Older turns (distance >= 1): compact large tool observations (ephemeral scratchpad)
 			msg.ToolCalls = node.ToolCalls
 			msg.Observations = make([]ToolObservation, len(node.Observations))
 			for j, obs := range node.Observations {
@@ -628,12 +644,22 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 				}
 			}
 		} else if v > 5.0 {
-			// Keep full fidelity observations
+			// Keep full fidelity observations, but apply intra-turn rolling compaction for distance == 0
 			msg.ToolCalls = node.ToolCalls
 			msg.Observations = make([]ToolObservation, len(node.Observations))
+			totalObs := len(node.Observations)
 			for j, obs := range node.Observations {
+				toolName := "unknown_tool"
+				for _, tc := range node.ToolCalls {
+					if tc.ID == obs.ToolCallID {
+						toolName = tc.Function.Name
+						break
+					}
+				}
 				truncatedResult := obs.Result
-				if fillRatio >= 0.60 && len(truncatedResult) > 8000 {
+				if distance == 0 && totalObs > 2 && j < totalObs-2 && len(truncatedResult) > 1000 {
+					truncatedResult = formatCompactedToolObservation(toolName, obs.Result)
+				} else if fillRatio >= 0.60 && len(truncatedResult) > 8000 {
 					truncatedResult = truncatedResult[:8000] + "... [truncated]"
 				}
 				msg.Observations[j] = ToolObservation{
@@ -950,4 +976,40 @@ func (m *Manager) GetAllNodeIDs() []string {
 
 func (m *Manager) AttachImages(node *Node, images []string) {
 	node.Images = images
+}
+
+// EstimateContextFill returns the estimated context window fill ratio and token count for a lineage ending at leafID,
+// taking into account eager turn-boundary and intra-turn rolling observation compaction.
+func (m *Manager) EstimateContextFill(leafID string) (float64, int, error) {
+	path, err := m.GetPath(leafID)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	var totalChars int
+	for i, node := range path {
+		distance := len(path) - 1 - i
+		totalChars += len(node.Content) + len(node.Thought)
+		totalObs := len(node.Observations)
+		for j, obs := range node.Observations {
+			obsLen := len(obs.Result)
+			if distance >= 1 && obsLen > 1000 {
+				obsLen = 150
+			} else if distance == 0 && totalObs > 2 && j < totalObs-2 && obsLen > 1000 {
+				obsLen = 150
+			}
+			totalChars += obsLen
+		}
+	}
+
+	limit := m.NumCtx
+	if limit <= 0 {
+		limit = 32768
+	}
+	estimatedTokens := int(float64(totalChars) / 3.8)
+	if estimatedTokens < 1 {
+		estimatedTokens = 1
+	}
+	fillRatio := float64(estimatedTokens) / float64(limit)
+	return fillRatio, estimatedTokens, nil
 }

@@ -118,18 +118,54 @@ When the client calls `session/prompt`:
    - `HarnessEventToolResult` $\rightarrow$ `SessionUpdateToolCall` (status: `completed` or `failed`)
    - `HarnessEventNodeComplete` $\rightarrow$ Return final `acp.PromptResponse` with turn completion status (`EndTurn`).
 
-### 4. Interactive Consent Gate (`client.RequestPermission`)
-To satisfy ADR 011 requirements:
-1. When `SessionHarness` encounters a tool flagged as requiring user consent (e.g. `exec` in `permissive` mode, or mutating operations on sensitive targets):
-2. The harness pauses turn execution and calls:
-   ```go
-   resp, err := client.RequestPermission(ctx, acp.RequestPermissionRequest{
-       SessionId: sessionID,
-       ToolCall:  toolCallData,
-       Options:   []acp.PermissionOption{...},
-   })
-   ```
-3. If the user rejects the permission or the turn is canceled, the tool invocation returns a permission-denied observation to the model, maintaining conversation safety without crashing the harness.
+### 4. Unified Interactive Consent Gate & Operator Ergonomics
+
+To satisfy the safety guarantees established in [ADR 011](011-agent-sandboxing-execution-isolation.md), `please` implements a unified, presentation-agnostic authorization gate inside `SessionHarness`:
+
+```go
+type PermissionGate func(ctx context.Context, call ToolCall) (bool, error)
+```
+
+Whenever a turn encounters a gated tool (e.g. `exec` in `permissive` mode, or sensitive workspace mutations), the engine pauses turn execution and delegates to the active client:
+
+#### 4.1. In ACP Editor Clients (`client.RequestPermission`)
+The harness calls the client over JSON-RPC:
+```go
+resp, err := client.RequestPermission(ctx, acp.RequestPermissionRequest{
+    SessionId: sessionID,
+    ToolCall:  toolCallData,
+    Options:   []acp.PermissionOption{...},
+})
+```
+The editor (Zed, JetBrains, Xcode) displays its native permission modal with a command/diff preview.
+
+#### 4.2. In the Bubble Tea Terminal TUI
+The harness pauses stream emission and renders an inline approval bumper:
+```text
+⚠️ Model requests execution: go test ./...
+[Y] Approve  [N] Skip  [A] Always allow for this session  [Esc] Abort turn
+```
+- Upon `[Y]`: The tool executes and resumes streaming.
+- Upon `[N]`: Returns an error observation (`"User denied execution of tool: go test"`) allowing the model to adapt without crashing.
+- Upon `[Esc]`: Halts the turn cleanly and preserves the partial conversation DAG node.
+
+#### 4.3. Direct `/sandbox` Runtime Command
+Rather than burying policy changes under `/config sandbox <value>`, `please` introduces a top-level command for rapid switching:
+```text
+/sandbox              # Displays active policy, registered tools, and allowed commands
+/sandbox strict       # Immediately demotes session to read-only inspection
+/sandbox standard     # Restores safe workspace mutations (disables raw shell)
+/sandbox permissive   # Enables gated shell execution with mandatory user consent
+```
+
+#### 4.4. Real-Time Status Bar Badge
+The TUI status bar renders a persistent, color-coded security badge displaying the active policy:
+- **`[🔒 STRICT]`** *(Dim / Green)*: Complete read-only safety; zero mutations possible.
+- **`[🛡️ STANDARD]`** *(Blue / Cyan)*: Workspace edits allowed; shell execution blocked.
+- **`[⚠️ PERMISSIVE]`** *(Amber / Yellow)*: Shell execution enabled with interactive approval gates.
+
+#### 4.5. Session-Level Policy Affinity
+While `config.json` defines the global default policy, individual conversation branches can override the active policy via `/sandbox`. The override persists in session metadata in SQLite, ensuring that jumping between a `research` branch (pinned to `strict`) and an `implementation` branch (set to `standard`) automatically restores the appropriate security perimeter.
 
 ---
 

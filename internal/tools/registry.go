@@ -12,15 +12,15 @@ import (
 type ToolCategory string
 
 const (
-	CategorySensory ToolCategory = "sensory" // Read-only / discovery
-	CategoryMutate  ToolCategory = "mutate"  // State-modifying / writes
-	CategoryExecute ToolCategory = "execute" // Host compute execution
+	CategorySensory ToolCategory = "sensory" // Read-only / discovery (Should be ordered "first")
+	CategoryMutate  ToolCategory = "mutate"  // State-modifying / writes (ordered "second")
+	CategoryExecute ToolCategory = "execute" // Host compute execution (ordered "third")
 )
 
 // Tool defines an external function that the LLM can call.
 type Tool struct {
 	Name        string       `json:"name"`
-	Category    ToolCategory `json:"category,omitempty"`
+	Category    ToolCategory `json:"category,omitempty"` // Turns out, pretty important now :D
 	Description string       `json:"description"`
 	Parameters  interface{}  `json:"parameters"` // JSON Schema for the tool's arguments
 	Function    func(ctx context.Context, args map[string]interface{}) (string, error)
@@ -44,8 +44,37 @@ func (r *ToolRegistry) Register(t Tool) {
 	r.Tools[t.Name] = t
 }
 
-// Execute parses raw JSON arguments and invokes the named tool.
-func (r *ToolRegistry) Execute(ctx context.Context, name string, rawArgs json.RawMessage) (string, error) {
+// RegisterDefaults populates the registry with standard built-in cybernetic tools scoped to workspaceDir.
+// Might change shape now that each tool has its own internal priority?
+func (r *ToolRegistry) RegisterDefaults(workspaceDir ...string) {
+	ws, prim := parseWorkspaceArgs(workspaceDir...)
+
+	for _, t := range SensoryTools(ws, prim) {
+		r.Register(t)
+	}
+	for _, t := range MutateTools(ws, prim) {
+		r.Register(t)
+	}
+	for _, t := range ExecTools(ws) {
+		r.Register(t)
+	}
+}
+
+// RegisterDefaultTools registers all default tools into the provided registry scoped to workspaceDir.
+// Also actual surface area in the `engine` package.
+func RegisterDefaultTools(registry *ToolRegistry, workspaceDir ...string) {
+	registry.RegisterDefaults(workspaceDir...)
+}
+
+// GetDefaultTools returns a slice of standard built-in tools scoped to workspaceDir.
+func GetDefaultTools(workspaceDir ...string) []Tool {
+	reg := NewToolRegistry()
+	reg.RegisterDefaults(workspaceDir...)
+	return reg.GetTools()
+}
+
+// Dispatch parses raw JSON arguments and invokes the named tool.
+func (r *ToolRegistry) Dispatch(ctx context.Context, name string, rawArgs json.RawMessage) (string, error) {
 	tool, ok := r.Tools[name]
 	if !ok {
 		return "", fmt.Errorf("tool not found: %s", name)
@@ -78,18 +107,6 @@ func categoryPriority(c ToolCategory) int {
 	}
 }
 
-// toolFamilyPriority provides backwards-compatible name-based priority fallback.
-var toolFamilyPriority = map[string]int{
-	"read_file":            10,
-	"list_directory":       11,
-	"list_files_recursive": 12,
-	"grep_search":          13,
-	"write_file":           20,
-	"append_file":          21,
-	"edit_file":            22,
-	"execute_command":      30,
-}
-
 // GetTools returns a deterministically ordered slice of all registered tools.
 // Preserves prompt prefix stability for 100% LLM KV cache reuse across turns.
 func (r *ToolRegistry) GetTools() []Tool {
@@ -97,15 +114,10 @@ func (r *ToolRegistry) GetTools() []Tool {
 	for _, t := range r.Tools {
 		tools = append(tools, t)
 	}
+	// So the below map derivation changes shape too.
 	sort.Slice(tools, func(i, j int) bool {
 		pi := categoryPriority(tools[i].Category)
 		pj := categoryPriority(tools[j].Category)
-		if pi == 99 && toolFamilyPriority[tools[i].Name] > 0 {
-			pi = toolFamilyPriority[tools[i].Name]
-		}
-		if pj == 99 && toolFamilyPriority[tools[j].Name] > 0 {
-			pj = toolFamilyPriority[tools[j].Name]
-		}
 		if pi != pj {
 			return pi < pj
 		}
@@ -114,19 +126,35 @@ func (r *ToolRegistry) GetTools() []Tool {
 	return tools
 }
 
-// GetToolsForPolicy returns tools filtered and ordered according to the active sandbox policy.
-// In SandboxPolicyStrict, execution-class tools are excluded entirely from model context.
+// GetToolsForPolicy returns tools filtered and ordered according to the active sandbox policy:
+// - SandboxPolicyStrict: only CategorySensory tools (read-only perception). Drops Mutate and Execute.
+// - SandboxPolicyStandard (default): CategorySensory + CategoryMutate (workspace modifications). Drops Execute.
+// - SandboxPolicyPermissive: all tool categories (CategorySensory, CategoryMutate, CategoryExecute).
 func (r *ToolRegistry) GetToolsForPolicy(policy string) []Tool {
 	allTools := r.GetTools()
-	if strings.ToLower(policy) != SandboxPolicyStrict {
+	pol := strings.ToLower(strings.TrimSpace(policy))
+	if pol == "" {
+		pol = SandboxPolicyStandard
+	}
+
+	if pol == SandboxPolicyPermissive {
 		return allTools
 	}
+
 	filtered := make([]Tool, 0, len(allTools))
 	for _, t := range allTools {
-		if t.Category == CategoryExecute || t.Name == "execute_command" {
-			continue // Drop execution tools under strict sandbox policy
+		switch pol {
+		case SandboxPolicyStrict:
+			if t.Category == CategorySensory {
+				filtered = append(filtered, t)
+			}
+		case SandboxPolicyStandard:
+			fallthrough
+		default:
+			if t.Category != CategoryExecute && t.Name != "execute_command" {
+				filtered = append(filtered, t)
+			}
 		}
-		filtered = append(filtered, t)
 	}
 	return filtered
 }

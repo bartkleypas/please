@@ -197,3 +197,136 @@ func TestSessionHarness_ContextCancellation(t *testing.T) {
 		t.Fatalf("expected error on cancelled context")
 	}
 }
+
+func TestSessionHarness_RunwayWrapUp(t *testing.T) {
+	storage := &MockStorage{}
+	graph := NewGraph()
+	mgr := NewManager(graph, storage)
+
+	mgr.Registry = NewToolRegistry()
+	mgr.Registry.Register(Tool{
+		Name: "infinite_tool",
+		Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
+			return "infinite output", nil
+		},
+	})
+
+	callStep := 0
+	sawToolsOnFinalStep := false
+	mockProvider := &MockLLMProvider{
+		StreamHandler: func(messages []Message, tools []Tool) (string, string, []ToolCall, error) {
+			callStep++
+			if callStep < 3 {
+				// Steps 1 & 2: request infinite_tool
+				return "", "", []ToolCall{
+					{
+						ID:   fmt.Sprintf("call_%d", callStep),
+						Type: "function",
+						Function: struct {
+							Name      string          `json:"name"`
+							Arguments json.RawMessage `json:"arguments"`
+						}{
+							Name:      "infinite_tool",
+							Arguments: json.RawMessage(fmt.Sprintf(`{"step":%d}`, callStep)),
+						},
+					},
+				}, nil
+			}
+
+			// Step 3 (maxDepth - 1): tools should be suppressed by runway wrap-up
+			if len(tools) > 0 {
+				sawToolsOnFinalStep = true
+			}
+			return "Synthesizing final summary after reaching runway limit", "", nil, nil
+		},
+	}
+
+	cfg := NewDefaultConfig()
+	harness := NewSessionHarness(mgr, mockProvider, cfg)
+
+	req := TurnRequest{
+		SessionID:    "runway-test",
+		Message:      "Execute until runway ends",
+		MaxToolDepth: 3, // Set runway to 3 steps
+	}
+
+	asstNode, err := harness.ExecuteTurn(context.Background(), req, nil)
+	if err != nil {
+		t.Fatalf("ExecuteTurn failed: %v", err)
+	}
+
+	if sawToolsOnFinalStep {
+		t.Errorf("expected tools to be suppressed on final step (depth == maxDepth - 1)")
+	}
+
+	if !strings.Contains(asstNode.Content, "Synthesizing final summary") {
+		t.Errorf("expected assistant to conclude with summary, got: %q", asstNode.Content)
+	}
+}
+
+func TestSessionHarness_LoopCircuitBreaker(t *testing.T) {
+	storage := &MockStorage{}
+	graph := NewGraph()
+	mgr := NewManager(graph, storage)
+
+	mgr.Registry = NewToolRegistry()
+	mgr.Registry.Register(Tool{
+		Name: "ping_tool",
+		Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
+			return "pong", nil
+		},
+	})
+
+	step := 0
+	circuitBreakerTriggered := false
+	mockProvider := &MockLLMProvider{
+		StreamHandler: func(messages []Message, tools []Tool) (string, string, []ToolCall, error) {
+			step++
+			// Inspect observations to see if circuit breaker triggered
+			for _, m := range messages {
+				if m.Role == RoleTool && strings.Contains(m.Content, "loop circuit breaker triggered") {
+					circuitBreakerTriggered = true
+					return "Loop detected, halting and summarizing.", "", nil, nil
+				}
+			}
+
+			// Model stubbornly keeps calling identical tool with identical args
+			return "", "", []ToolCall{
+				{
+					ID:   fmt.Sprintf("ping_%d", step),
+					Type: "function",
+					Function: struct {
+						Name      string          `json:"name"`
+						Arguments json.RawMessage `json:"arguments"`
+					}{
+						Name:      "ping_tool",
+						Arguments: json.RawMessage(`{"host":"localhost"}`),
+					},
+				},
+			}, nil
+		},
+	}
+
+	cfg := NewDefaultConfig()
+	harness := NewSessionHarness(mgr, mockProvider, cfg)
+
+	req := TurnRequest{
+		SessionID:    "loop-test",
+		Message:      "Start stubborn loop",
+		MaxToolDepth: 10,
+	}
+
+	asstNode, err := harness.ExecuteTurn(context.Background(), req, nil)
+	if err != nil {
+		t.Fatalf("ExecuteTurn failed: %v", err)
+	}
+
+	if !circuitBreakerTriggered {
+		t.Errorf("expected loop circuit breaker to trigger on 3rd identical call")
+	}
+
+	if !strings.Contains(asstNode.Content, "Loop detected, halting and summarizing.") {
+		t.Errorf("expected assistant to respond after circuit breaker, got: %q", asstNode.Content)
+	}
+}
+

@@ -702,8 +702,8 @@ func TestBuildLLMContext_EphemeralToolCompaction(t *testing.T) {
 	user4, _ := mgr.CreateNode(asst3.ID, RoleUser, "What is the summary?", false)
 
 	// Build context from active leaf user4:
-	// - asst1 is at distance = 3 (>= 2): should be compacted!
-	// - asst3 is at distance = 1 (< 2): should remain full fidelity!
+	// - asst1 is at distance = 3 (>= 1): should be compacted!
+	// - asst3 is at distance = 1 (>= 1): should also be eagerly compacted at turn boundary!
 	messages, err := mgr.BuildLLMContext(user4.ID, false)
 	if err != nil {
 		t.Fatalf("failed to build context: %v", err)
@@ -716,16 +716,13 @@ func TestBuildLLMContext_EphemeralToolCompaction(t *testing.T) {
 			if msg.ToolCallID == "call_read_old" {
 				foundOld = true
 				if !strings.Contains(msg.Content, "[Tool 'read_file' execution completed. Detailed results omitted. Total size:") {
-					t.Errorf("expected old tool call at distance >= 2 to be compacted, got: %s", msg.Content)
+					t.Errorf("expected old tool call at distance >= 1 to be compacted, got: %s", msg.Content)
 				}
 			}
 			if msg.ToolCallID == "call_read_recent" {
 				foundRecent = true
-				if strings.Contains(msg.Content, "Detailed results omitted") {
-					t.Errorf("expected recent tool call at distance 1 to retain full fidelity, got compacted: %s", msg.Content)
-				}
-				if !strings.Contains(msg.Content, "recent file content line") {
-					t.Errorf("expected recent tool call to contain raw output, got: %s", msg.Content)
+				if !strings.Contains(msg.Content, "[Tool 'read_file' execution completed. Detailed results omitted. Total size:") {
+					t.Errorf("expected recent tool call at distance >= 1 to be eagerly compacted, got: %s", msg.Content)
 				}
 			}
 		}
@@ -736,6 +733,97 @@ func TestBuildLLMContext_EphemeralToolCompaction(t *testing.T) {
 	}
 	if !foundRecent {
 		t.Errorf("expected to find call_read_recent tool message in context")
+	}
+}
+
+func TestBuildLLMContext_IntraTurnRollingCompaction(t *testing.T) {
+	mgr := NewManager(NewGraph(), &MockStorage{})
+	mgr.NumCtx = 131072
+
+	root, _ := mgr.CreateNode("", RoleSystem, "System prompt", false)
+	user, _ := mgr.CreateNode(root.ID, RoleUser, "Analyze multiple files", false)
+
+	// Single active turn with 4 sequential tool calls
+	tcs := []ToolCall{
+		{
+			ID:   "call_1",
+			Type: "function",
+			Function: struct {
+				Name      string          `json:"name"`
+				Arguments json.RawMessage `json:"arguments"`
+			}{
+				Name:      "read_file",
+				Arguments: json.RawMessage(`{"path":"file1.go"}`),
+			},
+		},
+		{
+			ID:   "call_2",
+			Type: "function",
+			Function: struct {
+				Name      string          `json:"name"`
+				Arguments json.RawMessage `json:"arguments"`
+			}{
+				Name:      "read_file",
+				Arguments: json.RawMessage(`{"path":"file2.go"}`),
+			},
+		},
+		{
+			ID:   "call_3",
+			Type: "function",
+			Function: struct {
+				Name      string          `json:"name"`
+				Arguments json.RawMessage `json:"arguments"`
+			}{
+				Name:      "read_file",
+				Arguments: json.RawMessage(`{"path":"file3.go"}`),
+			},
+		},
+		{
+			ID:   "call_4",
+			Type: "function",
+			Function: struct {
+				Name      string          `json:"name"`
+				Arguments json.RawMessage `json:"arguments"`
+			}{
+				Name:      "read_file",
+				Arguments: json.RawMessage(`{"path":"file4.go"}`),
+			},
+		},
+	}
+
+	asst, _ := mgr.CreateAssistantNode(user.ID, "Reading files...", "Scratchpad", tcs, false)
+	_ = mgr.UpdateAssistantObservations(asst.ID, "call_1", strings.Repeat("file 1 content\n", 100))
+	_ = mgr.UpdateAssistantObservations(asst.ID, "call_2", strings.Repeat("file 2 content\n", 100))
+	_ = mgr.UpdateAssistantObservations(asst.ID, "call_3", strings.Repeat("file 3 content\n", 100))
+	_ = mgr.UpdateAssistantObservations(asst.ID, "call_4", strings.Repeat("file 4 content\n", 100))
+
+	// Active leaf is the in-progress assistant node itself (distance = 0)
+	messages, err := mgr.BuildLLMContext(asst.ID, false)
+	if err != nil {
+		t.Fatalf("failed to build context: %v", err)
+	}
+
+	obsMap := make(map[string]string)
+	for _, msg := range messages {
+		if msg.Role == RoleTool {
+			obsMap[msg.ToolCallID] = msg.Content
+		}
+	}
+
+	// call_1 and call_2 (older than the last 2 calls) should be compacted!
+	if !strings.Contains(obsMap["call_1"], "Detailed results omitted") {
+		t.Errorf("expected call_1 to be compacted in rolling scratchpad, got: %s", obsMap["call_1"])
+	}
+	if !strings.Contains(obsMap["call_2"], "Detailed results omitted") {
+		t.Errorf("expected call_2 to be compacted in rolling scratchpad, got: %s", obsMap["call_2"])
+	}
+
+	// call_3 and call_4 (most recent 2 calls) must retain full fidelity!
+	if !strings.Contains(obsMap["call_3"], "file 3 content") {
+		t.Errorf("expected call_3 to retain full fidelity, got: %s", obsMap["call_3"])
+	}
+	if !strings.Contains(obsMap["call_4"], "file 4 content") {
+		t.Errorf("expected call_4 to retain full fidelity, got: %s", obsMap["call_4"])
 	}
 }
 
