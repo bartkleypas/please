@@ -165,5 +165,7 @@ All updates and modifications to this knowledge bundle are tracked chronological
     *   **Interactive TUI Operator Ergonomics**:
         *   Added top-level `/sandbox` command (`/sandbox`, `/sandbox strict`, `/sandbox standard`, `/sandbox permissive`) for instant security perimeter inspection and mode switching.
         *   Added persistent, color-coded security badges to the footer status bar (`[🔒 STRICT]`, `[🛡️ STANDARD]`, `[⚠️ PERMISSIVE]`).
-    *   **Comprehensive Testing**: Validated stdio protocol exchange, capability handshake, session lifecycle, token/thought streaming, and permission approval/denial flows with hermetic unit and in-memory pipe integration tests.
+    *   **Xcode Integration & Multicall Binary Support**: Enabled native Xcode Agent registration by recognizing `please-acp` (`os.Args[0]`), allowing direct GUI registration without an "Arguments" field in Xcode. Updated `Makefile` to install `please-acp` symlink. Verified end-to-end against Apple Xcode with live DAG streaming.
+    *   **Comprehensive Testing**: Validated stdio protocol exchange, capability handshake, session lifecycle, token/thought streaming, and permission approval/denial flows with hermetic unit tests, in-memory pipe integration tests, and live binary E2E testing against Xcode and Ollama.
+
 

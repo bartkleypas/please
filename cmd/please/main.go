@@ -30,6 +30,12 @@ func (i *arrayFlags) Set(value string) error {
 }
 
 func main() {
+	// Multicall binary support: if invoked as please-acp (e.g. symlink for Xcode), run ACP server directly
+	if filepath.Base(os.Args[0]) == "please-acp" {
+		runACP(os.Args[1:])
+		return
+	}
+
 	// Subcommand routing
 	if len(os.Args) > 1 {
 		switch os.Args[1] {

@@ -228,3 +228,32 @@ To register `please` as an external ACP agent in Zed (`~/.config/zed/settings.js
   }
 }
 ```
+
+---
+
+## Editor Configuration Quickstart (Xcode)
+
+In Xcode (**Settings $\rightarrow$ Intelligence $\rightarrow$ Agents $\rightarrow$ "Add an Agent"**):
+
+### Option 1: Direct Binary via Multicall Symlink (Recommended)
+When `please` is installed (`make install`), it creates a `please-acp` symlink in `~/.local/bin/please-acp` (or alongside the built binary). When invoked via this symlink, `please` detects `os.Args[0]` and immediately boots into ACP stdio JSON-RPC mode without requiring an "Arguments" field:
+
+* **Name**: `Please`
+* **Executable**: `/Users/<user>/.local/bin/please-acp` *(or absolute path to `please-acp`)*
+* **Interpreter**: *(leave blank)*
+
+### Option 2: Wrapper Script (Custom Config / Sandbox Vaults)
+If you wish to pass custom flags (such as pointing to an isolated vault or custom endpoint):
+
+```bash
+#!/bin/bash
+exec /path/to/please acp \
+  -c /path/to/config.json \
+  -v /path/to/vault.db \
+  "$@"
+```
+
+* **Name**: `Please`
+* **Executable**: `/path/to/wrapper.sh`
+* **Interpreter**: `/bin/bash`
+
