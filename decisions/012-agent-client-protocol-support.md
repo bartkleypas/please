@@ -20,7 +20,7 @@ timestamp: "2026-09-14T18:35:00-07:00"
 
 ## Status
 
-Proposed (Draft)
+Accepted
 
 ---
 
@@ -202,8 +202,29 @@ While `config.json` defines the global default policy, individual conversation b
 
 ## Next Steps
 
-1. Add `github.com/coder/acp-go-sdk` to `go.mod`.
-2. Implement `internal/acp` containing the `Agent` implementation and session event adapter.
-3. Wire `please acp` into `cmd/please/main.go`.
-4. Implement permission callback hook in `internal/engine/harness.go` to invoke `client.RequestPermission`.
-5. Add configuration instructions and documentation for Zed external agent registration.
+1. [x] Add `github.com/coder/acp-go-sdk` to `go.mod`.
+2. [x] Implement `internal/acp` containing the `Agent` implementation and session event adapter.
+3. [x] Wire `please acp` into `cmd/please/main.go` and `cmd/please/acp.go`.
+4. [x] Implement permission callback hook in `internal/engine/harness.go` (`PermissionGate`) to invoke `client.RequestPermission`.
+5. [x] Add top-level `/sandbox` command and real-time persistent status badge (`[🔒 STRICT]`, `[🛡️ STANDARD]`, `[⚠️ PERMISSIVE]`) to the TUI.
+6. [x] Add configuration instructions and documentation for Zed external agent registration.
+
+---
+
+## Editor Configuration Quickstart (Zed)
+
+To register `please` as an external ACP agent in Zed (`~/.config/zed/settings.json`):
+
+```json
+{
+  "agent": {
+    "external_agents": [
+      {
+        "name": "please",
+        "command": "please",
+        "args": ["acp"]
+      }
+    ]
+  }
+}
+```

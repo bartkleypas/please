@@ -28,4 +28,6 @@ This index tracks key architectural decisions and engineering conventions throug
 *   [010-pure-dag-graph-extraction](010-pure-dag-graph-extraction.md) - Extraction of the pure in-memory conversation Node and DAG Graph data structures into internal/graph.
 *   [011-agent-sandboxing-execution-isolation](011-agent-sandboxing-execution-isolation.md) - Hardened agent sandboxing, credential quarantine, policy tiering (demoting raw shell access), and execution isolation without external container dependencies.
 *   [012-agent-client-protocol-support](012-agent-client-protocol-support.md) - Agent Client Protocol (ACP) support, stdio JSON-RPC harness integration, and human-in-the-loop tool authorization for modern IDEs (Zed, JetBrains, Xcode).
+*   [013-acoustic-theatrics-phonic-staging-and-talon-tap-telemetry](013-acoustic-theatrics-phonic-staging-and-talon-tap-telemetry.md) - Terminal bell staging (\a), turn-completion acoustic telemetry, and the journey from overengineered DSP pipelines to pure ASCII 0x07 simplicity.
+*   [014-persistent-agent-memory-and-cybernetic-recall](014-persistent-agent-memory-and-cybernetic-recall.md) - Persistent SQLite agent memory store, cybernetic memory_* tool suite (store, recall, delete, diagnose), and diagnostic inspection telemetry.
 
