@@ -36,4 +36,3 @@ lint:
 
 clean:
 	rm -f please please-acp
-

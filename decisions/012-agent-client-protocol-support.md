@@ -256,4 +256,3 @@ exec /path/to/please acp \
 * **Name**: `Please`
 * **Executable**: `/path/to/wrapper.sh`
 * **Interpreter**: `/bin/bash`
-
