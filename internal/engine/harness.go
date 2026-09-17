@@ -56,14 +56,20 @@ type TurnRequest struct {
 	Context      map[string]string
 }
 
+// PermissionGate is invoked prior to executing an interactive or gated tool call.
+// It returns true if the operator approves execution, or false if denied.
+// An error indicates cancellation or an unrecoverable gate failure.
+type PermissionGate func(ctx context.Context, sessionID string, call ToolCall) (bool, error)
+
 // SessionHarness orchestrates the sequential multi-turn agent lifecycle:
 // context assembly, LLM streaming, tool execution, observation recording,
 // and DAG state persistence.
 type SessionHarness struct {
-	Manager     *Manager
-	Provider    Provider
-	Config      *Config
-	OnNodeSaved func(node *Node)
+	Manager        *Manager
+	Provider       Provider
+	Config         *Config
+	OnNodeSaved    func(node *Node)
+	PermissionGate PermissionGate
 }
 
 // NewSessionHarness creates an initialized SessionHarness instance.
@@ -414,6 +420,40 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 				errStr = execErr.Error()
 				result = fmt.Sprintf("Error: %s. Please synthesize your final response or adjust parameters.", execErr.Error())
 			} else {
+				// Check PermissionGate if tool requires human consent
+				requiresGate := false
+				if h.Manager != nil && h.Manager.Registry != nil {
+					if t, ok := h.Manager.Registry.Tools[call.Function.Name]; ok {
+						if t.Interactive || t.Category == CategoryExecute {
+							requiresGate = true
+						}
+					} else {
+						requiresGate = true // Unknown tools default to gated
+					}
+				}
+
+				if requiresGate && h.PermissionGate != nil {
+					allowed, gateErr := h.PermissionGate(ctx, sessionID, call)
+					if gateErr != nil {
+						emit(HarnessEvent{Kind: HarnessEventError, Err: gateErr})
+						return asstNode, gateErr
+					}
+					if !allowed {
+						result = fmt.Sprintf("User denied execution of tool: %s", call.Function.Name)
+						_ = h.Manager.UpdateAssistantObservations(asstNode.ID, call.ID, result)
+						if latest, err := h.Manager.GetNode(asstNode.ID); err == nil && latest != nil {
+							asstNode = latest
+						}
+						emit(HarnessEvent{
+							Kind:       HarnessEventToolResult,
+							ToolCallID: call.ID,
+							ToolName:   call.Function.Name,
+							ToolResult: result,
+						})
+						continue
+					}
+				}
+
 				result, execErr = h.Manager.ExecuteToolCall(ctx, call)
 				if execErr != nil {
 					errStr = execErr.Error()

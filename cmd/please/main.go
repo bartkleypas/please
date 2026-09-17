@@ -52,6 +52,9 @@ func main() {
 		case "context":
 			runContext(os.Args[2:])
 			return
+		case "acp":
+			runACP(os.Args[2:])
+			return
 		}
 	}
 
@@ -100,6 +103,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  please                    Start standalone interactive TUI (default)\n")
 		fmt.Fprintf(os.Stderr, "  please serve [options]    Start the API & streaming engine daemon\n")
 		fmt.Fprintf(os.Stderr, "  please connect [url]      Connect TUI to a remote Please daemon\n")
+		fmt.Fprintf(os.Stderr, "  please acp [options]      Start Agent Client Protocol (ACP) stdio JSON-RPC server\n")
 		fmt.Fprintf(os.Stderr, "  please cert generate      Generate 20-year internal Root CA and Server certificates\n")
 		fmt.Fprintf(os.Stderr, "  please inspect <node-id>  Inspect node lineage, token costs & resonance scores\n")
 		fmt.Fprintf(os.Stderr, "  please context <node-id>  Inspect reconstructed prompt messages sent to LLM\n\n")

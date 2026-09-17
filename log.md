@@ -154,3 +154,16 @@ All updates and modifications to this knowledge bundle are tracked chronological
         *   **Manager Cloning & Scoped Tool Registries**: Added `Manager.CloneWithWorkspace` in [internal/engine/service.go](internal/engine/service.go). Allows session actors and local harness providers to bind session-isolated tool registries (`read_file`, `write_file`, `edit_file`, `exec`, `search`) to independent worktrees while sharing the singular SQLite conversation vault.
         *   **Path Virtualization**: Enhanced `ValidateSafePath` in [internal/tools/sandbox.go](internal/tools/sandbox.go) to automatically rebase absolute repository paths referencing the primary checkout into the active worktree root.
         *   **Interactive TUI Controls**: Added `/worktree` status overview, `/worktree list` registry display, `/worktree remove <session>` cleanup, and `/config worktree on|off` dynamic toggling in [internal/tui/commands.go](internal/tui/commands.go).
+
+## 2026-09-17
+
+*   **Agent Client Protocol (ACP) Support & Interactive Consent Gate ([ADR 012](decisions/012-agent-client-protocol-support.md))**:
+    *   **Universal Code Editor Interoperability**: Implemented full Agent Client Protocol (ACP) support using `github.com/coder/acp-go-sdk v0.13.5`, enabling `please` to integrate as an external coding agent across modern IDEs (Zed, JetBrains, Xcode).
+    *   **Dedicated Subcommand (`please acp`)**: Added CLI entrypoint `please acp` with strict stdout hygiene (standard output reserved exclusively for framed JSON-RPC 2.0 messages; all diagnostic logging and errors routed to `os.Stderr`).
+    *   **Core Protocol Adapter ([internal/acp](internal/acp/))**: Created package implementing the 11-method `acp.Agent` contract (`Initialize`, `NewSession`, `ListSessions`, `ResumeSession`, `Cancel`, `CloseSession`, `SetSessionMode`, `SetSessionConfigOption`, `Authenticate`, `Logout`, `Prompt`), bridging ACP content blocks, session modes, and streaming events to `SessionHarness`.
+    *   **Unified Presentation-Agnostic Permission Gate**: Introduced `PermissionGate` hook in `SessionHarness` (`internal/engine/harness.go`). Pauses tool execution on gated/interactive tools (`tool.Interactive` or `CategoryExecute`) and queries human authorization. Under ACP, delegates to `conn.RequestPermission` with options (`allow_once`, `allow_always`, `reject_once`).
+    *   **Interactive TUI Operator Ergonomics**:
+        *   Added top-level `/sandbox` command (`/sandbox`, `/sandbox strict`, `/sandbox standard`, `/sandbox permissive`) for instant security perimeter inspection and mode switching.
+        *   Added persistent, color-coded security badges to the footer status bar (`[🔒 STRICT]`, `[🛡️ STANDARD]`, `[⚠️ PERMISSIVE]`).
+    *   **Comprehensive Testing**: Validated stdio protocol exchange, capability handshake, session lifecycle, token/thought streaming, and permission approval/denial flows with hermetic unit and in-memory pipe integration tests.
+

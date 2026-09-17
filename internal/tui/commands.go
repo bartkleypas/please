@@ -46,6 +46,7 @@ func init() {
 	commandRegistry["/sessions"] = &SessionCommand{}
 	commandRegistry["/worktree"] = &WorktreeCommand{}
 	commandRegistry["/worktrees"] = &WorktreeCommand{}
+	commandRegistry["/sandbox"] = &SandboxCommand{}
 
 	// Tool confirmation commands
 	commandRegistry["/yes"] = &ConfirmToolCommand{}
@@ -818,6 +819,7 @@ func (c *HelpCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	s.WriteString("  /pacing         Toggle natural reading pacing for LLM stream (/pacing [on|off])\n")
 	s.WriteString("  /compact [hint] Summarize the current branch into a milestone Supernode (alias: /compress)\n")
 	s.WriteString("  /fold [all]     Fold/unfold reasoning thought process blocks (key: Tab / Shift+Tab)\n")
+	s.WriteString("  /sandbox [mode] Inspect or set sandbox security policy (strict|standard|permissive)\n")
 	s.WriteString("  /parameters     Inspect Stable Diffusion metadata parameters for current node images (alias: /info)\n")
 	s.WriteString("  /q, /quit, /bye Exit the application\n\n")
 	s.WriteString("Navigation:\n")
@@ -828,6 +830,86 @@ func (c *HelpCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	m.Viewport.SetContent(m.ViewportOverride)
 	m.Viewport.GotoTop()
 	return m, nil
+}
+
+type SandboxCommand struct{}
+
+func (c *SandboxCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
+	if m.Config == nil {
+		m.Config = engine.NewDefaultConfig()
+	}
+	if m.Config.Server == nil {
+		m.Config.Server = &engine.ServerConfig{}
+	}
+
+	if len(args) == 0 {
+		var s strings.Builder
+		curPolicy := m.Config.GetSandboxPolicy()
+		if curPolicy == "" {
+			curPolicy = engine.SandboxPolicyStandard
+		}
+
+		s.WriteString("--- 🛡️ Please Sandbox Security Perimeter ---\n\n")
+		s.WriteString(fmt.Sprintf("Active Sandbox Policy: %s\n\n", strings.ToUpper(curPolicy)))
+
+		switch curPolicy {
+		case engine.SandboxPolicyStrict:
+			s.WriteString("Tier: STRICT [🔒]\n")
+			s.WriteString("  • Complete read-only safety; zero workspace mutations or shell execution permitted.\n")
+			s.WriteString("  • Active categories: Sensory (read-only discovery tools).\n\n")
+		case engine.SandboxPolicyPermissive:
+			s.WriteString("Tier: PERMISSIVE [⚠️]\n")
+			s.WriteString("  • Full compute capability with interactive consent gates.\n")
+			s.WriteString("  • Raw shell execution enabled; every execution requires operator confirmation.\n")
+			s.WriteString("  • Active categories: Sensory, Mutate, and Execute.\n\n")
+		case engine.SandboxPolicyStandard:
+			fallthrough
+		default:
+			s.WriteString("Tier: STANDARD [🛡️] (Default)\n")
+			s.WriteString("  • Safe workspace editing permitted; host compute / raw shell execution blocked.\n")
+			s.WriteString("  • Active categories: Sensory and Mutate (file edits/writes).\n\n")
+		}
+
+		s.WriteString("Available Policy Modes:\n")
+		s.WriteString("  /sandbox strict       Demote to read-only inspection (drops edits & shell)\n")
+		s.WriteString("  /sandbox standard     Restore safe workspace edits (blocks raw shell)\n")
+		s.WriteString("  /sandbox permissive   Enable host command execution with mandatory consent\n\n")
+
+		s.WriteString("Active Permitted Tools:\n")
+		if m.Manager != nil && m.Manager.Registry != nil {
+			activeTools := m.Manager.Registry.GetToolsForPolicy(curPolicy)
+			for _, t := range activeTools {
+				interactiveBadge := ""
+				if t.Interactive {
+					interactiveBadge = " [consent required]"
+				}
+				s.WriteString(fmt.Sprintf("  • %-18s (%-7s)%s - %s\n", t.Name, t.Category, interactiveBadge, t.Description))
+			}
+		}
+
+		m.ViewportOverride = s.String()
+		m.Viewport.SetContent(m.ViewportOverride)
+		m.Viewport.GotoTop()
+		return m, nil
+	}
+
+	targetPolicy := strings.ToLower(strings.TrimSpace(args[0]))
+	switch targetPolicy {
+	case engine.SandboxPolicyStrict, engine.SandboxPolicyStandard, engine.SandboxPolicyPermissive:
+		m.Config.Server.SandboxPolicy = targetPolicy
+		m.Notification = fmt.Sprintf("Sandbox policy switched to %s", strings.ToUpper(targetPolicy))
+		if m.ViewportOverride != "" && strings.Contains(m.ViewportOverride, "Please Sandbox Security Perimeter") {
+			return c.Execute(m, nil)
+		}
+		return m, nil
+	case "default", "reset":
+		m.Config.Server.SandboxPolicy = ""
+		m.Notification = "Sandbox policy reset to standard default"
+		return m, nil
+	default:
+		m.Notification = fmt.Sprintf("Unknown sandbox policy %q. Expected 'strict', 'standard', or 'permissive'", targetPolicy)
+		return m, nil
+	}
 }
 
 type QuitCommand struct{}

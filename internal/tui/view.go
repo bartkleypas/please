@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/bartkleypas/please/internal/engine"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -19,18 +20,40 @@ func (m Model) renderFooterHelp(leftHelp string) string {
 		limitStr = fmt.Sprintf("%d", limit)
 	}
 
-	badge := lipgloss.NewStyle().Foreground(color).Render(fmt.Sprintf("[Ctx: %s/%s %d%%]", usedStr, limitStr, pct))
+	ctxBadge := lipgloss.NewStyle().Foreground(color).Render(fmt.Sprintf("[Ctx: %s/%s %d%%]", usedStr, limitStr, pct))
+
+	// Real-time persistent sandbox security badge
+	policy := engine.SandboxPolicyStandard
+	if m.Config != nil {
+		if pol := m.Config.GetSandboxPolicy(); pol != "" {
+			policy = pol
+		}
+	}
+
+	var sandboxBadge string
+	switch strings.ToLower(policy) {
+	case engine.SandboxPolicyStrict:
+		sandboxBadge = lipgloss.NewStyle().Foreground(lipgloss.Color("#10b981")).Render("[🔒 STRICT]")
+	case engine.SandboxPolicyPermissive:
+		sandboxBadge = lipgloss.NewStyle().Foreground(lipgloss.Color("#f59e0b")).Render("[⚠️ PERMISSIVE]")
+	case engine.SandboxPolicyStandard:
+		fallthrough
+	default:
+		sandboxBadge = lipgloss.NewStyle().Foreground(lipgloss.Color("#06b6d4")).Render("[🛡️ STANDARD]")
+	}
+
+	right := sandboxBadge + " " + ctxBadge
 	left := helpStyle.Render(leftHelp)
 
 	if m.Width <= 0 {
-		return left + "  " + badge
+		return left + "  " + right
 	}
 
-	gap := m.Width - lipgloss.Width(left) - lipgloss.Width(badge) - 2
+	gap := m.Width - lipgloss.Width(left) - lipgloss.Width(right) - 2
 	if gap < 2 {
 		gap = 2
 	}
-	return left + strings.Repeat(" ", gap) + badge
+	return left + strings.Repeat(" ", gap) + right
 }
 
 func (m Model) View() string {
