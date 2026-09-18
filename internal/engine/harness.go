@@ -165,6 +165,17 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 			_ = h.Manager.Storage.SaveNode(userNode)
 		}
 
+		if len(req.Context) > 0 {
+			if userNode.Metadata == nil {
+				userNode.Metadata = make(map[string]string)
+			}
+			for k, v := range req.Context {
+				userNode.Metadata[k] = v
+			}
+			_ = h.Manager.Storage.SaveNode(userNode)
+		}
+
+
 		if h.OnNodeSaved != nil {
 			h.OnNodeSaved(userNode)
 		}

@@ -345,9 +345,19 @@ func (a *Agent) Prompt(ctx context.Context, params acpsdk.PromptRequest) (acpsdk
 		turnCfg.Server.SandboxPolicy = mode
 	}
 
+	// Bind session working directory if provided by client
+	if val, ok := a.sessionCwd.Load(params.SessionId); ok {
+		if sCwd, ok := val.(string); ok && sCwd != "" {
+			if turnCfg.Server != nil {
+				turnCfg.Server.WorkspaceDir = sCwd
+			}
+		}
+	}
+
 	harness := engine.NewSessionHarness(a.mgr, a.provider, turnCfg)
 
 	// Configure interactive permission gate
+
 	harness.PermissionGate = func(pCtx context.Context, sessionID string, call engine.ToolCall) (bool, error) {
 		if a.isToolAllowedAlways(sessionID, call.Function.Name) {
 			return true, nil
@@ -413,12 +423,22 @@ func (a *Agent) Prompt(ctx context.Context, params acpsdk.PromptRequest) (acpsdk
 		return false, nil
 	}
 
+	cleanedPrompt, reminder, activeFile, cursorLine := ParseClientPrompt(sb.String())
+
 	eventCh := make(chan engine.HarnessEvent, 64)
 	turnReq := engine.TurnRequest{
-		SessionID: string(params.SessionId),
-		Message:   sb.String(),
-		Images:    images,
+		SessionID:  string(params.SessionId),
+		Message:    cleanedPrompt,
+		Images:     images,
+		ActiveFile: activeFile,
+		CursorLine: cursorLine,
 	}
+	if reminder != "" {
+		turnReq.Context = map[string]string{
+			"system_reminder": reminder,
+		}
+	}
+
 
 	errTurnCh := make(chan error, 1)
 	go func() {

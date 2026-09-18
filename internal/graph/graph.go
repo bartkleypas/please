@@ -195,15 +195,17 @@ func (g *Graph) GetRoots() []*Node {
 	return roots
 }
 
-// GetSystemRoot retrieves the first root node and verifies it is a system prompt.
+// GetSystemRoot retrieves the first system prompt root node found in the graph.
 func (g *Graph) GetSystemRoot() (*Node, error) {
 	roots := g.GetRoots()
 	if len(roots) == 0 {
 		return nil, fmt.Errorf("no root node found")
 	}
-	root := roots[0]
-	if root.Role != RoleSystem {
-		return nil, fmt.Errorf("root node is not a system prompt")
+	for _, root := range roots {
+		if root.Role == RoleSystem {
+			return root, nil
+		}
 	}
-	return root, nil
+	return nil, fmt.Errorf("root node is not a system prompt")
 }
+
