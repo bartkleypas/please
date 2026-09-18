@@ -612,21 +612,6 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 			content = FormatTelemetryEnvelope(content, telem)
 		}
 
-		// Ephemeral System Reminder (Client Injection):
-		// Layer any client-provided system reminder strictly onto the active user leaf turn (distance == 0).
-		// Historical turns in the DAG remain 100% pure human text.
-		if distance == 0 && node.Role == RoleUser {
-			reminder := ""
-			if m.clientContext != nil && m.clientContext["system_reminder"] != "" {
-				reminder = m.clientContext["system_reminder"]
-			} else if node.Metadata != nil && node.Metadata["system_reminder"] != "" {
-				reminder = node.Metadata["system_reminder"]
-			}
-			if reminder != "" {
-				content = "<system-reminder>\n" + reminder + "\n</system-reminder>\n\n" + content
-			}
-		}
-
 
 		msg := Message{
 			ID:         node.ID,

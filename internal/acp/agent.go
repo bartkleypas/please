@@ -423,7 +423,7 @@ func (a *Agent) Prompt(ctx context.Context, params acpsdk.PromptRequest) (acpsdk
 		return false, nil
 	}
 
-	cleanedPrompt, reminder, activeFile, cursorLine := ParseClientPrompt(sb.String())
+	cleanedPrompt, activeFile, cursorLine := ParseClientPrompt(sb.String())
 
 	eventCh := make(chan engine.HarnessEvent, 64)
 	turnReq := engine.TurnRequest{
@@ -432,11 +432,6 @@ func (a *Agent) Prompt(ctx context.Context, params acpsdk.PromptRequest) (acpsdk
 		Images:     images,
 		ActiveFile: activeFile,
 		CursorLine: cursorLine,
-	}
-	if reminder != "" {
-		turnReq.Context = map[string]string{
-			"system_reminder": reminder,
-		}
 	}
 
 

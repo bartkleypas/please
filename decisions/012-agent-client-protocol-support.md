@@ -167,6 +167,25 @@ The TUI status bar renders a persistent, color-coded security badge displaying t
 #### 4.5. Session-Level Policy Affinity
 While `config.json` defines the global default policy, individual conversation branches can override the active policy via `/sandbox`. The override persists in session metadata in SQLite, ensuring that jumping between a `research` branch (pinned to `strict`) and an `implementation` branch (set to `standard`) automatically restores the appropriate security perimeter.
 
+### 5. Xcode IDE Quarantine Shim & Database Hygiene Policy
+
+When communicating with Apple Xcode's Coding Assistant under macOS Goldengate / Xcode 16+, the editor prepends a massive, noisy preamble onto every incoming turn:
+* An XML `<system-reminder>` block imposing Swift coding style rules and phantom MCP tool commands (`XcodeRead`, `XcodeWrite`, `XcodeGrep`) that do not exist within our ACP agent harness.
+* A virtual workspace project manifest (`OwlPlease/Sources/...`) that maps to internal Xcode group structures rather than physical filesystem paths on disk.
+* Editor state statements (`The user is looking at file X at line Y.`).
+
+#### 5.1. The Quarantine Shim (`internal/acp/xcode_shim.go`)
+Rather than allowing IDE-specific eccentricities to warp core protocol handling, `please` implements a dedicated **Xcode Shim Stack** that serves as an acoustic damper and quarantine boundary:
+1. **Preamble Stripping**: The XML static, virtual project manifests, and phantom tool instructions are stripped entirely.
+2. **Telemetry Extraction**: The shim extracts the singular grain of truth—the active open file and cursor line when the user pressed Enter.
+3. **Ambient Routing**: The extracted telemetry is passed as `TurnRequest.ActiveFile` and `TurnRequest.CursorLine`, which cleanly flow into standard ADR 003 ambient telemetry (`<ADDITIONAL_METADATA>`) alongside the user's turn.
+
+#### 5.2. Strict Database Hygiene Policy
+Under no circumstances is Xcode's preamble boilerplate stored in the database:
+* **Zero DB Footprint**: The discarded preamble is never written to `userNode.Metadata["system_reminder"]` and never persists in `vault.db`.
+* **Zero Historical Pollution**: Historical turns in the DAG remain 100% pure human intent.
+* **No Phantom Re-injection**: The harness refuses to re-inject `<system-reminder>` blocks into the LLM context on leaf turns, preventing the model from hallucinating virtual files or trying to invoke nonexistent Xcode tools.
+
 ---
 
 ## Difficulty & Effort Assessment

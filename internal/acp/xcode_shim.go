@@ -6,6 +6,25 @@ import (
 	"strings"
 )
 
+// =============================================================================
+// Xcode Shim Stack
+// =============================================================================
+// Apple's Xcode Coding Assistant (macOS Goldengate / Xcode 16+) injects a massive,
+// noisy preamble onto every incoming turn:
+//  1. <system-reminder> XML blocks containing Swift style mandates and phantom
+//     tool directives (XcodeRead, XcodeWrite, XcodeGrep) that do not exist in ACP.
+//  2. Virtual workspace project manifests (e.g. "OwlPlease/Sources/...") that
+//     do not correspond to physical filesystem paths on disk.
+//  3. Editor state statements ("The user is looking at file X at line Y.").
+//
+// This shim acts as an acoustic damper and quarantine boundary:
+//  - Discards the phantom tools, virtual manifests, and style static into /dev/null.
+//    None of this boilerplate is stored in the database or persisted in the DAG.
+//  - Extracts the singular grain of truth: the editor's active open file and cursor line.
+//  - Returns the pristine human prompt, allowing the caller to route the file/line
+//    telemetry into standard ambient metadata (<ADDITIONAL_METADATA>).
+// =============================================================================
+
 var (
 	// Matches <system-reminder>...</system-reminder> XML blocks
 	systemReminderRegex = regexp.MustCompile(`(?s)<system-reminder>(.*?)</system-reminder>`)
@@ -18,31 +37,19 @@ var (
 	noFileRegex   = regexp.MustCompile(`The user has no file currently open\.?`)
 )
 
-// ParseClientPrompt extracts client-injected system reminders, Xcode project structure manifests,
-// and editor state statements from incoming ACP prompts, returning the sanitized human prompt,
-// extracted system reminder text, and active file / cursor line telemetry.
-func ParseClientPrompt(raw string) (cleanedPrompt, reminder, activeFile string, cursorLine int) {
+// SanitizeXcodePrompt filters an incoming client prompt through the Xcode quarantine shim.
+// It strips Xcode-injected preamble noise, extracts active editor telemetry (file, line),
+// and returns the clean human prompt. The discarded static is never persisted to storage.
+func SanitizeXcodePrompt(raw string) (cleanedPrompt, activeFile string, cursorLine int) {
 	cleaned := raw
-	var reminders []string
 
-	// 1. Extract <system-reminder> tags
-	matches := systemReminderRegex.FindAllStringSubmatchIndex(cleaned, -1)
-	if len(matches) > 0 {
-		// Collect reminder contents
-		for _, m := range matches {
-			if len(m) >= 4 {
-				reminders = append(reminders, strings.TrimSpace(cleaned[m[2]:m[3]]))
-			}
-		}
-		// Remove tags from prompt
-		cleaned = systemReminderRegex.ReplaceAllString(cleaned, "")
-	}
+	// 1. Strip <system-reminder> tags completely (discarded into /dev/null)
+	cleaned = systemReminderRegex.ReplaceAllString(cleaned, "")
 
 	// 2. Extract Xcode project structure and file status blocks
 	if xcodeManifestRegex.MatchString(cleaned) {
 		loc := xcodeManifestRegex.FindStringIndex(cleaned)
 		manifestBlock := cleaned[loc[0]:loc[1]]
-		reminders = append(reminders, strings.TrimSpace(manifestBlock))
 
 		// Check for open file in the manifest block (only if not "no file currently open")
 		if !noFileRegex.MatchString(manifestBlock) {
@@ -75,12 +82,16 @@ func ParseClientPrompt(raw string) (cleanedPrompt, reminder, activeFile string, 
 
 	// 3. Clean up leading/trailing whitespace
 	cleanedPrompt = strings.TrimSpace(cleaned)
-	reminder = strings.TrimSpace(strings.Join(reminders, "\n\n"))
 
 	// Fallback: if stripping removed everything, preserve the raw prompt
 	if cleanedPrompt == "" && strings.TrimSpace(raw) != "" {
 		cleanedPrompt = strings.TrimSpace(raw)
 	}
 
-	return cleanedPrompt, reminder, activeFile, cursorLine
+	return cleanedPrompt, activeFile, cursorLine
+}
+
+// ParseClientPrompt is the general ACP entrypoint for prompt hygiene, delegating to SanitizeXcodePrompt.
+func ParseClientPrompt(raw string) (cleanedPrompt, activeFile string, cursorLine int) {
+	return SanitizeXcodePrompt(raw)
 }
