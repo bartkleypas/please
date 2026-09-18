@@ -1,6 +1,7 @@
 package acp
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -69,5 +70,60 @@ Can you explain how this view is initialized?`
 	}
 	if line != 42 {
 		t.Errorf("expected line 42, got %d", line)
+	}
+}
+
+func TestParseClientPrompt_XcodeWithCodeSelection(t *testing.T) {
+	raw := `<system-reminder>## Xcode
+</system-reminder>Project structure (these are Xcode workspace-relative paths and do not correspond to filesystem paths. Use XcodeRead, XcodeWrite, XcodeGrep, and XcodeGlob to interact with these files):
+OwlPlease/Sources/PleaseApp/Assets.xcassets
+OwlPlease/Sources/PleaseApp/PleaseApp.swift
+
+Package dependencies: PleasePackage
+
+The user has selected the following code from that file (lines 22-23):
+          SecureField("Auth Token (Optional)", text: $viewModel.authToken)
+            .textFieldStyle(.roundedBorder)
+Ok, i switched away from index.md. Can you tell what file i have open now?`
+
+	cleaned, file, line := ParseClientPrompt(raw)
+	if !strings.Contains(cleaned, "[Selected code (lines 22-23)]:") {
+		t.Errorf("expected cleaned prompt to contain formatted selection header, got:\n%s", cleaned)
+	}
+	if !strings.Contains(cleaned, "SecureField(\"Auth Token (Optional)\"") {
+		t.Errorf("expected cleaned prompt to contain code snippet, got:\n%s", cleaned)
+	}
+	if !strings.Contains(cleaned, "Ok, i switched away from index.md") {
+		t.Errorf("expected cleaned prompt to contain user question, got:\n%s", cleaned)
+	}
+	if line != 22 {
+		t.Errorf("expected cursor line 22 from selection, got %d", line)
+	}
+	if file == "selected" {
+		t.Errorf("active file must never be the keyword 'selected'")
+	}
+}
+
+func TestParseClientPrompt_XcodeWithOpenFileAndSelection(t *testing.T) {
+	raw := `Project structure (these are Xcode workspace-relative paths and do not correspond to filesystem paths. Use XcodeRead, XcodeWrite, XcodeGrep, and XcodeGlob to interact with these files):
+OwlPlease/Sources/PleaseApp/PleaseApp.swift
+
+Package dependencies: PleasePackage
+
+The user is looking at file Sources/PleaseUI/Views/AppSettingsView.swift at line 22.
+The user has selected the following code from that file (lines 22-23):
+          SecureField("Auth Token (Optional)", text: $viewModel.authToken)
+            .textFieldStyle(.roundedBorder)
+Can you check this field?`
+
+	cleaned, file, line := ParseClientPrompt(raw)
+	if file != "Sources/PleaseUI/Views/AppSettingsView.swift" {
+		t.Errorf("expected file Sources/PleaseUI/Views/AppSettingsView.swift, got %q", file)
+	}
+	if line != 22 {
+		t.Errorf("expected line 22, got %d", line)
+	}
+	if !strings.Contains(cleaned, "[Selected code (lines 22-23)]:") {
+		t.Errorf("expected selection header, got:\n%s", cleaned)
 	}
 }
