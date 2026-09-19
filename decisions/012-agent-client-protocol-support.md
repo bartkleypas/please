@@ -20,7 +20,7 @@ timestamp: "2026-09-14T18:35:00-07:00"
 
 ## Status
 
-Proposed (Draft)
+Accepted
 
 ---
 
@@ -167,6 +167,30 @@ The TUI status bar renders a persistent, color-coded security badge displaying t
 #### 4.5. Session-Level Policy Affinity
 While `config.json` defines the global default policy, individual conversation branches can override the active policy via `/sandbox`. The override persists in session metadata in SQLite, ensuring that jumping between a `research` branch (pinned to `strict`) and an `implementation` branch (set to `standard`) automatically restores the appropriate security perimeter.
 
+### 5. Xcode IDE Quarantine Shim & Database Hygiene Policy
+
+When communicating with Apple Xcode's Coding Assistant under macOS Goldengate / Xcode 16+, the editor prepends a massive, noisy preamble onto every incoming turn:
+* An XML `<system-reminder>` block imposing Swift coding style rules and phantom MCP tool commands (`XcodeRead`, `XcodeWrite`, `XcodeGrep`) that do not exist within our ACP agent harness.
+* A virtual workspace project manifest (`OwlPlease/Sources/...`) that maps to internal Xcode group structures rather than physical filesystem paths on disk.
+* Editor state statements (`The user is looking at file X at line Y.`).
+
+#### 5.1. The Quarantine Shim (`internal/acp/xcode_shim.go`)
+Rather than allowing IDE-specific eccentricities to warp core protocol handling, `please` implements a dedicated **Xcode Shim Stack** that serves as an acoustic damper and quarantine boundary:
+1. **Preamble Stripping**: The XML static, virtual project manifests, and phantom tool instructions are stripped entirely.
+2. **Telemetry & Selection Extraction**: The shim extracts the singular grains of truth—the active open file, cursor line, and highlighted code selection when the user pressed Enter.
+3. **Sacred Voice & Ambient Routing**: The code snippet and selection line numbers are peeled completely out of the user prompt, ensuring `Node.Content` contains 100% authentic human intent. The extracted telemetry (`active_file`, `cursor_line`, `selected_lines`, `selected_code`) cleanly flows into standard ADR 003 ambient telemetry (`<ADDITIONAL_METADATA>`) alongside the user's turn.
+
+#### 5.2. Strict Database Hygiene Policy
+Under no circumstances is Xcode's preamble boilerplate stored in the database:
+* **Zero DB Footprint**: The discarded preamble is never written to `userNode.Metadata["system_reminder"]` and never persists in `vault.db`.
+* **Zero Historical Pollution**: Historical turns in the DAG remain 100% pure human intent.
+* **No Phantom Re-injection**: The harness refuses to re-inject `<system-reminder>` blocks into the LLM context on leaf turns, preventing the model from hallucinating virtual files or trying to invoke nonexistent Xcode tools.
+
+#### 5.3. Session Genesis Isolation
+To prevent ghost continuations when opening a new chat in an IDE:
+* **Interactive CLI / TUI**: Single-session default (`main`) snaps to the latest playhead (`lastID`) to continue ongoing work.
+* **Dedicated ACP Sessions (`session/new`)**: Branch cleanly from the system prompt root (`GetSystemRoot()`). An editor opening a new session is guaranteed a pristine, isolated conversational branch rather than an accidental continuation of an unrelated previous turn.
+
 ---
 
 ## Difficulty & Effort Assessment
@@ -202,8 +226,57 @@ While `config.json` defines the global default policy, individual conversation b
 
 ## Next Steps
 
-1. Add `github.com/coder/acp-go-sdk` to `go.mod`.
-2. Implement `internal/acp` containing the `Agent` implementation and session event adapter.
-3. Wire `please acp` into `cmd/please/main.go`.
-4. Implement permission callback hook in `internal/engine/harness.go` to invoke `client.RequestPermission`.
-5. Add configuration instructions and documentation for Zed external agent registration.
+1. [x] Add `github.com/coder/acp-go-sdk` to `go.mod`.
+2. [x] Implement `internal/acp` containing the `Agent` implementation and session event adapter.
+3. [x] Wire `please acp` into `cmd/please/main.go` and `cmd/please/acp.go`.
+4. [x] Implement permission callback hook in `internal/engine/harness.go` (`PermissionGate`) to invoke `client.RequestPermission`.
+5. [x] Add top-level `/sandbox` command and real-time persistent status badge (`[🔒 STRICT]`, `[🛡️ STANDARD]`, `[⚠️ PERMISSIVE]`) to the TUI.
+6. [x] Add configuration instructions and documentation for Zed external agent registration.
+
+---
+
+## Editor Configuration Quickstart (Zed)
+
+To register `please` as an external ACP agent in Zed (`~/.config/zed/settings.json`):
+
+```json
+{
+  "agent": {
+    "external_agents": [
+      {
+        "name": "please",
+        "command": "please",
+        "args": ["acp"]
+      }
+    ]
+  }
+}
+```
+
+---
+
+## Editor Configuration Quickstart (Xcode)
+
+In Xcode (**Settings $\rightarrow$ Intelligence $\rightarrow$ Agents $\rightarrow$ "Add an Agent"**):
+
+### Option 1: Direct Binary via Multicall Symlink (Recommended)
+When `please` is installed (`make install`), it creates a `please-acp` symlink in `~/.local/bin/please-acp` (or alongside the built binary). When invoked via this symlink, `please` detects `os.Args[0]` and immediately boots into ACP stdio JSON-RPC mode without requiring an "Arguments" field:
+
+* **Name**: `Please`
+* **Executable**: `/Users/<user>/.local/bin/please-acp` *(or absolute path to `please-acp`)*
+* **Interpreter**: *(leave blank)*
+
+### Option 2: Wrapper Script (Custom Config / Sandbox Vaults)
+If you wish to pass custom flags (such as pointing to an isolated vault or custom endpoint):
+
+```bash
+#!/bin/bash
+exec /path/to/please acp \
+  -c /path/to/config.json \
+  -v /path/to/vault.db \
+  "$@"
+```
+
+* **Name**: `Please`
+* **Executable**: `/path/to/wrapper.sh`
+* **Interpreter**: `/bin/bash`

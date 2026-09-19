@@ -44,26 +44,34 @@ type HarnessEvent struct {
 
 // TurnRequest defines the inputs required to execute an agent turn.
 type TurnRequest struct {
-	SessionID    string
-	UserNodeID   string
-	ParentID     string
-	Message      string
-	Role         string
-	Images       []string
-	MaxToolDepth int
-	ActiveFile   string
-	CursorLine   int
-	Context      map[string]string
+	SessionID     string
+	UserNodeID    string
+	ParentID      string
+	Message       string
+	Role          string
+	Images        []string
+	MaxToolDepth  int
+	ActiveFile    string
+	CursorLine    int
+	SelectedLines string
+	SelectedCode  string
+	Context       map[string]string
 }
+
+// PermissionGate is invoked prior to executing an interactive or gated tool call.
+// It returns true if the operator approves execution, or false if denied.
+// An error indicates cancellation or an unrecoverable gate failure.
+type PermissionGate func(ctx context.Context, sessionID string, call ToolCall) (bool, error)
 
 // SessionHarness orchestrates the sequential multi-turn agent lifecycle:
 // context assembly, LLM streaming, tool execution, observation recording,
 // and DAG state persistence.
 type SessionHarness struct {
-	Manager     *Manager
-	Provider    Provider
-	Config      *Config
-	OnNodeSaved func(node *Node)
+	Manager        *Manager
+	Provider       Provider
+	Config         *Config
+	OnNodeSaved    func(node *Node)
+	PermissionGate PermissionGate
 }
 
 // NewSessionHarness creates an initialized SessionHarness instance.
@@ -88,7 +96,7 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 	}
 
 	// 0. Ambient client context setting
-	if req.ActiveFile != "" || req.CursorLine > 0 || len(req.Context) > 0 {
+	if req.ActiveFile != "" || req.CursorLine > 0 || req.SelectedLines != "" || req.SelectedCode != "" || len(req.Context) > 0 {
 		clientCtx := make(map[string]string)
 		for k, v := range req.Context {
 			clientCtx[k] = v
@@ -98,6 +106,12 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 		}
 		if req.CursorLine > 0 {
 			clientCtx["cursor_line"] = fmt.Sprintf("%d", req.CursorLine)
+		}
+		if req.SelectedLines != "" {
+			clientCtx["selected_lines"] = req.SelectedLines
+		}
+		if req.SelectedCode != "" {
+			clientCtx["selected_code"] = req.SelectedCode
 		}
 		if len(clientCtx) > 0 {
 			h.Manager.SetClientContext(clientCtx)
@@ -133,9 +147,23 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 			}
 		}
 		if parentID == "" {
-			_, lastID, err := h.Manager.Sync()
-			if err == nil && lastID != "" {
-				parentID = lastID
+			if sessionID == "main" || sessionID == "" {
+				// Single-session default / interactive TUI: snap to latest playhead
+				_, lastID, err := h.Manager.Sync()
+				if err == nil && lastID != "" {
+					parentID = lastID
+				}
+			} else {
+				// Dedicated named/ACP session: isolate from foreign threads and branch from system root
+				if sysRoot, err := h.Manager.GetSystemRoot(); err == nil && sysRoot != nil {
+					parentID = sysRoot.ID
+				} else {
+					// Fallback to latest playhead only if no system root exists
+					_, lastID, err := h.Manager.Sync()
+					if err == nil && lastID != "" {
+						parentID = lastID
+					}
+				}
 			}
 		}
 	}
@@ -158,6 +186,17 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 			h.Manager.AttachImages(userNode, req.Images)
 			_ = h.Manager.Storage.SaveNode(userNode)
 		}
+
+		if len(req.Context) > 0 {
+			if userNode.Metadata == nil {
+				userNode.Metadata = make(map[string]string)
+			}
+			for k, v := range req.Context {
+				userNode.Metadata[k] = v
+			}
+			_ = h.Manager.Storage.SaveNode(userNode)
+		}
+
 
 		if h.OnNodeSaved != nil {
 			h.OnNodeSaved(userNode)
@@ -414,6 +453,40 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 				errStr = execErr.Error()
 				result = fmt.Sprintf("Error: %s. Please synthesize your final response or adjust parameters.", execErr.Error())
 			} else {
+				// Check PermissionGate if tool requires human consent
+				requiresGate := false
+				if h.Manager != nil && h.Manager.Registry != nil {
+					if t, ok := h.Manager.Registry.Tools[call.Function.Name]; ok {
+						if t.Interactive || t.Category == CategoryExecute {
+							requiresGate = true
+						}
+					} else {
+						requiresGate = true // Unknown tools default to gated
+					}
+				}
+
+				if requiresGate && h.PermissionGate != nil {
+					allowed, gateErr := h.PermissionGate(ctx, sessionID, call)
+					if gateErr != nil {
+						emit(HarnessEvent{Kind: HarnessEventError, Err: gateErr})
+						return asstNode, gateErr
+					}
+					if !allowed {
+						result = fmt.Sprintf("User denied execution of tool: %s", call.Function.Name)
+						_ = h.Manager.UpdateAssistantObservations(asstNode.ID, call.ID, result)
+						if latest, err := h.Manager.GetNode(asstNode.ID); err == nil && latest != nil {
+							asstNode = latest
+						}
+						emit(HarnessEvent{
+							Kind:       HarnessEventToolResult,
+							ToolCallID: call.ID,
+							ToolName:   call.Function.Name,
+							ToolResult: result,
+						})
+						continue
+					}
+				}
+
 				result, execErr = h.Manager.ExecuteToolCall(ctx, call)
 				if execErr != nil {
 					errStr = execErr.Error()

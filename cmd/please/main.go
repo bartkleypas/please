@@ -30,6 +30,12 @@ func (i *arrayFlags) Set(value string) error {
 }
 
 func main() {
+	// Multicall binary support: if invoked as please-acp (e.g. symlink for Xcode), run ACP server directly
+	if filepath.Base(os.Args[0]) == "please-acp" {
+		runACP(os.Args[1:])
+		return
+	}
+
 	// Subcommand routing
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -51,6 +57,9 @@ func main() {
 			return
 		case "context":
 			runContext(os.Args[2:])
+			return
+		case "acp":
+			runACP(os.Args[2:])
 			return
 		}
 	}
@@ -100,6 +109,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  please                    Start standalone interactive TUI (default)\n")
 		fmt.Fprintf(os.Stderr, "  please serve [options]    Start the API & streaming engine daemon\n")
 		fmt.Fprintf(os.Stderr, "  please connect [url]      Connect TUI to a remote Please daemon\n")
+		fmt.Fprintf(os.Stderr, "  please acp [options]      Start Agent Client Protocol (ACP) stdio JSON-RPC server\n")
 		fmt.Fprintf(os.Stderr, "  please cert generate      Generate 20-year internal Root CA and Server certificates\n")
 		fmt.Fprintf(os.Stderr, "  please inspect <node-id>  Inspect node lineage, token costs & resonance scores\n")
 		fmt.Fprintf(os.Stderr, "  please context <node-id>  Inspect reconstructed prompt messages sent to LLM\n\n")

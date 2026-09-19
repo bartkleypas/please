@@ -330,3 +330,197 @@ func TestSessionHarness_LoopCircuitBreaker(t *testing.T) {
 	}
 }
 
+func TestSessionHarness_PermissionGate_Allowed(t *testing.T) {
+	storage := &MockStorage{}
+	graph := NewGraph()
+	mgr := NewManager(graph, storage)
+
+	toolExecuted := false
+	mgr.Registry = NewToolRegistry()
+	mgr.Registry.Register(Tool{
+		Name:        "dangerous_exec",
+		Category:    CategoryExecute,
+		Interactive: true,
+		Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
+			toolExecuted = true
+			return "Command executed successfully", nil
+		},
+	})
+
+	callCount := 0
+	mockProvider := &MockLLMProvider{
+		StreamHandler: func(messages []Message, tools []Tool) (string, string, []ToolCall, error) {
+			callCount++
+			if callCount == 1 {
+				return "", "Preparing exec", []ToolCall{
+					{
+						ID:   "call_exec_1",
+						Type: "function",
+						Function: struct {
+							Name      string          `json:"name"`
+							Arguments json.RawMessage `json:"arguments"`
+						}{
+							Name:      "dangerous_exec",
+							Arguments: json.RawMessage(`{"cmd":"rm -rf /tmp/test"}`),
+						},
+					},
+				}, nil
+			}
+			return "Done executing", "", nil, nil
+		},
+	}
+
+	cfg := NewDefaultConfig()
+	harness := NewSessionHarness(mgr, mockProvider, cfg)
+	gateCalled := false
+	harness.PermissionGate = func(ctx context.Context, sessionID string, call ToolCall) (bool, error) {
+		gateCalled = true
+		if call.Function.Name != "dangerous_exec" {
+			t.Errorf("unexpected tool in gate: %s", call.Function.Name)
+		}
+		return true, nil
+	}
+
+	req := TurnRequest{
+		SessionID: "gate-allow-test",
+		Message:   "Run dangerous tool",
+	}
+
+	asstNode, err := harness.ExecuteTurn(context.Background(), req, nil)
+	if err != nil {
+		t.Fatalf("ExecuteTurn failed: %v", err)
+	}
+
+	if !gateCalled {
+		t.Errorf("expected PermissionGate to be called")
+	}
+	if !toolExecuted {
+		t.Errorf("expected tool to execute after gate approval")
+	}
+	if asstNode.Content != "Done executing" {
+		t.Errorf("unexpected content: %q", asstNode.Content)
+	}
+}
+
+func TestSessionHarness_PermissionGate_Denied(t *testing.T) {
+	storage := &MockStorage{}
+	graph := NewGraph()
+	mgr := NewManager(graph, storage)
+
+	toolExecuted := false
+	mgr.Registry = NewToolRegistry()
+	mgr.Registry.Register(Tool{
+		Name:        "dangerous_exec",
+		Category:    CategoryExecute,
+		Interactive: true,
+		Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
+			toolExecuted = true
+			return "Should not run", nil
+		},
+	})
+
+	callCount := 0
+	mockProvider := &MockLLMProvider{
+		StreamHandler: func(messages []Message, tools []Tool) (string, string, []ToolCall, error) {
+			callCount++
+			if callCount == 1 {
+				return "", "Preparing exec", []ToolCall{
+					{
+						ID:   "call_exec_1",
+						Type: "function",
+						Function: struct {
+							Name      string          `json:"name"`
+							Arguments json.RawMessage `json:"arguments"`
+						}{
+							Name:      "dangerous_exec",
+							Arguments: json.RawMessage(`{"cmd":"rm -rf /tmp/test"}`),
+						},
+					},
+				}, nil
+			}
+			// In turn 2, check that the model receives the denial observation
+			lastMsg := messages[len(messages)-1]
+			return fmt.Sprintf("Observed: %s", lastMsg.Content), "", nil, nil
+		},
+	}
+
+	cfg := NewDefaultConfig()
+	harness := NewSessionHarness(mgr, mockProvider, cfg)
+	gateCalled := false
+	harness.PermissionGate = func(ctx context.Context, sessionID string, call ToolCall) (bool, error) {
+		gateCalled = true
+		return false, nil // Operator explicitly denies consent
+	}
+
+	req := TurnRequest{
+		SessionID: "gate-deny-test",
+		Message:   "Run dangerous tool",
+	}
+
+	asstNode, err := harness.ExecuteTurn(context.Background(), req, nil)
+	if err != nil {
+		t.Fatalf("ExecuteTurn failed: %v", err)
+	}
+
+	if !gateCalled {
+		t.Errorf("expected PermissionGate to be called")
+	}
+	if toolExecuted {
+		t.Errorf("tool executed despite PermissionGate denial!")
+	}
+	if !strings.Contains(asstNode.Content, "User denied execution of tool: dangerous_exec") {
+		t.Errorf("expected denial message in observation, got: %q", asstNode.Content)
+	}
+}
+
+func TestSessionHarness_PermissionGate_Error(t *testing.T) {
+	storage := &MockStorage{}
+	graph := NewGraph()
+	mgr := NewManager(graph, storage)
+
+	mgr.Registry = NewToolRegistry()
+	mgr.Registry.Register(Tool{
+		Name:        "dangerous_exec",
+		Category:    CategoryExecute,
+		Interactive: true,
+		Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
+			return "ok", nil
+		},
+	})
+
+	mockProvider := &MockLLMProvider{
+		StreamHandler: func(messages []Message, tools []Tool) (string, string, []ToolCall, error) {
+			return "", "", []ToolCall{
+				{
+					ID:   "call_exec_1",
+					Type: "function",
+					Function: struct {
+						Name      string          `json:"name"`
+						Arguments json.RawMessage `json:"arguments"`
+					}{
+						Name:      "dangerous_exec",
+						Arguments: json.RawMessage(`{}`),
+					},
+				},
+			}, nil
+		},
+	}
+
+	cfg := NewDefaultConfig()
+	harness := NewSessionHarness(mgr, mockProvider, cfg)
+	harness.PermissionGate = func(ctx context.Context, sessionID string, call ToolCall) (bool, error) {
+		return false, context.Canceled
+	}
+
+	req := TurnRequest{
+		SessionID: "gate-err-test",
+		Message:   "Run tool",
+	}
+
+	_, err := harness.ExecuteTurn(context.Background(), req, nil)
+	if err != context.Canceled {
+		t.Fatalf("expected context.Canceled error, got: %v", err)
+	}
+}
+
+

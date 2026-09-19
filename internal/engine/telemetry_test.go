@@ -38,6 +38,21 @@ func TestDeriveAmbientTelemetry(t *testing.T) {
 	if len(telemWithClient) > 256 {
 		t.Errorf("expected telemetry payload to be <256 bytes, got %d bytes: %s", len(telemWithClient), telemWithClient)
 	}
+
+	// 4. With code selection
+	clientCtxWithSel := map[string]string{
+		"active_file":    "/Users/bart/Code/please-swift/Sources/AppSettingsView.swift",
+		"cursor_line":    "22",
+		"selected_lines": "22-23",
+		"selected_code":  "SecureField(\"Auth\", text: $auth)",
+	}
+	telemWithSel := DeriveAmbientTelemetry(wd, clientCtxWithSel)
+	if !strings.Contains(telemWithSel, "selected_lines: 22-23") {
+		t.Errorf("expected telemetry to contain selected_lines, got: %s", telemWithSel)
+	}
+	if !strings.Contains(telemWithSel, "selected_code:\nSecureField(\"Auth\", text: $auth)") {
+		t.Errorf("expected telemetry to contain selected_code, got: %s", telemWithSel)
+	}
 }
 
 func TestFormatTelemetryEnvelope(t *testing.T) {

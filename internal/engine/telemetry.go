@@ -46,6 +46,12 @@ func DeriveAmbientTelemetry(workspaceDir string, clientContext map[string]string
 		if cursorLine, ok := clientContext["cursor_line"]; ok && cursorLine != "" {
 			lines = append(lines, fmt.Sprintf("cursor_line: %s", cursorLine))
 		}
+		if selectedLines, ok := clientContext["selected_lines"]; ok && selectedLines != "" {
+			lines = append(lines, fmt.Sprintf("selected_lines: %s", selectedLines))
+		}
+		if selectedCode, ok := clientContext["selected_code"]; ok && selectedCode != "" {
+			lines = append(lines, fmt.Sprintf("selected_code:\n%s", selectedCode))
+		}
 	}
 
 	return strings.Join(lines, "\n")

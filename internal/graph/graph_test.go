@@ -230,3 +230,20 @@ func TestGraph_GetSystemRoot_Errors(t *testing.T) {
 		t.Errorf("expected root node is not a system prompt error, got %v", err)
 	}
 }
+
+func TestGraph_GetSystemRoot_MultipleRoots(t *testing.T) {
+	g := NewGraph()
+	userRoot := &Node{ID: "user-root", Role: RoleUser, Content: "user prompt"}
+	g.AddNode(userRoot)
+	sysRoot := &Node{ID: "sys-root", Role: RoleSystem, Content: "system prompt"}
+	g.AddNode(sysRoot)
+
+	found, err := g.GetSystemRoot()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if found.ID != "sys-root" {
+		t.Errorf("expected sys-root, got %s", found.ID)
+	}
+}
+

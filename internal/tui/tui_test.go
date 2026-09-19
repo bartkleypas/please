@@ -1390,3 +1390,60 @@ func TestConfigCommand_ReadOnlyMode(t *testing.T) {
 		t.Errorf("expected natural pacing to be disabled in-memory")
 	}
 }
+
+func TestSandboxCommand_AndFooterBadge(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	storage, _ := engine.NewSQLiteStorage(dbPath, "")
+	graph := engine.NewGraph()
+	mockProvider := &engine.MockLLMProvider{}
+	cfg := engine.NewDefaultConfig()
+
+	m := NewModel(cfg, graph, storage, mockProvider, "")
+
+	// 1. Initial status display
+	m.HandleCommand("/sandbox")
+	if !strings.Contains(m.ViewportOverride, "Please Sandbox Security Perimeter") {
+		t.Errorf("expected sandbox status view, got:\n%s", m.ViewportOverride)
+	}
+	if !strings.Contains(m.ViewportOverride, "STANDARD") {
+		t.Errorf("expected standard default policy in view")
+	}
+
+	// 2. Initial footer badge should be [🛡️ STANDARD]
+	footer := m.renderFooterHelp("help")
+	if !strings.Contains(footer, "[🛡️ STANDARD]") {
+		t.Errorf("expected standard badge in footer, got:\n%s", footer)
+	}
+
+	// 3. Switch to strict mode
+	m.HandleCommand("/sandbox strict")
+	if m.Config.Server.SandboxPolicy != "strict" {
+		t.Fatalf("expected sandbox policy 'strict', got %q", m.Config.Server.SandboxPolicy)
+	}
+	if !strings.Contains(m.Notification, "STRICT") {
+		t.Errorf("expected notification to mention STRICT, got %q", m.Notification)
+	}
+	footerStrict := m.renderFooterHelp("help")
+	if !strings.Contains(footerStrict, "[🔒 STRICT]") {
+		t.Errorf("expected [🔒 STRICT] badge in footer, got:\n%s", footerStrict)
+	}
+
+	// 4. Switch to permissive mode
+	m.HandleCommand("/sandbox permissive")
+	if m.Config.Server.SandboxPolicy != "permissive" {
+		t.Fatalf("expected sandbox policy 'permissive', got %q", m.Config.Server.SandboxPolicy)
+	}
+	footerPermissive := m.renderFooterHelp("help")
+	if !strings.Contains(footerPermissive, "[⚠️ PERMISSIVE]") {
+		t.Errorf("expected [⚠️ PERMISSIVE] badge in footer, got:\n%s", footerPermissive)
+	}
+
+	// 5. Invalid policy
+	m.HandleCommand("/sandbox yolo")
+	if !strings.Contains(m.Notification, "Unknown sandbox policy") {
+		t.Errorf("expected unknown policy warning, got: %s", m.Notification)
+	}
+}
+
