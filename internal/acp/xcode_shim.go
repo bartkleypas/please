@@ -22,10 +22,10 @@ import (
 // This shim acts as an acoustic damper and quarantine boundary:
 //  - Discards the phantom tools, virtual manifests, and style static into /dev/null.
 //    None of this boilerplate is stored in the database or persisted in the DAG.
-//  - Formats highlighted code selections into clean markdown headers ([Selected code (lines X-Y)]).
-//  - Extracts the singular grain of truth: the editor's active open file and cursor/selection line.
-//  - Returns the pristine human prompt, allowing the caller to route the file/line
-//    telemetry into standard ambient metadata (<ADDITIONAL_METADATA>).
+//  - Surgically extracts code selection snippets and line ranges into peripheral telemetry.
+//  - Preserves the sacred human voice: cleanedPrompt contains strictly what the user typed.
+//  - Returns the clean prompt and ambient telemetry (activeFile, cursorLine, selectedLines, selectedCode)
+//    so the harness can route them into the standard <ADDITIONAL_METADATA> envelope.
 // =============================================================================
 
 var (
@@ -45,9 +45,10 @@ var (
 const xcodeManifestPrefix = "Project structure (these are Xcode workspace-relative paths"
 
 // SanitizeXcodePrompt filters an incoming client prompt through the Xcode quarantine shim.
-// It strips Xcode-injected preamble noise, extracts active editor telemetry (file, line),
-// and returns the clean human prompt. The discarded static is never persisted to storage.
-func SanitizeXcodePrompt(raw string) (cleanedPrompt, activeFile string, cursorLine int) {
+// It strips Xcode-injected preamble noise, extracts active editor telemetry (file, line, selection),
+// removes the highlighted code snippet from the prompt so only the user's authentic words remain,
+// and returns the clean human prompt along with the extracted telemetry.
+func SanitizeXcodePrompt(raw string) (cleanedPrompt, activeFile string, cursorLine int, selectedLines, selectedCode string) {
 	cleaned := raw
 
 	// 1. Strip <system-reminder> tags completely (discarded into /dev/null)
@@ -99,42 +100,80 @@ func SanitizeXcodePrompt(raw string) (cleanedPrompt, activeFile string, cursorLi
 		cleaned = noFileRegex.ReplaceAllString(cleaned, "")
 	}
 
-	// 3. Process Xcode code selection statements
-	if selectionRegex.MatchString(cleaned) {
-		cleaned = selectionRegex.ReplaceAllStringFunc(cleaned, func(match string) string {
-			sub := selectionRegex.FindStringSubmatch(match)
-			if len(sub) >= 4 {
-				if activeFile == "" && sub[1] != "" {
-					activeFile = strings.TrimSpace(sub[1])
+	// 3. Surgically extract Xcode code selection and snippet
+	if loc := selectionRegex.FindStringSubmatchIndex(cleaned); len(loc) >= 6 {
+		if loc[2] != -1 && loc[3] != -1 && activeFile == "" {
+			activeFile = strings.TrimSpace(cleaned[loc[2]:loc[3]])
+		}
+
+		startLine := 0
+		if loc[4] != -1 && loc[5] != -1 {
+			if l, err := strconv.Atoi(cleaned[loc[4]:loc[5]]); err == nil {
+				startLine = l
+				if cursorLine == 0 {
+					cursorLine = l
 				}
-				if cursorLine == 0 && sub[2] != "" {
-					if l, err := strconv.Atoi(sub[2]); err == nil {
-						cursorLine = l
-					}
-				}
-				startLine := sub[2]
-				endLine := sub[3]
-				if endLine != "" {
-					return fmt.Sprintf("[Selected code (lines %s-%s)]:", startLine, endLine)
-				}
-				return fmt.Sprintf("[Selected code (line %s)]:", startLine)
 			}
-			return match
-		})
+		}
+
+		endLine := startLine
+		if len(loc) >= 8 && loc[6] != -1 && loc[7] != -1 {
+			if l, err := strconv.Atoi(cleaned[loc[6]:loc[7]]); err == nil {
+				endLine = l
+			}
+		}
+
+		if endLine > startLine {
+			selectedLines = fmt.Sprintf("%d-%d", startLine, endLine)
+		} else if startLine > 0 {
+			selectedLines = fmt.Sprintf("%d", startLine)
+		}
+
+		lineCount := 1
+		if endLine >= startLine && startLine > 0 {
+			lineCount = endLine - startLine + 1
+		}
+
+		before := cleaned[:loc[0]]
+		after := cleaned[loc[1]:]
+
+		afterLines := strings.Split(after, "\n")
+		idx := 0
+		if len(afterLines) > 0 && strings.TrimSpace(afterLines[0]) == "" {
+			idx = 1
+		}
+
+		codeEnd := idx + lineCount
+		if codeEnd > len(afterLines) {
+			codeEnd = len(afterLines)
+		}
+
+		selectedCode = strings.TrimSpace(strings.Join(afterLines[idx:codeEnd], "\n"))
+		userRest := strings.TrimSpace(strings.Join(afterLines[codeEnd:], "\n"))
+
+		if strings.TrimSpace(before) != "" && userRest != "" {
+			cleaned = strings.TrimSpace(before) + "\n\n" + userRest
+		} else if strings.TrimSpace(before) != "" {
+			cleaned = strings.TrimSpace(before)
+		} else {
+			cleaned = userRest
+		}
 	}
 
 	// 4. Clean up leading/trailing whitespace
 	cleanedPrompt = strings.TrimSpace(cleaned)
 
-	// Fallback: if stripping removed everything, preserve the raw prompt
-	if cleanedPrompt == "" && strings.TrimSpace(raw) != "" {
+	// Fallback: if stripping removed everything, provide a natural prompt or preserve raw
+	if cleanedPrompt == "" && selectedCode != "" {
+		cleanedPrompt = "Please examine the selected code."
+	} else if cleanedPrompt == "" && strings.TrimSpace(raw) != "" {
 		cleanedPrompt = strings.TrimSpace(raw)
 	}
 
-	return cleanedPrompt, activeFile, cursorLine
+	return cleanedPrompt, activeFile, cursorLine, selectedLines, selectedCode
 }
 
 // ParseClientPrompt is the general ACP entrypoint for prompt hygiene, delegating to SanitizeXcodePrompt.
-func ParseClientPrompt(raw string) (cleanedPrompt, activeFile string, cursorLine int) {
+func ParseClientPrompt(raw string) (cleanedPrompt, activeFile string, cursorLine int, selectedLines, selectedCode string) {
 	return SanitizeXcodePrompt(raw)
 }

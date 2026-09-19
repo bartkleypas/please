@@ -177,14 +177,19 @@ When communicating with Apple Xcode's Coding Assistant under macOS Goldengate / 
 #### 5.1. The Quarantine Shim (`internal/acp/xcode_shim.go`)
 Rather than allowing IDE-specific eccentricities to warp core protocol handling, `please` implements a dedicated **Xcode Shim Stack** that serves as an acoustic damper and quarantine boundary:
 1. **Preamble Stripping**: The XML static, virtual project manifests, and phantom tool instructions are stripped entirely.
-2. **Telemetry Extraction**: The shim extracts the singular grain of truth—the active open file and cursor line when the user pressed Enter.
-3. **Ambient Routing**: The extracted telemetry is passed as `TurnRequest.ActiveFile` and `TurnRequest.CursorLine`, which cleanly flow into standard ADR 003 ambient telemetry (`<ADDITIONAL_METADATA>`) alongside the user's turn.
+2. **Telemetry & Selection Extraction**: The shim extracts the singular grains of truth—the active open file, cursor line, and highlighted code selection when the user pressed Enter.
+3. **Sacred Voice & Ambient Routing**: The code snippet and selection line numbers are peeled completely out of the user prompt, ensuring `Node.Content` contains 100% authentic human intent. The extracted telemetry (`active_file`, `cursor_line`, `selected_lines`, `selected_code`) cleanly flows into standard ADR 003 ambient telemetry (`<ADDITIONAL_METADATA>`) alongside the user's turn.
 
 #### 5.2. Strict Database Hygiene Policy
 Under no circumstances is Xcode's preamble boilerplate stored in the database:
 * **Zero DB Footprint**: The discarded preamble is never written to `userNode.Metadata["system_reminder"]` and never persists in `vault.db`.
 * **Zero Historical Pollution**: Historical turns in the DAG remain 100% pure human intent.
 * **No Phantom Re-injection**: The harness refuses to re-inject `<system-reminder>` blocks into the LLM context on leaf turns, preventing the model from hallucinating virtual files or trying to invoke nonexistent Xcode tools.
+
+#### 5.3. Session Genesis Isolation
+To prevent ghost continuations when opening a new chat in an IDE:
+* **Interactive CLI / TUI**: Single-session default (`main`) snaps to the latest playhead (`lastID`) to continue ongoing work.
+* **Dedicated ACP Sessions (`session/new`)**: Branch cleanly from the system prompt root (`GetSystemRoot()`). An editor opening a new session is guaranteed a pristine, isolated conversational branch rather than an accidental continuation of an unrelated previous turn.
 
 ---
 

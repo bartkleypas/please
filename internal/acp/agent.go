@@ -177,6 +177,7 @@ func (a *Agent) NewSession(ctx context.Context, params acpsdk.NewSessionRequest)
 }
 
 // ListSessions returns historical sessions from storage.
+// (nb: Xcode doesn't... do this...)
 func (a *Agent) ListSessions(ctx context.Context, params acpsdk.ListSessionsRequest) (acpsdk.ListSessionsResponse, error) {
 	if a.mgr == nil || a.mgr.Storage == nil {
 		return acpsdk.ListSessionsResponse{}, nil
@@ -287,6 +288,7 @@ func (a *Agent) Cancel(ctx context.Context, params acpsdk.CancelNotification) er
 }
 
 // CloseSession cancels active operations and releases in-memory session state.
+// (nb: I think we found out that XCode (and others) don't "destroy" a session)
 func (a *Agent) CloseSession(ctx context.Context, params acpsdk.CloseSessionRequest) (acpsdk.CloseSessionResponse, error) {
 	_ = a.Cancel(ctx, acpsdk.CancelNotification{SessionId: params.SessionId})
 	a.sessionCancels.Delete(params.SessionId)
@@ -423,17 +425,18 @@ func (a *Agent) Prompt(ctx context.Context, params acpsdk.PromptRequest) (acpsdk
 		return false, nil
 	}
 
-	cleanedPrompt, activeFile, cursorLine := ParseClientPrompt(sb.String())
+	cleanedPrompt, activeFile, cursorLine, selectedLines, selectedCode := ParseClientPrompt(sb.String())
 
 	eventCh := make(chan engine.HarnessEvent, 64)
 	turnReq := engine.TurnRequest{
-		SessionID:  string(params.SessionId),
-		Message:    cleanedPrompt,
-		Images:     images,
-		ActiveFile: activeFile,
-		CursorLine: cursorLine,
+		SessionID:     string(params.SessionId),
+		Message:       cleanedPrompt,
+		Images:        images,
+		ActiveFile:    activeFile,
+		CursorLine:    cursorLine,
+		SelectedLines: selectedLines,
+		SelectedCode:  selectedCode,
 	}
-
 
 	errTurnCh := make(chan error, 1)
 	go func() {
