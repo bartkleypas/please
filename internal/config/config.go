@@ -46,11 +46,13 @@ type ServerConfig struct {
 
 // ClientConfig holds settings for connecting the TUI to a remote daemon
 type ClientConfig struct {
-	RemoteURL     string `json:"remote_url,omitempty"`
-	AuthToken     string `json:"auth_token,omitempty"`
-	CACertPath    string `json:"ca_cert_path,omitempty"`
-	NaturalPacing *bool  `json:"natural_pacing,omitempty"`
-	Session       string `json:"session,omitempty"`
+	RemoteURL          string `json:"remote_url,omitempty"`
+	AuthToken          string `json:"auth_token,omitempty"`
+	CACertPath         string `json:"ca_cert_path,omitempty"`
+	NaturalPacing      *bool  `json:"natural_pacing,omitempty"`
+	BellOnTurnComplete *bool  `json:"bell_on_turn_complete,omitempty"`
+	Bell               *bool  `json:"bell,omitempty"`
+	Session            string `json:"session,omitempty"`
 }
 
 // Config is the top-level configuration container (v2 schema)
@@ -64,24 +66,26 @@ type Config struct {
 
 // legacyV1Config mirrors the flat v1 schema for migration
 type legacyV1Config struct {
-	Provider         string        `json:"provider"`
-	APIKey           string        `json:"api_key"`
-	Model            string        `json:"model"`
-	Endpoint         string        `json:"endpoint"`
-	VaultPath        string        `json:"vault_path"`
-	Vault            string        `json:"vault"`
-	StorageType      string        `json:"storage_type"`
-	EncryptionKey    string        `json:"encryption_key"`
-	NaturalPacing    *bool         `json:"natural_pacing"`
-	Options          *ModelOptions `json:"options"`
-	WorkspaceDir     string        `json:"workspace_dir"`
-	Workspace        string        `json:"workspace"`
-	AuthToken        string        `json:"auth_token"`
-	TLSCertFile      string        `json:"tls_cert_file"`
-	TLSKeyFile       string        `json:"tls_key_file"`
-	SandboxPolicy    string        `json:"sandbox_policy"`
-	SignatSteering   *bool         `json:"signat_steering"`
-	AmbientTelemetry *bool         `json:"ambient_telemetry"`
+	Provider           string        `json:"provider"`
+	APIKey             string        `json:"api_key"`
+	Model              string        `json:"model"`
+	Endpoint           string        `json:"endpoint"`
+	VaultPath          string        `json:"vault_path"`
+	Vault              string        `json:"vault"`
+	StorageType        string        `json:"storage_type"`
+	EncryptionKey      string        `json:"encryption_key"`
+	NaturalPacing      *bool         `json:"natural_pacing"`
+	Options            *ModelOptions `json:"options"`
+	WorkspaceDir       string        `json:"workspace_dir"`
+	Workspace          string        `json:"workspace"`
+	AuthToken          string        `json:"auth_token"`
+	TLSCertFile        string        `json:"tls_cert_file"`
+	TLSKeyFile         string        `json:"tls_key_file"`
+	SandboxPolicy      string        `json:"sandbox_policy"`
+	SignatSteering     *bool         `json:"signat_steering"`
+	AmbientTelemetry   *bool         `json:"ambient_telemetry"`
+	BellOnTurnComplete *bool         `json:"bell_on_turn_complete"`
+	Bell               *bool         `json:"bell"`
 }
 
 // GetWorkspaceDir returns the resolved absolute workspace directory from ServerConfig.
@@ -143,6 +147,36 @@ func (c *Config) EnableNaturalPacing() bool {
 // IsPacingEnabled is a backward-compatible alias for EnableNaturalPacing.
 func (c *Config) IsPacingEnabled() bool {
 	return c.EnableNaturalPacing()
+}
+
+// EnableBellOnTurnComplete returns whether terminal bell cues on turn completion are enabled on ClientConfig.
+// It prioritizes environment variables NO_BELL=1 and PLEASE_BELL=0 to enforce silence in scripts/CI.
+// Otherwise, it defaults to true unless explicitly configured as false.
+func (cl *ClientConfig) EnableBellOnTurnComplete() bool {
+	if os.Getenv("NO_BELL") == "1" || os.Getenv("PLEASE_BELL") == "0" {
+		return false
+	}
+	if cl == nil {
+		return true
+	}
+	if cl.BellOnTurnComplete != nil {
+		return *cl.BellOnTurnComplete
+	}
+	if cl.Bell != nil {
+		return *cl.Bell
+	}
+	return true
+}
+
+// EnableBellOnTurnComplete returns whether terminal bell cues on turn completion are enabled across the configuration.
+func (c *Config) EnableBellOnTurnComplete() bool {
+	if os.Getenv("NO_BELL") == "1" || os.Getenv("PLEASE_BELL") == "0" {
+		return false
+	}
+	if c == nil || c.Client == nil {
+		return true
+	}
+	return c.Client.EnableBellOnTurnComplete()
 }
 
 // DefaultSessionName is the default session identifier used when no session is explicitly specified.
@@ -369,6 +403,17 @@ func migrateConfig(data []byte) (*Config, bool, error) {
 		pacing = *v1.NaturalPacing
 	}
 
+	bell := true
+	if v1.BellOnTurnComplete != nil {
+		bell = *v1.BellOnTurnComplete
+	} else if v1.Bell != nil {
+		bell = *v1.Bell
+	} else if b, ok := raw["bell_on_turn_complete"].(bool); ok {
+		bell = b
+	} else if b, ok := raw["bell"].(bool); ok {
+		bell = b
+	}
+
 	cfg := &Config{
 		Version: CurrentConfigVersion,
 		Mode:    "standalone",
@@ -392,9 +437,10 @@ func migrateConfig(data []byte) (*Config, bool, error) {
 			Options:          v1.Options,
 		},
 		Client: &ClientConfig{
-			RemoteURL:     "http://127.0.0.1:8080",
-			AuthToken:     v1.AuthToken,
-			NaturalPacing: &pacing,
+			RemoteURL:          "http://127.0.0.1:8080",
+			AuthToken:          v1.AuthToken,
+			NaturalPacing:      &pacing,
+			BellOnTurnComplete: &bell,
 		},
 	}
 
@@ -511,9 +557,11 @@ func defaultServerConfig() *ServerConfig {
 
 func defaultClientConfig() *ClientConfig {
 	pacing := true
+	bell := true
 	return &ClientConfig{
-		RemoteURL:     "http://127.0.0.1:8080",
-		NaturalPacing: &pacing,
+		RemoteURL:          "http://127.0.0.1:8080",
+		NaturalPacing:      &pacing,
+		BellOnTurnComplete: &bell,
 	}
 }
 

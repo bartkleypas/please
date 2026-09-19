@@ -75,6 +75,9 @@ func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, te
 		m.Notification = fmt.Sprintf("Error: %v", msg.err)
 		m.CurrentStreamingContent = ""
 		m.CurrentStreamingThought = ""
+		if m.Config.EnableBellOnTurnComplete() {
+			return m, BellCmd()
+		}
 		return m, nil
 	}
 
@@ -98,7 +101,11 @@ func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, te
 		m.InterleavingNodeID = ""
 		m.PendingToolCalls = nil
 		m.updateViewportContent()
-		return m, tea.Batch(tick())
+		cmds := []tea.Cmd{tick()}
+		if m.Config.EnableBellOnTurnComplete() {
+			cmds = append(cmds, BellCmd())
+		}
+		return m, tea.Batch(cmds...)
 	}
 
 	// Fallback: If no structured tool calls were emitted by the provider,
@@ -224,7 +231,11 @@ func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, te
 		m.AwaitingToolConfirmation = true
 	}
 
-	return m, tea.Batch(tick())
+	cmds := []tea.Cmd{tick()}
+	if (len(msg.toolCalls) == 0 || m.AwaitingToolConfirmation) && m.Config.EnableBellOnTurnComplete() {
+		cmds = append(cmds, BellCmd())
+	}
+	return m, tea.Batch(cmds...)
 }
 
 // handlePacingTick pops a rune from the pacing buffer and updates the viewport.
