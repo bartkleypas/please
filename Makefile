@@ -26,7 +26,7 @@ test:
 	go test ./...
 
 test-livefire:
-	PLEASE_LIVE_FIRE=1 go test -v -timeout 30m ./internal/engine
+	PLEASE_LIVE_FIRE=1 go test -v -timeout 30m ./internal/engine ./cmd/please
 
 format:
 	go fmt ./...

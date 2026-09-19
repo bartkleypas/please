@@ -60,6 +60,10 @@ func (c *e2eClient) WaitForTerminalExit(ctx context.Context, params acpsdk.WaitF
 }
 
 func TestACP_BinaryE2E(t *testing.T) {
+	if os.Getenv("PLEASE_LIVE_FIRE") == "" {
+		t.Skip("Skipping binary E2E test (set PLEASE_LIVE_FIRE=1 to run)")
+	}
+
 	if _, err := os.Stat("../../please"); os.IsNotExist(err) {
 		t.Skip("Skipping binary E2E test; please binary not built (run make build)")
 	}
