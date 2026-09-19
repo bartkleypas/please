@@ -16,12 +16,16 @@ import (
 //     tool directives (XcodeRead, XcodeWrite, XcodeGrep) that do not exist in ACP.
 //  2. Virtual workspace project manifests (e.g. "OwlPlease/Sources/...") that
 //     do not correspond to physical filesystem paths on disk.
-//  3. Editor state statements ("The user is looking at file X at line Y.").
+//  3. Editor state statements:
+//     - "The user is looking at file X at line Y."
+//     - "The user is currently inside this file: X"
+//     - "The user has no code selected."
 //  4. Code selection statements ("The user has selected the following code...").
 //
 // This shim acts as an acoustic damper and quarantine boundary:
 //  - Discards the phantom tools, virtual manifests, and style static into /dev/null.
 //    None of this boilerplate is stored in the database or persisted in the DAG.
+//  - Normalizes virtual package container prefixes (e.g. "PleasePackage/Sources/..." -> "Sources/...").
 //  - Surgically extracts code selection snippets and line ranges into peripheral telemetry.
 //  - Preserves the sacred human voice: cleanedPrompt contains strictly what the user typed.
 //  - Returns the clean prompt and ambient telemetry (activeFile, cursorLine, selectedLines, selectedCode)
@@ -36,6 +40,10 @@ var (
 	openFileRegex = regexp.MustCompile(`The user (?:is looking at|has) (?:file\s+)?([a-zA-Z0-9_\-./\\]+\.[a-zA-Z0-9]+)(?: open)?(?: at line (\d+))?\.?`)
 	noFileRegex   = regexp.MustCompile(`The user has no file currently open\.?`)
 
+	// Matches Xcode "currently inside this file" preamble variation (Xcode 16+ without selection)
+	insideFileRegex = regexp.MustCompile(`The user is currently inside this file:\s*([a-zA-Z0-9_\-./\\]+\.[a-zA-Z0-9]+)`)
+	noCodeSelRegex  = regexp.MustCompile(`The user has no code selected\.?`)
+
 	// Matches Xcode code selection statements
 	// e.g. "The user has selected the following code from that file (lines 22-23):"
 	// e.g. "The user has selected the following code from file Sources/... (lines 22-23):"
@@ -43,6 +51,19 @@ var (
 )
 
 const xcodeManifestPrefix = "Project structure (these are Xcode workspace-relative paths"
+
+// normalizeXcodePath strips virtual Xcode package container prefixes (e.g. "PleasePackage/Sources/..." -> "Sources/...").
+func normalizeXcodePath(p string) string {
+	trimmed := strings.TrimSpace(p)
+	parts := strings.Split(trimmed, "/")
+	if len(parts) > 1 {
+		switch parts[1] {
+		case "Sources", "Tests", "Docs", "scripts", ".please":
+			return strings.Join(parts[1:], "/")
+		}
+	}
+	return trimmed
+}
 
 // SanitizeXcodePrompt filters an incoming client prompt through the Xcode quarantine shim.
 // It strips Xcode-injected preamble noise, extracts active editor telemetry (file, line, selection),
@@ -66,7 +87,7 @@ func SanitizeXcodePrompt(raw string) (cleanedPrompt, activeFile string, cursorLi
 
 		if len(mOpen) >= 4 && (len(mSel) == 0 || mOpen[0] < mSel[0]) {
 			end = mOpen[1]
-			activeFile = strings.TrimSpace(after[mOpen[2]:mOpen[3]])
+			activeFile = normalizeXcodePath(after[mOpen[2]:mOpen[3]])
 			if len(mOpen) >= 6 && mOpen[4] != -1 && mOpen[5] != -1 {
 				if line, err := strconv.Atoi(after[mOpen[4]:mOpen[5]]); err == nil {
 					cursorLine = line
@@ -88,7 +109,7 @@ func SanitizeXcodePrompt(raw string) (cleanedPrompt, activeFile string, cursorLi
 		// Standalone open file check (when manifest is not present)
 		if !noFileRegex.MatchString(cleaned) {
 			if sub := openFileRegex.FindStringSubmatch(cleaned); len(sub) >= 2 {
-				activeFile = strings.TrimSpace(sub[1])
+				activeFile = normalizeXcodePath(sub[1])
 				if len(sub) >= 3 && sub[2] != "" {
 					if line, err := strconv.Atoi(sub[2]); err == nil {
 						cursorLine = line
@@ -100,10 +121,19 @@ func SanitizeXcodePrompt(raw string) (cleanedPrompt, activeFile string, cursorLi
 		cleaned = noFileRegex.ReplaceAllString(cleaned, "")
 	}
 
-	// 3. Surgically extract Xcode code selection and snippet
+	// 3. Check for Xcode "currently inside this file" preamble variation
+	if sub := insideFileRegex.FindStringSubmatch(cleaned); len(sub) >= 2 {
+		if activeFile == "" {
+			activeFile = normalizeXcodePath(sub[1])
+		}
+		cleaned = insideFileRegex.ReplaceAllString(cleaned, "")
+	}
+	cleaned = noCodeSelRegex.ReplaceAllString(cleaned, "")
+
+	// 4. Surgically extract Xcode code selection and snippet
 	if loc := selectionRegex.FindStringSubmatchIndex(cleaned); len(loc) >= 6 {
 		if loc[2] != -1 && loc[3] != -1 && activeFile == "" {
-			activeFile = strings.TrimSpace(cleaned[loc[2]:loc[3]])
+			activeFile = normalizeXcodePath(cleaned[loc[2]:loc[3]])
 		}
 
 		startLine := 0
@@ -160,7 +190,7 @@ func SanitizeXcodePrompt(raw string) (cleanedPrompt, activeFile string, cursorLi
 		}
 	}
 
-	// 4. Clean up leading/trailing whitespace
+	// 5. Clean up leading/trailing whitespace
 	cleanedPrompt = strings.TrimSpace(cleaned)
 
 	// Fallback: if stripping removed everything, provide a natural prompt or preserve raw

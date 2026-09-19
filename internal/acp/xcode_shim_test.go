@@ -156,3 +156,26 @@ let theme = AppTheme.midnightOwl`
 		t.Errorf("expected selCode 'let theme = AppTheme.midnightOwl', got %q", selCode)
 	}
 }
+
+func TestParseClientPrompt_XcodeInsideFileNoSelection(t *testing.T) {
+	raw := `The user is currently inside this file:
+PleasePackage/Sources/PleaseUI/Views/AppSettingsView.swift
+
+The user has no code selected.
+Outstanding! Can you tell me where I am currently "looking" in my editor?`
+
+	cleaned, file, line, selLines, selCode := ParseClientPrompt(raw)
+	expectedCleaned := `Outstanding! Can you tell me where I am currently "looking" in my editor?`
+	if cleaned != expectedCleaned {
+		t.Errorf("expected clean prompt %q, got %q", expectedCleaned, cleaned)
+	}
+	if file != "Sources/PleaseUI/Views/AppSettingsView.swift" {
+		t.Errorf("expected normalized file Sources/PleaseUI/Views/AppSettingsView.swift, got %q", file)
+	}
+	if line != 0 {
+		t.Errorf("expected line 0, got %d", line)
+	}
+	if selLines != "" || selCode != "" {
+		t.Errorf("expected empty selection, got selLines=%q, selCode=%q", selLines, selCode)
+	}
+}
