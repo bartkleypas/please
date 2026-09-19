@@ -46,6 +46,9 @@ func TestEngineConfig_ReExportsAndAliases(t *testing.T) {
 	if cfg.EnableAmbientTelemetry() {
 		t.Errorf("expected EnableAmbientTelemetry() to be false by default")
 	}
+	if !cfg.EnableBellOnTurnComplete() {
+		t.Errorf("expected EnableBellOnTurnComplete() to be true by default")
+	}
 
 	// Verify GetConfigDir
 	dir, err := GetConfigDir()

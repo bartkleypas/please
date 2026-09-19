@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -1447,3 +1448,108 @@ func TestSandboxCommand_AndFooterBadge(t *testing.T) {
 	}
 }
 
+func TestBellCommand_AndPhonicStaging(t *testing.T) {
+	// Re-route BellWriter to a buffer so:
+	// 1) Tests can assert on \a emission
+	// 2) Tests are 100% silent and never ring terminal bells during go test
+	var bellBuf bytes.Buffer
+	oldBellWriter := BellWriter
+	BellWriter = &bellBuf
+	defer func() {
+		BellWriter = oldBellWriter
+	}()
+
+	tmpDir := t.TempDir()
+	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	storage, _ := engine.NewSQLiteStorage(dbPath, "")
+	graph := engine.NewGraph()
+	mockProvider := &engine.MockLLMProvider{}
+	cfg := engine.NewDefaultConfig()
+
+	m := NewModel(cfg, graph, storage, mockProvider, "")
+
+	// 1. Initial default state: enabled
+	if !m.Config.EnableBellOnTurnComplete() {
+		t.Fatalf("expected bell to be enabled by default")
+	}
+
+	// 2. /bell toggles to disabled
+	m.HandleCommand("/bell")
+	if m.Config.EnableBellOnTurnComplete() {
+		t.Errorf("expected bell to be disabled after toggle")
+	}
+	if !strings.Contains(m.Notification, "disabled") {
+		t.Errorf("expected notification to say disabled, got: %s", m.Notification)
+	}
+
+	// 3. /bell toggles back to enabled
+	m.HandleCommand("/bell")
+	if !m.Config.EnableBellOnTurnComplete() {
+		t.Errorf("expected bell to be enabled after second toggle")
+	}
+	if !strings.Contains(m.Notification, "enabled") {
+		t.Errorf("expected notification to say enabled, got: %s", m.Notification)
+	}
+
+	// 4. Explicit /bell off and /bell on
+	m.HandleCommand("/bell off")
+	if m.Config.EnableBellOnTurnComplete() {
+		t.Errorf("expected /bell off to disable bell")
+	}
+	m.HandleCommand("/bell on")
+	if !m.Config.EnableBellOnTurnComplete() {
+		t.Errorf("expected /bell on to enable bell")
+	}
+
+	// 5. /config bell on/off
+	m.HandleCommand("/config bell off")
+	if m.Config.EnableBellOnTurnComplete() {
+		t.Errorf("expected /config bell off to disable bell")
+	}
+	m.HandleCommand("/config bell on")
+	if !m.Config.EnableBellOnTurnComplete() {
+		t.Errorf("expected /config bell on to enable bell")
+	}
+
+	// 6. Direct BellCmd execution writes \a to BellWriter
+	bellBuf.Reset()
+	cmd := BellCmd()
+	_ = cmd()
+	if bellBuf.String() != "\a" {
+		t.Errorf("expected BellCmd to write \\a, got %q", bellBuf.String())
+	}
+
+	var execCmd func(tea.Cmd)
+	execCmd = func(c tea.Cmd) {
+		if c == nil {
+			return
+		}
+		msg := c()
+		if batch, ok := msg.(tea.BatchMsg); ok {
+			for _, sub := range batch {
+				execCmd(sub)
+			}
+		}
+	}
+
+	// 7. Phonic staging: handleLLMStreamFinished emits BellCmd when enabled
+	bellBuf.Reset()
+	tr := true
+	m.Config.Client.BellOnTurnComplete = &tr
+	_, streamCmd := m.handleLLMStreamFinished(llmStreamFinishedMsg{})
+	execCmd(streamCmd)
+	if bellBuf.String() != "\a" {
+		t.Errorf("expected stream finish to emit bell when enabled, got %q", bellBuf.String())
+	}
+
+	// 8. Phonic staging: handleLLMStreamFinished stays silent when disabled
+	bellBuf.Reset()
+	f := false
+	m.Config.Client.BellOnTurnComplete = &f
+	_, streamCmdDisabled := m.handleLLMStreamFinished(llmStreamFinishedMsg{})
+	execCmd(streamCmdDisabled)
+	if bellBuf.Len() != 0 {
+		t.Errorf("expected stream finish to stay silent when disabled, got %q", bellBuf.String())
+	}
+}

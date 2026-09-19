@@ -37,6 +37,7 @@ func init() {
 	commandRegistry["/audit"] = &AuditCommand{}
 	commandRegistry["/version"] = &VersionCommand{}
 	commandRegistry["/pacing"] = &PacingCommand{}
+	commandRegistry["/bell"] = &BellCommand{}
 	commandRegistry["/attach"] = &AttachCommand{}
 	commandRegistry["/image"] = &AttachCommand{}
 	commandRegistry["/fold"] = &FoldCommand{}
@@ -107,6 +108,41 @@ func (c *PacingCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		m.Notification = "Natural reading pacing enabled."
 	} else {
 		m.Notification = "Natural reading pacing disabled."
+	}
+
+	if !m.Config.ReadOnly {
+		_ = m.Config.Save()
+	}
+	return m, nil
+}
+
+type BellCommand struct{}
+
+func (c *BellCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
+	if m.Config.Client == nil {
+		m.Config.Client = &engine.ClientConfig{}
+	}
+	if len(args) == 0 {
+		bell := !m.Config.EnableBellOnTurnComplete()
+		m.Config.Client.BellOnTurnComplete = &bell
+	} else {
+		switch strings.ToLower(args[0]) {
+		case "on", "true", "yes":
+			bell := true
+			m.Config.Client.BellOnTurnComplete = &bell
+		case "off", "false", "no":
+			bell := false
+			m.Config.Client.BellOnTurnComplete = &bell
+		default:
+			m.Notification = "Usage: /bell [on|off]"
+			return m, nil
+		}
+	}
+
+	if m.Config.EnableBellOnTurnComplete() {
+		m.Notification = "🔔 Terminal bell enabled (ASCII 0x07 / \\a)"
+	} else {
+		m.Notification = "🔕 Terminal bell disabled"
 	}
 
 	if !m.Config.ReadOnly {
@@ -377,6 +413,11 @@ func (m *Model) renderConfigString() string {
 		pacingStr = "enabled (natural reading pace)"
 	}
 	fmt.Fprintf(&s, "    Pacing:          %s\n", pacingStr)
+	bellStr := "disabled"
+	if m.Config.EnableBellOnTurnComplete() {
+		bellStr = "enabled (ASCII 0x07 / \\a)"
+	}
+	fmt.Fprintf(&s, "    Terminal Bell:   %s\n", bellStr)
 	remoteURL := cli.RemoteURL
 	if remoteURL == "" {
 		remoteURL = "http://127.0.0.1:8080 (default)"
@@ -394,6 +435,7 @@ func (m *Model) renderConfigString() string {
 	s.WriteString("  /config workspace <path|def>  Set workspace root directory\n")
 	s.WriteString("  /config key <val|default>     Set or clear vault encryption key\n")
 	s.WriteString("  /config pacing <on|off>       Toggle natural reading pace\n")
+	s.WriteString("  /config bell <on|off>         Toggle terminal bell on turn completion\n")
 	s.WriteString("  /config remote <url>          Set default remote daemon URL\n")
 	s.WriteString("  /config temp <val|default>    Set sampling temperature\n")
 	s.WriteString("  /config top_p <val|default>   Set top-p sampling\n")
@@ -485,6 +527,20 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 			m.Notification = "Natural reading pacing disabled."
 		default:
 			m.Notification = "Usage: /config pacing <on|off>"
+			return m, nil
+		}
+	case "bell", "bell_on_turn_complete":
+		switch strings.ToLower(value) {
+		case "on", "true", "yes":
+			bell := true
+			m.Config.Client.BellOnTurnComplete = &bell
+			m.Notification = "🔔 Terminal bell enabled (ASCII 0x07 / \\a)"
+		case "off", "false", "no":
+			bell := false
+			m.Config.Client.BellOnTurnComplete = &bell
+			m.Notification = "🔕 Terminal bell disabled"
+		default:
+			m.Notification = "Usage: /config bell <on|off>"
 			return m, nil
 		}
 	case "worktree", "worktrees", "worktree_isolation":
@@ -817,6 +873,7 @@ func (c *HelpCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	s.WriteString("  /audit          Toggle full UUID visibility in the graph and chat views\n")
 	s.WriteString("  /session [cmd]  Manage named sessions (/session [status], /session list, /session switch <name>)\n")
 	s.WriteString("  /pacing         Toggle natural reading pacing for LLM stream (/pacing [on|off])\n")
+	s.WriteString("  /bell           Toggle terminal bell cue on turn completion (/bell [on|off])\n")
 	s.WriteString("  /compact [hint] Summarize the current branch into a milestone Supernode (alias: /compress)\n")
 	s.WriteString("  /fold [all]     Fold/unfold reasoning thought process blocks (key: Tab / Shift+Tab)\n")
 	s.WriteString("  /sandbox [mode] Inspect or set sandbox security policy (strict|standard|permissive)\n")

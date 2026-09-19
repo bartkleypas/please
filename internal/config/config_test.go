@@ -455,3 +455,70 @@ func TestCanonPresets(t *testing.T) {
 	}
 }
 
+func TestConfig_EnableBellOnTurnComplete(t *testing.T) {
+	// Clean environment for testing
+	defer func() {
+		os.Unsetenv("NO_BELL")
+		os.Unsetenv("PLEASE_BELL")
+	}()
+
+	// 1. Default should be true
+	cfg := NewDefaultConfig()
+	if !cfg.EnableBellOnTurnComplete() {
+		t.Errorf("expected EnableBellOnTurnComplete to be true by default")
+	}
+
+	// 2. Explicit false
+	f := false
+	cfg.Client.BellOnTurnComplete = &f
+	if cfg.EnableBellOnTurnComplete() {
+		t.Errorf("expected EnableBellOnTurnComplete to be false when configured false")
+	}
+
+	// 3. Explicit true
+	tr := true
+	cfg.Client.BellOnTurnComplete = &tr
+	if !cfg.EnableBellOnTurnComplete() {
+		t.Errorf("expected EnableBellOnTurnComplete to be true when configured true")
+	}
+
+	// 4. Nil Client fallback
+	var nilCfg *Config
+	if !nilCfg.EnableBellOnTurnComplete() {
+		t.Errorf("expected nil Config to default to true")
+	}
+
+	// 5. Environment variable NO_BELL=1 forces false
+	os.Setenv("NO_BELL", "1")
+	if cfg.EnableBellOnTurnComplete() {
+		t.Errorf("expected NO_BELL=1 to force EnableBellOnTurnComplete false")
+	}
+	os.Unsetenv("NO_BELL")
+
+	// 6. Environment variable PLEASE_BELL=0 forces false
+	os.Setenv("PLEASE_BELL", "0")
+	if cfg.EnableBellOnTurnComplete() {
+		t.Errorf("expected PLEASE_BELL=0 to force EnableBellOnTurnComplete false")
+	}
+	os.Unsetenv("PLEASE_BELL")
+
+	// 7. Test flat config migration with "bell": false
+	flatJSON := []byte(`{"bell": false, "model": "test-model"}`)
+	flatCfg, _, err := migrateConfig(flatJSON)
+	if err != nil {
+		t.Fatalf("failed to migrate flat config: %v", err)
+	}
+	if flatCfg.EnableBellOnTurnComplete() {
+		t.Errorf("expected migrated flat config with 'bell': false to disable bell")
+	}
+
+	// 8. Test flat config migration with "bell": true
+	flatJSONTrue := []byte(`{"bell": true, "model": "test-model"}`)
+	flatCfgTrue, _, err := migrateConfig(flatJSONTrue)
+	if err != nil {
+		t.Fatalf("failed to migrate flat config: %v", err)
+	}
+	if !flatCfgTrue.EnableBellOnTurnComplete() {
+		t.Errorf("expected migrated flat config with 'bell': true to enable bell")
+	}
+}
