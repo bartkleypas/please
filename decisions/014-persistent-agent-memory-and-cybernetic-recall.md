@@ -38,24 +38,49 @@ While this model provides an unshakeable foundation for branching, non-destructi
 3. **Exploratory Token Waste**: In multi-session development, agents repeatedly execute the same exploratory sensory tools (`list_directory`, `grep_search`, `read_file`) to rediscover the same architectural truths across turns, burning context tokens and increasing latency.
 4. **Manual Documentation Burden**: To bridge this gap today, developers must manually author and curate markdown files like [`GEMINI.md`](../GEMINI.md) or project documentation. When an agent discovers a new architectural fact during a debugging session, it has no native mechanism to persist that insight into a durable, structured knowledge store for future turns without modifying repository source files.
 
-To solve this, `please` requires a dedicated, persistent **Declarative & Semantic Memory Subsystem**—a structured store embedded directly within the encrypted SQLite vault, accompanied by a cybernetic suite of `memory_*` tools and diagnostic inspection facilities.
+---
+
+## First Principles: The Scriptorium vs. The Chalkboard
+
+Why hasn't `please` needed this until now? An inspection of `$HOME/Code` reveals that the repository filesystem itself has historically functioned as our primary memory:
+- **`index.md`** files act as navigation waypoints across package directories.
+- **`decisions/`** contains naturally ordered, named architectural decision records (ADR 001 through ADR 014) that expand human impulses into concrete technical commitments.
+- **`GEMINI.md`** serves as a high-resonance bootstrap orientation anchor for new agents.
+- **`Lore/`** preserves the cultural ethos and philosophical groove of the project.
+
+When an agent wakes up from a cold start, scanning these markdown files gives it an immediate, high-dimensional map of the workspace. **The repository filesystem is the permanent Scriptorium.**
+
+However, an engineering tension emerges:
+> **The Scriptorium (Markdown in Git)** has a high threshold. You do not commit an ADR or modify `GEMINI.md` just to note that `localhost:8080` had a port conflict during a temporary livefire test, or that a specific build command required `go mod tidy` first.
+
+We need an **antechamber to the scriptorium**—a local, low-threshold **Chalkboard** where the agent can jot down emergent, atomic, and idiosyncratic observations across turns and sessions before they graduate into git-committed documentation.
 
 ---
 
-## The Cybernetic Paradigm: Owl Memory (Mnemosyne & Perch)
+## The Cybernetic Paradigm: The Git Analogy & The Anti-DAG Guardrail
 
 In `please` lore, the owl mascot (🦉) is renowned for piercing nocturnal vision and effortless recall. When the owl perches, it does not merely remember the flight path it just completed (the DAG branch); it retains a curated mental atlas of the forest—its landmarks, hazards, and reliable routes.
 
-We distinguish two complementary tiers of cognitive state:
+### 1. Git Commit History vs. Working Tree State
 
-| Dimension | Episodic Working Memory (The DAG) | Declarative Semantic Memory (The Vault) |
-| :--- | :--- | :--- |
-| **Data Structure** | Directed Acyclic Graph (`graph.Node`) | Scoped Key-Value & Relational Store (`storage.Memory`) |
-| **Persistence** | `nodes` and `sessions` tables | `memories` and `memories_fts` tables |
-| **Lifecycle** | Branch-local; pruned via resonance decay | Durable across sessions; explicit curation & recall |
-| **Access Model** | Automatic ancestor traversal (`BuildLLMContext`) | Autonomous agent tool dispatch (`memory_*`) + Proactive preamble injection |
-| **Mutations** | Append-only immutable nodes | Upsert, overwrite, decay, tag, delete |
-| **Primary Unit** | Conversational message turn (User / Assistant / Tool) | Distilled atomic fact, constraint, preference, or workflow |
+To avoid recursive complexity, we anchor our design in a foundational metaphor:
+
+$$\text{Conversation DAG} \equiv \text{Git Commit Log}$$
+$$\text{Memory Vault} \equiv \text{Git Working Tree}$$
+
+* **The Conversation DAG** is an immutable, append-only causal graph. It preserves the complete, messy journey: false starts, exploratory tool searches, stack traces, and operator corrections. It records the **"Why"**.
+* **The Memory Vault** is a flat, mutable state machine. When your compiler compiles code, it does not replay 1,000 Git commits; it reads the current working tree on disk. The memory vault holds the current checkout of project truths. It records the **"What"**.
+
+### 2. The Anti-DAG Guardrail (Resisting Ontological Recursion)
+
+> [!WARNING]
+> **The Recursive Trap ("And Then Memory Becomes Another DAG...")**:
+> If we attempt to give memories causal edges, parent pointers, revision branches, and dependency graphs, we replicate the conversation DAG inside the database. Synchronization becomes intractable, and the engine collapses under ontological bloat.
+
+To guarantee zero recursive knots, the memory subsystem enforces strict **Flat Key-Value State Machine Rules**:
+1. **Zero Parent Pointers**: A memory record has no ancestors or descendants.
+2. **Strict Overwrite Semantics (`UPSERT`)**: When a key is updated, its content is replaced and its revision timestamp is bumped. It does not spawn a branch.
+3. **Lineage Attribution via Provenance**: The conversation DAG retains the historical context (`source_node_id` and `session_id`), allowing operators to trace any memory back to the turn where it was discovered without complicating the memory table itself.
 
 ---
 
@@ -113,33 +138,60 @@ We will implement a native, zero-external-dependency **Persistent Agent Memory S
 
 Memory records are persisted within the existing SQLite database (`vault.db`), inheriting WAL mode concurrency, zero-CGo static compilation via `modernc.org/sqlite`, and AES-GCM vault encryption ([ADR 009](009-modular-storage-extraction.md)).
 
-#### A. Relational Schema (`memories` table)
+#### A. Provenance vs. Visibility: The Relational Schema (`memories` table)
+
+We strictly separate **Provenance (Lineage)** from **Visibility (Scope)**:
+- **Provenance (`session_id`, `source_node_id`)**: Records where the memory was born.
+- **Visibility (`scope`)**: Determines which sessions are allowed to read it.
 
 ```sql
 CREATE TABLE IF NOT EXISTS memories (
     id TEXT PRIMARY KEY,
     key TEXT NOT NULL,
     content TEXT NOT NULL,
-    category TEXT NOT NULL,
-    tags TEXT,                                    -- JSON array of strings: '["go", "sqlite", "test"]'
-    scope TEXT NOT NULL DEFAULT 'workspace',     -- 'workspace', 'global', 'session'
-    confidence REAL NOT NULL DEFAULT 1.0,        -- 0.0 to 1.0 confidence score
-    source_node_id TEXT,                         -- Optional lineage pointer to nodes(id)
-    metadata TEXT,                               -- JSON object for client/tool annotations
-    access_count INTEGER NOT NULL DEFAULT 0,     -- Read access frequency telemetry
-    last_accessed_at DATETIME,                   -- Telemetry timestamp for staleness pruning
+    category TEXT NOT NULL,                      -- 'preference', 'fact', 'architecture', 'constraint', 'workflow', 'scratchpad'
+    tags TEXT,                                  -- JSON array of strings: '["go", "sqlite", "test"]'
+    scope TEXT NOT NULL DEFAULT 'workspace',   -- 'workspace', 'global', 'session'
+    confidence REAL NOT NULL DEFAULT 1.0,      -- 0.0 to 1.0 confidence score
+    
+    -- Provenance & Lineage Anchors
+    session_id TEXT,                           -- The session ID that birthed this memory (e.g. 'main', 'feat-acp')
+    source_node_id TEXT,                       -- Optional pointer to nodes(id) in the conversation DAG
+    
+    metadata TEXT,                             -- JSON object for client/tool annotations
+    access_count INTEGER NOT NULL DEFAULT 0,   -- Read access frequency telemetry
+    last_accessed_at DATETIME,                 -- Telemetry timestamp for staleness pruning
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL
 );
 
--- Unique index prevents duplicate keys within the same scope
-CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_scope_key ON memories(scope, key);
+-- Compound unique index supports session-level scratchpad isolation without collisions:
+-- Global and workspace keys are unique across the scope; session keys are unique per session.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_scope_key 
+ON memories(scope, COALESCE(session_id, ''), key);
+
 CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category);
 CREATE INDEX IF NOT EXISTS idx_memories_scope ON memories(scope);
 CREATE INDEX IF NOT EXISTS idx_memories_updated_at ON memories(updated_at);
 ```
 
-#### B. Full-Text Search Virtual Table (`memories_fts`)
+#### B. The Unified Query (The Seamless Stitch)
+
+When any active session (e.g., `sessionID = "feat-acp"`) queries for memories, the engine executes a single unified query:
+
+```sql
+SELECT * FROM memories 
+WHERE scope = 'global' 
+   OR scope = 'workspace' 
+   OR (scope = 'session' AND session_id = ?);
+```
+
+This guarantees that:
+1. **Global preferences** flow across all repositories.
+2. **Workspace invariants** flow across all sessions in this repo.
+3. **Session scratchpads** remain isolated, thread-safe, and private to the active session.
+
+#### C. Full-Text Search Virtual Table (`memories_fts`)
 
 To provide lightning-fast, zero-dependency lexical search over stored knowledge without external vector databases or Python embeddings, we leverage SQLite's built-in **FTS5** full-text search engine:
 
@@ -171,7 +223,7 @@ CREATE TRIGGER IF NOT EXISTS trg_memories_au AFTER UPDATE ON memories BEGIN
 END;
 ```
 
-#### C. Go Domain Models (`internal/storage/storage.go`)
+#### D. Go Domain Models (`internal/storage/storage.go`)
 
 ```go
 // MemoryScope defines the visibility and boundary of a memory record.
@@ -204,6 +256,7 @@ type Memory struct {
     Tags           []string       `json:"tags,omitempty"`
     Scope          MemoryScope    `json:"scope"`
     Confidence     float64        `json:"confidence"`
+    SessionID      string         `json:"session_id,omitempty"`
     SourceNodeID   string         `json:"source_node_id,omitempty"`
     Metadata       map[string]any `json:"metadata,omitempty"`
     AccessCount    int            `json:"access_count"`
@@ -214,12 +267,13 @@ type Memory struct {
 
 // MemoryFilter encapsulates query parameters for memory recall and diagnostics.
 type MemoryFilter struct {
-    Query    string          `json:"query,omitempty"`
-    Key      string          `json:"key,omitempty"`
-    Category MemoryCategory  `json:"category,omitempty"`
-    Scope    MemoryScope     `json:"scope,omitempty"`
-    Tags     []string        `json:"tags,omitempty"`
-    Limit    int             `json:"limit,omitempty"`
+    Query     string          `json:"query,omitempty"`
+    Key       string          `json:"key,omitempty"`
+    Category  MemoryCategory  `json:"category,omitempty"`
+    Scope     MemoryScope     `json:"scope,omitempty"`
+    SessionID string          `json:"session_id,omitempty"`
+    Tags      []string        `json:"tags,omitempty"`
+    Limit     int             `json:"limit,omitempty"`
 }
 ```
 
@@ -232,10 +286,8 @@ In accordance with [ADR 005 (Modular Tools Extraction)](005-modular-tools-extrac
 - **`CategoryMutate`** (Priority 20): State modification tools (`write_file`, `edit_file`, `memory_store`, `memory_delete`).
 - **`CategoryExecute`** (Priority 30): Host compute execution (`execute_command`).
 
-We introduce a dedicated tool suite registered in [`internal/tools/memory.go`](../internal/tools/memory.go).
-
 #### A. `memory_store` (Category: Mutate)
-Persists or updates an atomic memory unit. If a memory with the same `(scope, key)` already exists, it is non-destructively updated, incrementing its revision timestamp and preserving or merging tags.
+Persists or updates an atomic memory unit using `UPSERT` semantics. If `(scope, session_id, key)` already exists, it updates the content and increments the revision timestamp without branching.
 
 *Parameters:*
 ```json
@@ -375,32 +427,6 @@ Provides comprehensive introspection and diagnostic telemetry over the entire me
 }
 ```
 
-*Example Output of `memory_diagnose`:*
-```json
-{
-  "total_memories": 14,
-  "by_scope": {
-    "workspace": 11,
-    "global": 3,
-    "session": 0
-  },
-  "by_category": {
-    "architecture": 5,
-    "constraint": 4,
-    "fact": 3,
-    "preference": 2
-  },
-  "storage_bytes": 4820,
-  "most_accessed": [
-    {"key": "arch:storage:wal-mode", "access_count": 28, "last_accessed": "2026-09-17T07:15:00Z"},
-    {"key": "constraint:hermetic-tests", "access_count": 19, "last_accessed": "2026-09-17T06:30:00Z"}
-  ],
-  "stale_candidates": [
-    {"key": "scratch:temp-refactor-notes", "access_count": 1, "age_days": 42, "last_accessed": "2026-08-06T12:00:00Z"}
-  ]
-}
-```
-
 ---
 
 ### 3. Operator Diagnostic Telemetry (CLI & TUI Surfaces)
@@ -445,47 +471,59 @@ In the interactive terminal UI ([`internal/tui`](../internal/tui)):
 
 ---
 
-### 4. Engine Context Resonance & Preamble Injection (`internal/engine`)
+### 4. Engine Context Resonance & Prompt Cache Protection (`internal/engine`)
 
-How do memories enter the model's awareness? We define a dual-channel recall strategy:
+Because memory tokens sitting in prompt context consume identical attention compute and memory bandwidth as reasoning tokens during the transformer forward pass, we treat memory injection as a strictly bounded budget.
 
-```
-                      ┌──────────────────────────────────────────────┐
-                      │    SessionHarness.BuildLLMContext()          │
-                      └──────────────────────┬───────────────────────┘
-                                             │
-                      ┌──────────────────────┴───────────────────────┐
-                      ▼                                              ▼
-           [Channel 1: Proactive]                         [Channel 2: On-Demand]
-       Preamble Memory Injection                       Autonomous Tool Invocations
-                      │                                              │
-         • Fetch active constraints &                   • Model encounters novel domain
-           workspace architecture notes                   or ambiguous challenge
-         • Bounded token budget (e.g. 800 tokens)       • Model calls `memory_recall`
-         • Rendered in <recalled_memories> block        • Engine executes FTS5 query
-                      │                                 • Returns structured observations
-                      ▼                                              ▼
-       ┌─────────────────────────────┐                ┌─────────────────────────────┐
-       │ Injected into System Prompt │                │ Tool Call & Observation in  │
-       │ or High-Priority Context    │                │ Active DAG Branch Lineage   │
-       └─────────────────────────────┘                └─────────────────────────────┘
+#### A. Genesis Node Steering Contract
+Patterned directly after `AmbientTelemetryContract` in [`internal/engine/service.go`](../internal/engine/service.go), we layer an ephemeral **Memory Steering Contract** onto the Genesis root node (`RoleSystem`):
+
+```go
+const MemorySteeringContract = `You have access to a persistent cybernetic memory vault.
+High-priority workspace constraints and architectural invariants are provided in <RECALLED_MEMORIES>. 
+Treat these as established ground-truth invariants for this repository. 
+Do not recite, quote, or acknowledge this block in your responses unless directly answering questions about them.
+When you discover a critical workspace invariant or fix a non-obvious bug, autonomously persist it using memory_store. 
+Do not store conversational transcripts; the DAG already preserves turn history.`
 ```
 
-1. **Channel 1: Proactive Preamble Injection (The Core Constraints)**
-   - During `BuildLLMContext`, the engine automatically queries memories matching `category: constraint` and `category: architecture` within the active workspace scope.
-   - These are injected into the preamble under a standardized `<recalled_memories>` tag.
-   - **Token Budget Guardrail**: Proactive injection is strictly capped (e.g., maximum 5% of total context window or 1,000 tokens). If memories exceed the budget, they are prioritized by `confidence * log(access_count + 1) / (age_decay)`.
+This contract establishes **attentional de-weighting**: the model acts on memories quietly without performing or regurgitating them.
 
-2. **Channel 2: On-Demand Cybernetic Recall (The Deep Archive)**
-   - For all other facts, workflows, and historical details, the model retains agency.
-   - If the user asks "How do we run the Xcode integration tests?", the model autonomously calls `memory_recall(query="Xcode integration test", category="workflow")` to retrieve exact past recipes.
+#### B. Prefix Placement & KV-Cache Alignment
+To prevent cache-invalidation penalties across turns:
+- `<RECALLED_MEMORIES>` is placed exclusively in the **Genesis / System Node Prefix**, *never* at the leaf turn boundary.
+- In modern local inference runtimes (MLX, Ollama, llama.cpp) and cloud APIs (Anthropic, Gemini), placing memories in a stable system prefix ensures **100% KV-cache hit rates**. The attention matrices for active memories are computed once on Turn 1 and reused at near-zero latency across subsequent turns.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ 1. SYSTEM ROOT (Genesis Node)                               │
+│    • Core Persona (Owl / Please agent)                      │
+│    • Ambient Telemetry Steering                             │
+│    • Memory Steering Contract                               │
+│    • <RECALLED_MEMORIES> (Top 5-8 workspace constraints)    │  <-- 100% CACHED PREFIX
+├─────────────────────────────────────────────────────────────┤
+│ 2. DAG LINEAGE (Historical Conversation Turns)              │
+│    • Turn N-3 (User / Assistant / Tools)                    │
+│    • Turn N-2 (Compacted scratchpad)                        │  <-- RESONANCE PRUNING
+│    • Turn N-1 (Recent turn)                                 │
+├─────────────────────────────────────────────────────────────┤
+│ 3. ACTIVE LEAF TURN (Distance == 0)                         │
+│    • <USER_REQUEST> (Pristine human voice)                  │  <-- EPHEMERAL LEAF
+│    • <ADDITIONAL_METADATA> (cwd, git branch, active file)   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### C. The Strict 300–500 Token Cap (The Forward-Pass Quota)
+- Proactive memory injection is strictly capped at **300 to 500 tokens** (~5 to 10 atomic items).
+- Only `category: constraint` and `category: architecture` memories within the active workspace qualify for proactive injection.
+- All operational recipes, task workflows, and historical facts remain **On-Demand** via `memory_recall`, ensuring they do not tax the forward pass on turns where they are irrelevant.
 
 ---
 
 ### 5. Lineage Attribution & Sandboxing Safety (ADR 011 Alignment)
 
 1. **Source Node Lineage Attribution**:
-   - When the model calls `memory_store`, the engine automatically captures the active `Node.ID` from the `SessionHarness` and populates `source_node_id`.
+   - When the model calls `memory_store`, the engine automatically captures the active `Node.ID` and `SessionID` from the `SessionHarness` and populates `source_node_id` and `session_id`.
    - Any memory can therefore be traced back to the exact conversational turn, thought chain, and tool observations where it originated.
 2. **Credential Quarantine & Redaction**:
    - In strict adherence to [ADR 011 (Credential Quarantine)](011-agent-sandboxing-execution-isolation.md), `memory_store` incorporates regex pattern detectors for secret tokens (`ghp_`, `sk-`, `AIza`, private keys). Any attempt by the model or operator to store raw credentials in memory triggers an immediate validation error.
@@ -500,9 +538,10 @@ How do memories enter the model's awareness? We define a dual-channel recall str
 ### Positive
 - **Instant Cross-Session Continuity**: Agents waking up in new sessions immediately inherit the workspace's core architectural guidelines and constraints without requiring human re-briefing.
 - **Resilience Against Compaction**: Crucial discoveries survive long-turn scratchpad compactions and resonance decay by resting securely in the relational memory vault.
+- **High KV-Cache Efficiency**: Stable prefix placement in the Genesis node guarantees zero prefill latency inflation on subsequent turns.
+- **Zero Recursive Complexity**: Strict flat key-value state machine semantics prevent memory from turning into an unmanageable secondary DAG.
 - **Zero External Infrastructure**: Built entirely on SQLite (modernc.org) with embedded FTS5. Requires no vector databases (Chroma, Pinecone), no Python sidecars, no external API embedding costs, and zero network calls.
 - **High Observability & Human Control**: Operators can inspect, audit, edit, and prune memories at any time via `please memory list`, `please memory inspect`, and the `/memories` TUI overlay.
-- **Token Budget Preservation**: Eliminates repetitive directory exploration and file-grepping across turns, saving thousands of inference tokens per session.
 
 ### Negative / Trade-offs
 - **Risk of Stale or Hallucinated Memories**: An agent might store an inaccurate assumption as a "fact". 
@@ -515,13 +554,13 @@ How do memories enter the model's awareness? We define a dual-channel recall str
 ## Implementation Roadmap
 
 1. **Phase 1: Storage & Vault Subsystem (`internal/storage`)**
-   - Implement `memories` and `memories_fts` DDL schemas and migration in `sqlite.go`.
+   - Implement `memories` and `memories_fts` DDL schemas and migration in `sqlite.go` (including `session_id` and compound unique index).
    - Add `MemoryStore` interface methods to `internal/storage/storage.go`:
      - `SaveMemory(ctx, mem *Memory) error`
-     - `GetMemory(ctx, scope MemoryScope, key string) (*Memory, error)`
+     - `GetMemory(ctx, scope MemoryScope, sessionID, key string) (*Memory, error)`
      - `QueryMemories(ctx, filter MemoryFilter) ([]Memory, error)`
-     - `DeleteMemory(ctx, scope MemoryScope, key string) error`
-     - `DiagnoseMemories(ctx, scope MemoryScope) (*MemoryDiagnostics, error)`
+     - `DeleteMemory(ctx, scope MemoryScope, sessionID, key string) error`
+     - `DiagnoseMemories(ctx, scope MemoryScope, sessionID string) (*MemoryDiagnostics, error)`
    - Add unit tests covering WAL concurrency, encryption, FTS5 token search, and unique key upserts in `storage_test.go`.
 
 2. **Phase 2: Cybernetic Tools (`internal/tools`)**
@@ -534,8 +573,8 @@ How do memories enter the model's awareness? We define a dual-channel recall str
    - Render beautiful diagnostic output using Lipgloss table formatters.
 
 4. **Phase 4: Engine Harness Integration (`internal/engine`)**
-   - Wire `source_node_id` automatic injection into `memory_store` calls within `SessionHarness`.
-   - Implement proactive `<recalled_memories>` preamble construction in `Manager.BuildLLMContext()`.
+   - Wire `source_node_id` and `session_id` automatic injection into `memory_store` calls within `SessionHarness`.
+   - Implement `MemorySteeringContract` and proactive `<recalled_memories>` prefix construction in `Manager.BuildLLMContext()`, enforcing the 300–500 token budget cap.
 
 5. **Phase 5: TUI Interactive Modal (`internal/tui`)**
    - Introduce `/memories` slash command and Bubble Tea inspection overlay.
