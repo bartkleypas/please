@@ -61,6 +61,9 @@ func main() {
 		case "acp":
 			runACP(os.Args[2:])
 			return
+		case "memory":
+			runMemory(os.Args[2:])
+			return
 		}
 	}
 
@@ -111,6 +114,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  please connect [url]      Connect TUI to a remote Please daemon\n")
 		fmt.Fprintf(os.Stderr, "  please acp [options]      Start Agent Client Protocol (ACP) stdio JSON-RPC server\n")
 		fmt.Fprintf(os.Stderr, "  please cert generate      Generate 20-year internal Root CA and Server certificates\n")
+		fmt.Fprintf(os.Stderr, "  please memory [command]   Inspect, list, diagnose, and prune persistent agent memories\n")
 		fmt.Fprintf(os.Stderr, "  please inspect <node-id>  Inspect node lineage, token costs & resonance scores\n")
 		fmt.Fprintf(os.Stderr, "  please context <node-id>  Inspect reconstructed prompt messages sent to LLM\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")

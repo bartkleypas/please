@@ -246,4 +246,3 @@ func TestGraph_GetSystemRoot_MultipleRoots(t *testing.T) {
 		t.Errorf("expected sys-root, got %s", found.ID)
 	}
 }
-

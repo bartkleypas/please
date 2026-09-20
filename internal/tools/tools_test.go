@@ -522,3 +522,162 @@ func TestDeleteFile(t *testing.T) {
 		t.Errorf("expected quarantine security violation, got: %v", err)
 	}
 }
+
+type mockMemStore struct {
+	items map[string]*MemoryItem
+}
+
+func newMockMemStore() *mockMemStore {
+	return &mockMemStore{items: make(map[string]*MemoryItem)}
+}
+
+func (m *mockMemStore) SaveMemory(mem *MemoryItem) error {
+	m.items[mem.Key] = mem
+	return nil
+}
+
+func (m *mockMemStore) GetMemory(scope, sessionID, key string) (*MemoryItem, error) {
+	if item, ok := m.items[key]; ok {
+		return item, nil
+	}
+	return nil, nil
+}
+
+func (m *mockMemStore) QueryMemories(filter MemoryFilter) ([]MemoryItem, error) {
+	var out []MemoryItem
+	for _, item := range m.items {
+		if filter.Query != "" && !strings.Contains(item.Content, filter.Query) && !strings.Contains(item.Key, filter.Query) {
+			continue
+		}
+		if filter.Key != "" && item.Key != filter.Key {
+			continue
+		}
+		out = append(out, *item)
+	}
+	return out, nil
+}
+
+func (m *mockMemStore) DeleteMemory(scope, sessionID, key string) error {
+	delete(m.items, key)
+	return nil
+}
+
+func (m *mockMemStore) DiagnoseMemories(scope, sessionID string) (*MemoryDiagnostics, error) {
+	diag := &MemoryDiagnostics{
+		TotalMemories: len(m.items),
+		ByScope:       map[string]int{"workspace": len(m.items)},
+		ByCategory:    map[string]int{"constraint": len(m.items)},
+		StorageBytes:  1024,
+	}
+	for _, it := range m.items {
+		diag.MostAccessed = append(diag.MostAccessed, *it)
+	}
+	return diag, nil
+}
+
+func TestMemoryTools(t *testing.T) {
+	store := newMockMemStore()
+
+	registry := NewToolRegistry()
+	registry.RegisterMemory(store, "workspace")
+
+	ctx := WithMemoryContext(context.Background(), "session-42", "node-100")
+
+	storeTool, ok := registry.Tools["memory_store"]
+	if !ok {
+		t.Fatalf("memory_store tool not found in registry")
+	}
+	recallTool, ok := registry.Tools["memory_recall"]
+	if !ok {
+		t.Fatalf("memory_recall tool not found in registry")
+	}
+	deleteTool, ok := registry.Tools["memory_delete"]
+	if !ok {
+		t.Fatalf("memory_delete tool not found in registry")
+	}
+	diagnoseTool, ok := registry.Tools["memory_diagnose"]
+	if !ok {
+		t.Fatalf("memory_diagnose tool not found in registry")
+	}
+
+	// 1. Store valid memory
+	res, err := storeTool.Function(ctx, map[string]interface{}{
+		"key":      "arch:storage:wal",
+		"content":  "Always use SetMaxOpenConns(1) with SQLite WAL.",
+		"category": "constraint",
+		"tags":     []interface{}{"sqlite", "wal"},
+	})
+	if err != nil {
+		t.Fatalf("memory_store failed: %v", err)
+	}
+	if !strings.Contains(res, "Stored memory") {
+		t.Errorf("unexpected store output: %s", res)
+	}
+
+	// Verify session and node ID were attached
+	mem, err := store.GetMemory("workspace", "session-42", "arch:storage:wal")
+	if err != nil || mem == nil {
+		t.Fatalf("failed to get stored memory: %v", err)
+	}
+	if mem.SessionID != "session-42" {
+		t.Errorf("expected SessionID 'session-42', got %q", mem.SessionID)
+	}
+	if mem.SourceNodeID != "node-100" {
+		t.Errorf("expected SourceNodeID 'node-100', got %q", mem.SourceNodeID)
+	}
+
+	// 2. Secret token quarantine rejection (ADR 011)
+	_, err = storeTool.Function(ctx, map[string]interface{}{
+		"key":      "secret:token",
+		"content":  "Here is my token: ghp_123456789012345678901234567890123456",
+		"category": "fact",
+	})
+	if err == nil {
+		t.Fatalf("expected error storing secret token, got nil")
+	}
+	if !strings.Contains(err.Error(), "security violation (ADR 011)") {
+		t.Errorf("expected ADR 011 security violation, got: %v", err)
+	}
+
+	// 3. Recall memory
+	recallRes, err := recallTool.Function(ctx, map[string]interface{}{
+		"query": "SetMaxOpenConns",
+	})
+	if err != nil {
+		t.Fatalf("memory_recall failed: %v", err)
+	}
+	if !strings.Contains(recallRes, "arch:storage:wal") {
+		t.Errorf("expected recall to find arch:storage:wal, got: %s", recallRes)
+	}
+
+	// 4. Diagnose memory bank
+	diagRes, err := diagnoseTool.Function(ctx, map[string]interface{}{})
+	if err != nil {
+		t.Fatalf("memory_diagnose failed: %v", err)
+	}
+	if !strings.Contains(diagRes, "Total Memories: 1") {
+		t.Errorf("expected 1 total memory in diagnose output, got: %s", diagRes)
+	}
+
+	// 5. Delete memory
+	delRes, err := deleteTool.Function(ctx, map[string]interface{}{
+		"key": "arch:storage:wal",
+	})
+	if err != nil {
+		t.Fatalf("memory_delete failed: %v", err)
+	}
+	if !strings.Contains(delRes, "Deleted memory") {
+		t.Errorf("unexpected delete output: %s", delRes)
+	}
+
+	// Verify recall after delete returns empty
+	recallAfterDel, err := recallTool.Function(ctx, map[string]interface{}{
+		"key": "arch:storage:wal",
+	})
+	if err != nil {
+		t.Fatalf("memory_recall after delete failed: %v", err)
+	}
+	if !strings.Contains(recallAfterDel, "No memories found") {
+		t.Errorf("expected no memories found, got: %s", recallAfterDel)
+	}
+}

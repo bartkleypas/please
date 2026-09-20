@@ -522,5 +522,3 @@ func TestSessionHarness_PermissionGate_Error(t *testing.T) {
 		t.Fatalf("expected context.Canceled error, got: %v", err)
 	}
 }
-
-

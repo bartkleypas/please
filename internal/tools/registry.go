@@ -60,6 +60,16 @@ func (r *ToolRegistry) RegisterDefaults(workspaceDir ...string) {
 	}
 }
 
+// RegisterMemory registers all cybernetic memory_* tools bound to store.
+func (r *ToolRegistry) RegisterMemory(store MemoryStore, defaultScope ...string) {
+	if store == nil {
+		return
+	}
+	for _, t := range MemoryTools(store, defaultScope...) {
+		r.Register(t)
+	}
+}
+
 // RegisterDefaultTools registers all default tools into the provided registry scoped to workspaceDir.
 // Also actual surface area in the `engine` package.
 func RegisterDefaultTools(registry *ToolRegistry, workspaceDir ...string) {

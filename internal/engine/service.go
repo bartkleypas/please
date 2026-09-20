@@ -12,6 +12,7 @@ import (
 
 	"path/filepath"
 
+	"github.com/bartkleypas/please/internal/storage"
 	"github.com/bartkleypas/please/internal/tools"
 	"github.com/google/uuid"
 )
@@ -35,6 +36,10 @@ const SignatSteeringContract = "Conclude your response with a 1-3 emoji posture 
 // AmbientTelemetryContract defines the attentional de-weighting instruction for peripheral environment data.
 // Layered ephemerally onto the Genesis root node (RoleSystem) when ambient_telemetry is enabled.
 const AmbientTelemetryContract = "You may receive peripheral environmental telemetry wrapped in <ADDITIONAL_METADATA> alongside user turns (such as current working directory, active git branch, or local timestamps). This metadata provides passive situational context. Do not recite, quote, or acknowledge this metadata in your responses unless the user explicitly asks about it."
+
+// MemorySteeringContract defines the attentional de-weighting instruction for persistent memory invariants.
+// Layered ephemerally onto the Genesis root node (RoleSystem) alongside recalled workspace constraints (ADR 014).
+const MemorySteeringContract = "You have access to a persistent cybernetic memory vault.\nHigh-priority workspace constraints and architectural invariants are provided in <RECALLED_MEMORIES>.\nTreat these as established ground-truth invariants for this repository.\nDo not recite, quote, or acknowledge this block in your responses unless directly answering questions about them.\nWhen you discover a critical workspace invariant or fix a non-obvious bug, autonomously persist it using memory_store.\nDo not store conversational transcripts; the DAG already preserves turn history."
 
 // Manager is the central coordinator for the application engine. It provides
 // a high-level API that combines graph operations (traversal, branching)
@@ -80,6 +85,9 @@ func (m *Manager) CloneWithWorkspace(workspaceDir string, primaryWorkspace ...st
 		prim = primaryWorkspace[0]
 	}
 	tools.RegisterDefaultTools(cloned.Registry, workspaceDir, prim)
+	if memStore, ok := cloned.Storage.(storage.MemoryStore); ok && memStore != nil {
+		cloned.Registry.RegisterMemory(NewMemoryToolsAdapter(memStore), "workspace")
+	}
 	return cloned
 }
 
@@ -604,6 +612,20 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 			}
 		}
 
+		// Layered Genesis Prompt for Persistent Memory (ADR 014):
+		// Dynamically layer active workspace constraints into the root node prefix (<RECALLED_MEMORIES>)
+		// to guarantee 100% KV-cache hit rates while protecting the reasoning token budget.
+		if node.Role == RoleSystem || (i == 0 && node.Role != RoleUser) {
+			if memStore, ok := m.Storage.(storage.MemoryStore); ok && memStore != nil {
+				if !strings.Contains(content, "RECALLED_MEMORIES") {
+					recalledBlock := m.deriveRecalledMemoriesPrefix(memStore)
+					if recalledBlock != "" {
+						content += "\n\n" + MemorySteeringContract + "\n\n" + recalledBlock
+					}
+				}
+			}
+		}
+
 		// Ephemeral Leaf Telemetry Envelope (ADR 003 Synthesis):
 		// Wrap only the active user turn (distance == 0 && RoleUser) in <USER_REQUEST> and <ADDITIONAL_METADATA>.
 		// Historical user turns (distance > 0) remain 100% clean, un-bumpered user text.
@@ -611,7 +633,6 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 			telem := DeriveAmbientTelemetry(m.WorkspaceDir, m.clientContext)
 			content = FormatTelemetryEnvelope(content, telem)
 		}
-
 
 		msg := Message{
 			ID:         node.ID,
@@ -1013,4 +1034,42 @@ func (m *Manager) EstimateContextFill(leafID string) (float64, int, error) {
 	}
 	fillRatio := float64(estimatedTokens) / float64(limit)
 	return fillRatio, estimatedTokens, nil
+}
+
+// deriveRecalledMemoriesPrefix queries active workspace constraints and architecture invariants
+// and formats them into a strictly bounded <RECALLED_MEMORIES> XML block for Genesis prefix injection (ADR 014).
+func (m *Manager) deriveRecalledMemoriesPrefix(memStore storage.MemoryStore) string {
+	mems, err := memStore.QueryMemories(storage.MemoryFilter{
+		Limit: 15,
+	})
+	if err != nil || len(mems) == 0 {
+		return ""
+	}
+
+	var filtered []storage.Memory
+	for _, mem := range mems {
+		if (mem.Scope == storage.ScopeWorkspace || mem.Scope == storage.ScopeGlobal) &&
+			(mem.Category == storage.CategoryConstraint || mem.Category == storage.CategoryArchitecture) {
+			filtered = append(filtered, mem)
+		}
+	}
+	if len(filtered) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("<RECALLED_MEMORIES count=\"%d\">\n", len(filtered)))
+	totalChars := 0
+	const maxChars = 2000 // Strict 300-500 token budget cap
+
+	for _, f := range filtered {
+		item := fmt.Sprintf("  <memory key=%q scope=%q category=%q>%s</memory>\n", f.Key, string(f.Scope), string(f.Category), strings.TrimSpace(f.Content))
+		if totalChars+len(item) > maxChars {
+			break
+		}
+		sb.WriteString(item)
+		totalChars += len(item)
+	}
+	sb.WriteString("</RECALLED_MEMORIES>")
+	return sb.String()
 }

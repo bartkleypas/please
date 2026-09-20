@@ -208,4 +208,3 @@ func (g *Graph) GetSystemRoot() (*Node, error) {
 	}
 	return nil, fmt.Errorf("root node is not a system prompt")
 }
-

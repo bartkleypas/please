@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/bartkleypas/please/internal/storage"
 )
 
 func TestManager_Validation(t *testing.T) {
@@ -1332,5 +1334,125 @@ func TestManager_CloneWithWorkspace(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(primaryDir, "hello.txt")); !os.IsNotExist(err) {
 		t.Errorf("hello.txt leaked into primaryDir!")
+	}
+}
+
+type MockMemoryStorage struct {
+	MockStorage
+	memories map[string]*storage.Memory
+}
+
+func (m *MockMemoryStorage) SaveMemory(mem *storage.Memory) error {
+	if m.memories == nil {
+		m.memories = make(map[string]*storage.Memory)
+	}
+	m.memories[mem.Key] = mem
+	return nil
+}
+
+func (m *MockMemoryStorage) GetMemory(scope storage.MemoryScope, sessionID, key string) (*storage.Memory, error) {
+	if m.memories == nil {
+		return nil, nil
+	}
+	return m.memories[key], nil
+}
+
+func (m *MockMemoryStorage) QueryMemories(filter storage.MemoryFilter) ([]storage.Memory, error) {
+	var result []storage.Memory
+	for _, mem := range m.memories {
+		if filter.Scope != "" && mem.Scope != filter.Scope {
+			continue
+		}
+		if filter.Category != "" && mem.Category != filter.Category {
+			continue
+		}
+		result = append(result, *mem)
+	}
+	return result, nil
+}
+
+func (m *MockMemoryStorage) DeleteMemory(scope storage.MemoryScope, sessionID, key string) error {
+	if m.memories != nil {
+		delete(m.memories, key)
+	}
+	return nil
+}
+
+func (m *MockMemoryStorage) DiagnoseMemories(scope storage.MemoryScope, sessionID string) (*storage.MemoryDiagnostics, error) {
+	return &storage.MemoryDiagnostics{TotalMemories: len(m.memories)}, nil
+}
+
+func TestBuildLLMContext_RecalledMemories(t *testing.T) {
+	memStore := &MockMemoryStorage{
+		memories: make(map[string]*storage.Memory),
+	}
+	_ = memStore.SaveMemory(&storage.Memory{
+		Key:      "build_rule",
+		Content:  "Always run make test before commit",
+		Category: storage.CategoryConstraint,
+		Scope:    storage.ScopeWorkspace,
+	})
+	_ = memStore.SaveMemory(&storage.Memory{
+		Key:      "db_engine",
+		Content:  "SQLite using modernc.org/sqlite",
+		Category: storage.CategoryArchitecture,
+		Scope:    storage.ScopeGlobal,
+	})
+
+	g := NewGraph()
+	rootNode := &Node{
+		ID:        "root",
+		Role:      RoleSystem,
+		Content:   "Base System Prompt",
+		Timestamp: time.Now(),
+	}
+	g.AddNode(rootNode)
+	userNode := &Node{
+		ID:        "user-1",
+		ParentID:  "root",
+		Role:      RoleUser,
+		Content:   "Hello",
+		Timestamp: time.Now().Add(time.Second),
+	}
+	g.AddNode(userNode)
+
+	mgr := NewManager(g, memStore)
+	messages, err := mgr.BuildLLMContext("user-1", false)
+	if err != nil {
+		t.Fatalf("unexpected error building context: %v", err)
+	}
+
+	if len(messages) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(messages))
+	}
+
+	sysMsg := messages[0]
+	if sysMsg.Role != RoleSystem {
+		t.Errorf("expected first message to be system, got %s", sysMsg.Role)
+	}
+
+	// Invariant check: Genesis node contains MemorySteeringContract and <RECALLED_MEMORIES>
+	if !strings.Contains(sysMsg.Content, MemorySteeringContract) {
+		t.Errorf("expected system prompt to contain MemorySteeringContract")
+	}
+	if !strings.Contains(sysMsg.Content, "<RECALLED_MEMORIES>") {
+		t.Errorf("expected system prompt to contain <RECALLED_MEMORIES> block")
+	}
+	if !strings.Contains(sysMsg.Content, "build_rule") || !strings.Contains(sysMsg.Content, "Always run make test before commit") {
+		t.Errorf("expected recalled memories to include build_rule invariant")
+	}
+	if !strings.Contains(sysMsg.Content, "db_engine") || !strings.Contains(sysMsg.Content, "SQLite using modernc.org/sqlite") {
+		t.Errorf("expected recalled memories to include db_engine invariant")
+	}
+
+	// Without memories in store:
+	emptyStore := &MockMemoryStorage{memories: make(map[string]*storage.Memory)}
+	mgrEmpty := NewManager(g, emptyStore)
+	messagesEmpty, err := mgrEmpty.BuildLLMContext("user-1", false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(messagesEmpty[0].Content, "<RECALLED_MEMORIES>") {
+		t.Errorf("expected empty store not to emit <RECALLED_MEMORIES>")
 	}
 }

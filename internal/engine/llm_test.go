@@ -59,61 +59,31 @@ func setupLiveFire(t *testing.T) (*Manager, LLMProvider) {
 
 	var options *ModelOptions
 
-	// 2. Try loading a workspace-specific test config
-	workspaceConfigPath := "livefire.json"
-	if data, err := os.ReadFile(workspaceConfigPath); err == nil {
-		var wsConfig struct {
-			Provider         string        `json:"provider"`
-			Endpoint         string        `json:"endpoint"`
-			Model            string        `json:"model"`
-			APIKey           string        `json:"api_key"`
-			SignatSteering   *bool         `json:"signat_steering"`
-			AmbientTelemetry *bool         `json:"ambient_telemetry"`
-			Options          *ModelOptions `json:"options"`
+	// 2. Try loading workspace-specific test config or global please config
+	var activeCfg *Config
+	if cfg, err := LoadConfigFile("livefire.json"); err == nil {
+		activeCfg = cfg
+	} else if cfg, err := LoadConfig(); err == nil {
+		activeCfg = cfg
+	}
+
+	if activeCfg != nil && activeCfg.Server != nil {
+		mgr.SignatSteering = activeCfg.EnableSignatSteering()
+		mgr.AmbientTelemetry = activeCfg.EnableAmbientTelemetry()
+		if activeCfg.Server.Provider != "" {
+			providerType = activeCfg.Server.Provider
 		}
-		if json.Unmarshal(data, &wsConfig) == nil {
-			if wsConfig.Provider != "" {
-				providerType = wsConfig.Provider
-			}
-			if wsConfig.Endpoint != "" {
-				endpoint = wsConfig.Endpoint
-			}
-			if wsConfig.Model != "" {
-				model = wsConfig.Model
-			}
-			if wsConfig.APIKey != "" {
-				apiKey = wsConfig.APIKey
-			}
-			if wsConfig.SignatSteering != nil {
-				mgr.SignatSteering = *wsConfig.SignatSteering
-			}
-			if wsConfig.AmbientTelemetry != nil {
-				mgr.AmbientTelemetry = *wsConfig.AmbientTelemetry
-			}
-			if wsConfig.Options != nil {
-				options = wsConfig.Options
-			}
+		if activeCfg.Server.Endpoint != "" {
+			endpoint = activeCfg.Server.Endpoint
 		}
-	} else {
-		// 3. Fall back to the user's global please config
-		if globalCfg, err := LoadConfig(); err == nil && globalCfg.Server != nil {
-			mgr.SignatSteering = globalCfg.EnableSignatSteering()
-			mgr.AmbientTelemetry = globalCfg.EnableAmbientTelemetry()
-			if globalCfg.Server.Provider != "" {
-				providerType = globalCfg.Server.Provider
-			}
-			if globalCfg.Server.Endpoint != "" {
-				endpoint = globalCfg.Server.Endpoint
-			}
-			if globalCfg.Server.Model != "" {
-				model = globalCfg.Server.Model
-			}
-			if globalCfg.Server.APIKey != "" {
-				apiKey = globalCfg.Server.APIKey
-			}
-			if globalCfg.Server.Options != nil {
-				options = globalCfg.Server.Options
-			}
+		if activeCfg.Server.Model != "" {
+			model = activeCfg.Server.Model
+		}
+		if activeCfg.Server.APIKey != "" {
+			apiKey = activeCfg.Server.APIKey
+		}
+		if activeCfg.Server.Options != nil {
+			options = activeCfg.Server.Options
 		}
 	}
 

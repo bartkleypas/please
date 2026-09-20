@@ -6,6 +6,7 @@ import (
 
 	"github.com/bartkleypas/please/internal/engine"
 	"github.com/bartkleypas/please/internal/server"
+	"github.com/bartkleypas/please/internal/storage"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -18,6 +19,7 @@ type ViewMode int
 const (
 	ModeChat ViewMode = iota
 	ModeMap
+	ModeMemories
 )
 
 type Model struct {
@@ -41,6 +43,12 @@ type Model struct {
 	SpinnerFrame      int
 	IsThinking        bool
 	RemoteURL         string // Active remote daemon URL if in connected client mode
+
+	// Memory Deck mode state (ModeMemories)
+	MemoryDeck       []storage.Memory
+	MemoryDeckIndex  int
+	MemoryDetailCard *storage.Memory
+	MemoryDeckFilter string
 
 	// ChatHistoryBuffer stores the rendered chat history to allow incremental updates
 	ChatHistoryBuffer string

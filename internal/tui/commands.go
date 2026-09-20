@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/bartkleypas/please/internal/engine"
+	"github.com/bartkleypas/please/internal/storage"
 	"github.com/bartkleypas/please/internal/worktree"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -48,6 +49,8 @@ func init() {
 	commandRegistry["/worktree"] = &WorktreeCommand{}
 	commandRegistry["/worktrees"] = &WorktreeCommand{}
 	commandRegistry["/sandbox"] = &SandboxCommand{}
+	commandRegistry["/memories"] = &MemoriesCommand{}
+	commandRegistry["/memory"] = &MemoriesCommand{}
 
 	// Tool confirmation commands
 	commandRegistry["/yes"] = &ConfirmToolCommand{}
@@ -877,6 +880,7 @@ func (c *HelpCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	s.WriteString("  /compact [hint] Summarize the current branch into a milestone Supernode (alias: /compress)\n")
 	s.WriteString("  /fold [all]     Fold/unfold reasoning thought process blocks (key: Tab / Shift+Tab)\n")
 	s.WriteString("  /sandbox [mode] Inspect or set sandbox security policy (strict|standard|permissive)\n")
+	s.WriteString("  /memories       Inspect persistent cybernetic agent memories (alias: /memory)\n")
 	s.WriteString("  /parameters     Inspect Stable Diffusion metadata parameters for current node images (alias: /info)\n")
 	s.WriteString("  /q, /quit, /bye Exit the application\n\n")
 	s.WriteString("Navigation:\n")
@@ -1295,6 +1299,126 @@ func (c *WorktreeCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) 
 
 	default:
 		m.Notification = "Usage: /worktree [list|remove <session>]"
+		return m, nil
+	}
+}
+
+type MemoriesCommand struct{}
+
+func (c *MemoriesCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
+	if m.Manager == nil || m.Manager.Storage == nil {
+		m.Notification = "Storage not initialized"
+		return m, nil
+	}
+
+	memStore, ok := m.Manager.Storage.(storage.MemoryStore)
+	if !ok {
+		m.Notification = "Persistent agent memory requires SQLite storage (.db)"
+		return m, nil
+	}
+
+	sub := ""
+	if len(args) > 0 {
+		sub = strings.ToLower(args[0])
+	}
+
+	switch sub {
+	case "diag", "diagnose", "stats":
+		diag, err := memStore.DiagnoseMemories("", "")
+		if err != nil {
+			m.Notification = fmt.Sprintf("Failed to diagnose memories: %v", err)
+			return m, nil
+		}
+		var sb strings.Builder
+		sb.WriteString("--- 🧠 Memory Vault Telemetry & Health (ADR 014) ---\n\n")
+		sb.WriteString(fmt.Sprintf("Total Memories:    %d\n", diag.TotalMemories))
+		sb.WriteString(fmt.Sprintf("Storage Footprint: %.2f KB (%d bytes)\n\n", float64(diag.StorageBytes)/1024.0, diag.StorageBytes))
+
+		sb.WriteString("Scope Distribution:\n")
+		for sc, count := range diag.ByScope {
+			sb.WriteString(fmt.Sprintf("  • %-12s: %d\n", sc, count))
+		}
+
+		sb.WriteString("\nCategory Distribution:\n")
+		for cat, count := range diag.ByCategory {
+			sb.WriteString(fmt.Sprintf("  • %-14s: %d\n", cat, count))
+		}
+
+		if len(diag.MostAccessed) > 0 {
+			sb.WriteString("\n🔥 Most Accessed Memories:\n")
+			for i, mem := range diag.MostAccessed {
+				if i >= 5 {
+					break
+				}
+				sb.WriteString(fmt.Sprintf("  %d. %s (%s, %d accesses)\n", i+1, mem.Key, mem.Scope, mem.AccessCount))
+			}
+		}
+
+		m.ViewportOverride = sb.String()
+		m.Viewport.SetContent(m.ViewportOverride)
+		m.Viewport.GotoTop()
+		return m, nil
+
+	case "inspect", "show", "get":
+		if len(args) < 2 {
+			m.Notification = "Usage: /memories inspect <key>"
+			return m, nil
+		}
+		key := args[1]
+		mem, _ := memStore.GetMemory(storage.ScopeWorkspace, m.SessionID, key)
+		if mem == nil {
+			mem, _ = memStore.GetMemory(storage.ScopeGlobal, "", key)
+		}
+		if mem == nil {
+			// Fuzzy / prefix search
+			candidates, _ := memStore.QueryMemories(storage.MemoryFilter{Limit: 100})
+			lower := strings.ToLower(key)
+			for _, c := range candidates {
+				if strings.Contains(strings.ToLower(c.Key), lower) {
+					found := c
+					mem = &found
+					break
+				}
+			}
+		}
+		if mem == nil {
+			m.Notification = fmt.Sprintf("Memory %q not found", key)
+			return m, nil
+		}
+
+		m.ViewMode = ModeMemories
+		m.MemoryDeck = []storage.Memory{*mem}
+		m.MemoryDeckIndex = 0
+		m.MemoryDetailCard = mem
+		m.ViewportOverride = ""
+		m.Viewport.SetContent(m.renderMemoriesView())
+		m.Viewport.GotoTop()
+		return m, nil
+
+	default:
+		filter := storage.MemoryFilter{Limit: 100}
+		if sub == "search" || sub == "find" || sub == "q" {
+			if len(args) > 1 {
+				filter.Query = strings.Join(args[1:], " ")
+			}
+		} else if len(args) > 0 && !strings.HasPrefix(args[0], "/") {
+			filter.Query = strings.Join(args, " ")
+		}
+
+		mems, err := memStore.QueryMemories(filter)
+		if err != nil {
+			m.Notification = fmt.Sprintf("Failed to query memories: %v", err)
+			return m, nil
+		}
+
+		m.ViewMode = ModeMemories
+		m.MemoryDeck = mems
+		m.MemoryDeckIndex = 0
+		m.MemoryDetailCard = nil
+		m.MemoryDeckFilter = filter.Query
+		m.ViewportOverride = ""
+		m.Viewport.SetContent(m.renderMemoriesView())
+		m.Viewport.GotoTop()
 		return m, nil
 	}
 }

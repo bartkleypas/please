@@ -87,7 +87,6 @@ func TestACP_BinaryE2E(t *testing.T) {
 		_ = cmd.Wait()
 	}()
 
-
 	client := &e2eClient{}
 	conn := acpsdk.NewClientSideConnection(client, stdin, stdout)
 
@@ -137,4 +136,3 @@ func TestACP_BinaryE2E(t *testing.T) {
 	}
 	t.Logf("Prompt SUCCESS: StopReason = %s, Messages received = %v", promptResp.StopReason, client.messages)
 }
-

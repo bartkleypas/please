@@ -175,4 +175,3 @@ func TestLocalHarnessProvider_GenerateResponse_StatelessOneShot(t *testing.T) {
 		t.Errorf("expected empty session head, got %s", headID)
 	}
 }
-

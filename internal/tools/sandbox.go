@@ -213,4 +213,3 @@ func resolveToolPath(args map[string]interface{}, ws, prim string) (string, stri
 	}
 	return path, safePath, nil
 }
-
