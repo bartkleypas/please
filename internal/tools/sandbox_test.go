@@ -1,8 +1,10 @@
 package tools
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -155,5 +157,81 @@ func TestValidateSafePath_WorktreeVirtualization(t *testing.T) {
 	expected := canonicalizePath(filepath.Join(worktreeDir, "cmd", "main.go"))
 	if resolved != expected {
 		t.Errorf("expected virtualized path %s, got %s", expected, resolved)
+	}
+}
+
+func TestToolDefaults_WorkspaceScoping(t *testing.T) {
+	wsDir := t.TempDir()
+	absWs, _ := filepath.Abs(wsDir)
+
+	registry := NewToolRegistry()
+	RegisterDefaultTools(registry, wsDir)
+
+	tools := registry.GetTools()
+	toolsMap := make(map[string]Tool)
+	for _, tool := range tools {
+		toolsMap[tool.Name] = tool
+	}
+
+	ctx := context.Background()
+
+	// 1. Test write_file in workspace
+	writeTool, ok := toolsMap["write_file"]
+	if !ok {
+		t.Fatal("write_file tool not found")
+	}
+	_, err := writeTool.Function(ctx, map[string]interface{}{
+		"path":    "hello.txt",
+		"content": "Hello Workspace",
+	})
+	if err != nil {
+		t.Fatalf("write_file failed: %v", err)
+	}
+
+	// Verify file was written inside wsDir
+	writtenBytes, err := os.ReadFile(filepath.Join(absWs, "hello.txt"))
+	if err != nil || string(writtenBytes) != "Hello Workspace" {
+		t.Fatalf("file not found in workspace: %v, content: %s", err, string(writtenBytes))
+	}
+
+	// 2. Test read_file in workspace
+	readTool, ok := toolsMap["read_file"]
+	if !ok {
+		t.Fatal("read_file tool not found")
+	}
+	content, err := readTool.Function(ctx, map[string]interface{}{
+		"path": "hello.txt",
+	})
+	if err != nil {
+		t.Fatalf("read_file failed: %v", err)
+	}
+	if !strings.Contains(content, "Hello Workspace") {
+		t.Errorf("expected content to contain 'Hello Workspace', got '%s'", content)
+	}
+
+	// 3. Test security sandbox: Path traversal rejected
+	_, err = readTool.Function(ctx, map[string]interface{}{
+		"path": "../../../etc/passwd",
+	})
+	if err == nil {
+		t.Fatal("expected path traversal outside workspace to fail with security error")
+	}
+	if !strings.Contains(err.Error(), "outside of workspace root") && !strings.Contains(err.Error(), "outside of project root") {
+		t.Errorf("expected security error, got: %v", err)
+	}
+
+	// 4. Test execute_command runs in workspace dir
+	cmdTool, ok := toolsMap["execute_command"]
+	if !ok {
+		t.Fatal("execute_command tool not found")
+	}
+	pwdOut, err := cmdTool.Function(ctx, map[string]interface{}{
+		"command": "pwd",
+	})
+	if err != nil {
+		t.Fatalf("execute_command pwd failed: %v", err)
+	}
+	if strings.TrimSpace(pwdOut) != absWs {
+		t.Errorf("expected execute_command to run in %s, got %s", absWs, strings.TrimSpace(pwdOut))
 	}
 }
