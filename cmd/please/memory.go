@@ -381,7 +381,7 @@ func runMemoryDiagnose(args []string) {
 	}
 
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println(memHeaderStyle.Render("📊 Memory Vault Telemetry & Health (ADR 014)"))
+	fmt.Println(memHeaderStyle.Render("📊 Memory Vault Telemetry & Health"))
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Printf("  • Total Memories:   %d\n", diag.TotalMemories)
 	fmt.Printf("  • Storage Footprint: %.2f KB (%d bytes)\n", float64(diag.StorageBytes)/1024.0, diag.StorageBytes)

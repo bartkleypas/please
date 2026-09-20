@@ -73,12 +73,12 @@ type MemoryFilter struct {
 
 // MemoryDiagnostics captures aggregate health and volume telemetry of the memory store.
 type MemoryDiagnostics struct {
-	TotalMemories  int                       `json:"total_memories"`
-	ByScope        map[MemoryScope]int       `json:"by_scope"`
-	ByCategory     map[MemoryCategory]int    `json:"by_category"`
-	StorageBytes   int64                     `json:"storage_bytes"`
-	MostAccessed   []Memory                  `json:"most_accessed"`
-	StaleCandidates []Memory                 `json:"stale_candidates"`
+	TotalMemories   int                    `json:"total_memories"`
+	ByScope         map[MemoryScope]int    `json:"by_scope"`
+	ByCategory      map[MemoryCategory]int `json:"by_category"`
+	StorageBytes    int64                  `json:"storage_bytes"`
+	MostAccessed    []Memory               `json:"most_accessed"`
+	StaleCandidates []Memory               `json:"stale_candidates"`
 }
 
 // MemoryStore defines the interface for persisting and recalling atomic agent memories.

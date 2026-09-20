@@ -199,7 +199,6 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 			_ = h.Manager.Storage.SaveNode(userNode)
 		}
 
-
 		if h.OnNodeSaved != nil {
 			h.OnNodeSaved(userNode)
 		}

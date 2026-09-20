@@ -1716,4 +1716,3 @@ func TestMemoriesDeckNavigation_AndPrune(t *testing.T) {
 		t.Errorf("expected return to ModeChat after second esc, got %v", m.ViewMode)
 	}
 }
-

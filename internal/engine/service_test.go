@@ -1456,4 +1456,3 @@ func TestBuildLLMContext_RecalledMemories(t *testing.T) {
 		t.Errorf("expected empty store not to emit <RECALLED_MEMORIES>")
 	}
 }
-

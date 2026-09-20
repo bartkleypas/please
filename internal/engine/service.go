@@ -634,7 +634,6 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 			content = FormatTelemetryEnvelope(content, telem)
 		}
 
-
 		msg := Message{
 			ID:         node.ID,
 			ParentID:   node.ParentID,

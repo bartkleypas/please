@@ -661,4 +661,3 @@ func TestACPAgent_Cancel(t *testing.T) {
 		t.Errorf("expected session cancel func to be triggered")
 	}
 }
-

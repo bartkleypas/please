@@ -338,8 +338,8 @@ func MemoryRecallTool(store MemoryStore, defaultScope string) Tool {
 // MemoryDeleteTool returns the CategoryMutate tool for deleting or forgetting a memory.
 func MemoryDeleteTool(store MemoryStore, defaultScope string) Tool {
 	return Tool{
-		Name:     "memory_delete",
-		Category: CategoryMutate,
+		Name:        "memory_delete",
+		Category:    CategoryMutate,
 		Description: "Deletes or forgets an obsolete, contradicted, or superseded memory by key and scope.",
 		Parameters: map[string]interface{}{
 			"type": "object",
@@ -390,8 +390,8 @@ func MemoryDeleteTool(store MemoryStore, defaultScope string) Tool {
 // MemoryDiagnoseTool returns the CategorySensory tool for inspecting memory bank telemetry.
 func MemoryDiagnoseTool(store MemoryStore) Tool {
 	return Tool{
-		Name:     "memory_diagnose",
-		Category: CategorySensory,
+		Name:        "memory_diagnose",
+		Category:    CategorySensory,
 		Description: "Provides comprehensive diagnostic telemetry over the project memory vault, including volume, category distributions, storage footprints, and stale memories.",
 		Parameters: map[string]interface{}{
 			"type": "object",

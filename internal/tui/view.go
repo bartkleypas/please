@@ -81,7 +81,7 @@ func (m Model) View() string {
 	if m.RemoteURL != "" {
 		titleText = fmt.Sprintf(" PLEASE - Connected (%s) 🟢 ", m.RemoteURL)
 	} else if m.ViewMode == ModeMemories {
-		titleText = " PLEASE - Memory Vault (ADR 014) "
+		titleText = " PLEASE - Memory Vault"
 	}
 	s := titleStyle.Render(titleText) + "\n\n"
 

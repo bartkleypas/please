@@ -21,7 +21,7 @@ func (m *Model) renderMemoriesDeck() string {
 	var sb strings.Builder
 
 	// Header
-	deckTitle := "🧠 Persistent Agent Memory Deck (ADR 014)"
+	deckTitle := "🧠 Persistent Agent Memory Deck"
 	if m.MemoryDeckFilter != "" {
 		deckTitle = fmt.Sprintf("🧠 Memory Deck (Filter: %q)", m.MemoryDeckFilter)
 	}
