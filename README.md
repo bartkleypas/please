@@ -75,6 +75,22 @@ please context 01a08802
 please context 01a08802 --json | jq .
 ```
 
+### Persistent Agent Memory & Diagnostics (ADR 014)
+Inspect and manage the agent's long-term semantic and architectural memory vault:
+```bash
+# List all persistent memories in the vault
+please memory list
+
+# Inspect a specific memory with access telemetry and full Markdown content
+please memory inspect workflow:test-caching-bypass
+
+# View vault health, category distributions, and storage footprint
+please memory diagnose
+
+# Prune stale scratchpad memories older than 30 days
+please memory prune --older-than 720h
+```
+
 ---
 
 ## 🚀 Getting Started
@@ -248,6 +264,7 @@ Inside the app, use these interactive commands to navigate your story:
 | `/version`| Display the application version and git commit hash. |
 | `/gc` | Garbage collect deleted nodes from the database. |
 | `/audit` | Toggle audit mode to view extended UUIDs for each node. |
+| `/memories` | Browse the interactive persistent memory card deck (alias: `/memory`). |
 | `/pacing` | Toggle natural reading pacing for LLM stream (`/pacing on`, `/pacing off`). |
 | `/q` or `/bye` | Gracefully exit the application. |
 
