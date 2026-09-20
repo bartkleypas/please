@@ -80,6 +80,8 @@ func (m Model) View() string {
 	titleText := " PLEASE - Narrative Graph "
 	if m.RemoteURL != "" {
 		titleText = fmt.Sprintf(" PLEASE - Connected (%s) 🟢 ", m.RemoteURL)
+	} else if m.ViewMode == ModeMemories {
+		titleText = " PLEASE - Memory Vault (ADR 014) "
 	}
 	s := titleStyle.Render(titleText) + "\n\n"
 
@@ -138,6 +140,12 @@ func (m Model) View() string {
 			s += "\n\n" + inputBoxStyle.Render(m.SearchInput.View())
 		} else if !m.AwaitingPruneConfirmation && !m.AwaitingCompactConfirmation && !m.IsCompressing {
 			s += "\n\n" + m.renderFooterHelp("h/l: fold/unfold • j/k: move • g/G: top/end • /: search • c: compact • d: prune • esc: chat")
+		}
+	} else if m.ViewMode == ModeMemories {
+		if m.MemoryDetailCard != nil {
+			s += "\n\n" + m.renderFooterHelp("esc/backspace/q: back to deck • d/x: prune • ↑/↓: scroll")
+		} else {
+			s += "\n\n" + m.renderFooterHelp("↑/↓/j/k: select card • enter/space: flip card • d/x: prune • esc/q: chat")
 		}
 	} else {
 		if len(m.PendingImages) > 0 {

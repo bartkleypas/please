@@ -22,4 +22,17 @@ var (
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(lipgloss.Color("#2d5a45")).
 			Padding(0, 1)
+
+	// Memory Deck and Card styles (ModeMemories)
+	memDeckHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e0e7e3")).Background(lipgloss.Color("#1e3a2f")).Padding(0, 1)
+	memCursorRowStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#0d1b15")).Background(lipgloss.Color("#4ade80"))
+	memKeyStyle        = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#4ade80"))
+	memScopeStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#60a5fa"))
+	memCatStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("#facc15"))
+	memDimStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("#64748b"))
+	memFooterStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#4b7a63")).Italic(true)
+	memCardBoxStyle    = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("#2d5a45")).
+				Padding(1, 2)
 )

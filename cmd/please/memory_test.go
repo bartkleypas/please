@@ -40,8 +40,15 @@ func TestMemoryCLI_Commands(t *testing.T) {
 		Scope:      storage.ScopeWorkspace,
 		Confidence: 0.8,
 	})
+	err = sqliteStore.SaveMemory(&storage.Memory{
+		Key:        "workflow:test-caching-bypass",
+		Content:    "Bypass go test cache with count=1",
+		Category:   storage.CategoryWorkflow,
+		Scope:      storage.ScopeWorkspace,
+		Confidence: 1.0,
+	})
 	if err != nil {
-		t.Fatalf("failed to save memory: %v", err)
+		t.Fatalf("failed to save long key memory: %v", err)
 	}
 
 	// 1. Test memory list (human-readable)
@@ -50,6 +57,10 @@ func TestMemoryCLI_Commands(t *testing.T) {
 	})
 	if !strings.Contains(output, "arch_rule") || !strings.Contains(output, "scratch_temp") {
 		t.Errorf("expected memory list to display seeded keys, got:\n%s", output)
+	}
+	// Verify long key is NOT truncated to workflow:test-c..
+	if !strings.Contains(output, "workflow:test-caching-bypass") {
+		t.Errorf("expected full untruncated long key in list, got:\n%s", output)
 	}
 
 	// 2. Test memory list (JSON)
@@ -60,7 +71,7 @@ func TestMemoryCLI_Commands(t *testing.T) {
 		t.Errorf("expected JSON memory list, got:\n%s", outputJSON)
 	}
 
-	// 3. Test memory inspect
+	// 3. Test memory inspect (exact match)
 	outputInspect := captureStdout(t, func() {
 		runMemory([]string{"inspect", "arch_rule", "-v", dbPath})
 	})
@@ -68,12 +79,20 @@ func TestMemoryCLI_Commands(t *testing.T) {
 		t.Errorf("expected memory inspect to show content, got:\n%s", outputInspect)
 	}
 
+	// 3b. Test memory inspect (fuzzy prefix match)
+	outputInspectFuzzy := captureStdout(t, func() {
+		runMemory([]string{"inspect", "caching-bypass", "-v", dbPath})
+	})
+	if !strings.Contains(outputInspectFuzzy, "Bypass go test cache with count=1") {
+		t.Errorf("expected fuzzy inspect to find memory, got:\n%s", outputInspectFuzzy)
+	}
+
 	// 4. Test memory diagnose
 	outputDiag := captureStdout(t, func() {
 		runMemory([]string{"diagnose", "-v", dbPath})
 	})
-	if !strings.Contains(outputDiag, "Total Memories:   2") {
-		t.Errorf("expected diagnose to show 2 memories, got:\n%s", outputDiag)
+	if !strings.Contains(outputDiag, "Total Memories:   3") {
+		t.Errorf("expected diagnose to show 3 memories, got:\n%s", outputDiag)
 	}
 
 	// 5. Test memory prune (dry run)
@@ -92,13 +111,13 @@ func TestMemoryCLI_Commands(t *testing.T) {
 		t.Errorf("expected pruned output, got:\n%s", outputPrune)
 	}
 
-	// Verify scratchpad memory was deleted but architecture memory remains
+	// Verify scratchpad memory was deleted but architecture and workflow memories remain
 	mems, err := sqliteStore.QueryMemories(storage.MemoryFilter{})
 	if err != nil {
 		t.Fatalf("failed to query memories: %v", err)
 	}
-	if len(mems) != 1 || mems[0].Key != "arch_rule" {
-		t.Fatalf("expected 1 remaining memory ('arch_rule'), got %d", len(mems))
+	if len(mems) != 2 {
+		t.Fatalf("expected 2 remaining memories, got %d", len(mems))
 	}
 }
 

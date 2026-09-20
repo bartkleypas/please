@@ -151,16 +151,31 @@ func runMemoryList(args []string) {
 		return
 	}
 
+	maxKeyLen := 18
+	for _, m := range mems {
+		if len(m.Key) > maxKeyLen {
+			maxKeyLen = len(m.Key)
+		}
+	}
+	if maxKeyLen > 36 {
+		maxKeyLen = 36
+	}
+
+	dividerLen := maxKeyLen + 74
+	divider := strings.Repeat("─", dividerLen)
+
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println(memHeaderStyle.Render("🧠 Persistent Agent Memories (ADR 014)"))
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Printf("%-18s %-12s %-14s %-6s %-10s %s\n", "KEY", "SCOPE", "CATEGORY", "ACCESS", "UPDATED", "CONTENT")
-	fmt.Println("────────────────────────────────────────────────────────────────────────────────────────────")
+	headerFmt := fmt.Sprintf("%%-%ds %%-12s %%-14s %%-6s %%-10s %%s\n", maxKeyLen)
+	rowFmt := fmt.Sprintf("%%-%ds %%-12s %%-14s %%-6d %%-10s %%s\n", maxKeyLen)
+	fmt.Printf(headerFmt, "KEY", "SCOPE", "CATEGORY", "ACCESS", "UPDATED", "CONTENT")
+	fmt.Println(divider)
 
 	for _, m := range mems {
 		keyDisp := m.Key
-		if len(keyDisp) > 17 {
-			keyDisp = keyDisp[:15] + ".."
+		if len(keyDisp) > maxKeyLen {
+			keyDisp = keyDisp[:maxKeyLen-2] + ".."
 		}
 
 		age := time.Since(m.UpdatedAt).Round(time.Minute).String()
@@ -173,7 +188,7 @@ func runMemoryList(args []string) {
 			contentClean = contentClean[:37] + "..."
 		}
 
-		fmt.Printf("%-18s %-12s %-14s %-6d %-10s %s\n",
+		fmt.Printf(rowFmt,
 			memKeyStyle.Render(keyDisp),
 			memScopeStyle.Render(string(m.Scope)),
 			memCatStyle.Render(string(m.Category)),
@@ -182,7 +197,7 @@ func runMemoryList(args []string) {
 			contentClean,
 		)
 	}
-	fmt.Println("────────────────────────────────────────────────────────────────────────────────────────────")
+	fmt.Println(divider)
 	fmt.Printf("Total: %d memories listed\n", len(mems))
 }
 
@@ -217,9 +232,58 @@ func runMemoryInspect(args []string) {
 		os.Exit(1)
 	}
 	if mem == nil {
-		// Fallback: try ScopeGlobal if workspace failed
+		// Fallback 1: try ScopeGlobal if workspace failed
 		if scope == storage.ScopeWorkspace {
 			mem, _ = store.GetMemory(storage.ScopeGlobal, "", key)
+		}
+	}
+
+	// Fallback 2: fuzzy / prefix search across keys in scope
+	if mem == nil {
+		candidates, _ := store.QueryMemories(storage.MemoryFilter{
+			Scope:     scope,
+			SessionID: *sessionFlag,
+			Limit:     100,
+		})
+		lowerKey := strings.ToLower(key)
+		var matches []storage.Memory
+		for _, c := range candidates {
+			if strings.Contains(strings.ToLower(c.Key), lowerKey) {
+				matches = append(matches, c)
+			}
+		}
+		if len(matches) == 1 {
+			mem = &matches[0]
+		} else if len(matches) > 1 {
+			fmt.Fprintf(os.Stderr, "Multiple memories match %q in scope %q:\n", key, scope)
+			for _, m := range matches {
+				fmt.Fprintf(os.Stderr, "  • %s (%s, %s)\n", memKeyStyle.Render(m.Key), m.Scope, m.Category)
+			}
+			os.Exit(1)
+		}
+	}
+
+	// Fallback 3: fuzzy search in global scope if workspace query didn't match
+	if mem == nil && scope == storage.ScopeWorkspace {
+		globalCandidates, _ := store.QueryMemories(storage.MemoryFilter{
+			Scope: storage.ScopeGlobal,
+			Limit: 100,
+		})
+		lowerKey := strings.ToLower(key)
+		var matches []storage.Memory
+		for _, c := range globalCandidates {
+			if strings.Contains(strings.ToLower(c.Key), lowerKey) {
+				matches = append(matches, c)
+			}
+		}
+		if len(matches) == 1 {
+			mem = &matches[0]
+		} else if len(matches) > 1 {
+			fmt.Fprintf(os.Stderr, "Multiple global memories match %q:\n", key)
+			for _, m := range matches {
+				fmt.Fprintf(os.Stderr, "  • %s (%s, %s)\n", memKeyStyle.Render(m.Key), m.Scope, m.Category)
+			}
+			os.Exit(1)
 		}
 	}
 

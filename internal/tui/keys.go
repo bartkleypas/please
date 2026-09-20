@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/bartkleypas/please/internal/engine"
+	"github.com/bartkleypas/please/internal/storage"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -52,6 +53,8 @@ func (m *Model) handleKeyEvent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		cmd = tea.Batch(cmd, cCmd)
 	case ModeMap:
 		return m.handleMapKeys(msg)
+	case ModeMemories:
+		return m.handleMemoriesKeys(msg)
 	}
 
 	// 3. Handle global and generic view overrides
@@ -339,6 +342,103 @@ func (m *Model) handleMapKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 	}
 
 	// Allow standard scrolling in map mode too
+	var vCmd tea.Cmd
+	m.Viewport, vCmd = m.Viewport.Update(msg)
+	return m, vCmd
+}
+
+func (m *Model) handleMemoriesKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
+	// 1. If viewing an expanded memory card detail
+	if m.MemoryDetailCard != nil {
+		switch msg.String() {
+		case "esc", "backspace", "q":
+			m.MemoryDetailCard = nil
+			m.Viewport.SetContent(m.renderMemoriesView())
+			return m, nil
+		case "d", "x":
+			card := m.MemoryDetailCard
+			if m.Manager != nil && m.Manager.Storage != nil {
+				if memStore, ok := m.Manager.Storage.(storage.MemoryStore); ok {
+					_ = memStore.DeleteMemory(card.Scope, card.SessionID, card.Key)
+				}
+			}
+			// Remove from deck if present
+			if m.MemoryDeckIndex >= 0 && m.MemoryDeckIndex < len(m.MemoryDeck) {
+				m.MemoryDeck = append(m.MemoryDeck[:m.MemoryDeckIndex], m.MemoryDeck[m.MemoryDeckIndex+1:]...)
+				if m.MemoryDeckIndex >= len(m.MemoryDeck) {
+					m.MemoryDeckIndex = len(m.MemoryDeck) - 1
+				}
+				if m.MemoryDeckIndex < 0 {
+					m.MemoryDeckIndex = 0
+				}
+			}
+			m.Notification = fmt.Sprintf("Pruned memory card %q", card.Key)
+			m.MemoryDetailCard = nil
+			m.Viewport.SetContent(m.renderMemoriesView())
+			return m, nil
+		}
+
+		var vCmd tea.Cmd
+		m.Viewport, vCmd = m.Viewport.Update(msg)
+		return m, vCmd
+	}
+
+	// 2. Navigating the Card Deck
+	switch msg.String() {
+	case "up", "k":
+		if len(m.MemoryDeck) > 0 {
+			m.MemoryDeckIndex--
+			if m.MemoryDeckIndex < 0 {
+				m.MemoryDeckIndex = len(m.MemoryDeck) - 1
+			}
+			m.Viewport.SetContent(m.renderMemoriesView())
+		}
+		return m, nil
+	case "down", "j":
+		if len(m.MemoryDeck) > 0 {
+			m.MemoryDeckIndex++
+			if m.MemoryDeckIndex >= len(m.MemoryDeck) {
+				m.MemoryDeckIndex = 0
+			}
+			m.Viewport.SetContent(m.renderMemoriesView())
+		}
+		return m, nil
+	case "enter", "space":
+		if len(m.MemoryDeck) > 0 && m.MemoryDeckIndex >= 0 && m.MemoryDeckIndex < len(m.MemoryDeck) {
+			m.MemoryDetailCard = &m.MemoryDeck[m.MemoryDeckIndex]
+			m.Viewport.SetContent(m.renderMemoriesView())
+			m.Viewport.GotoTop()
+		}
+		return m, nil
+	case "d", "x":
+		if len(m.MemoryDeck) > 0 && m.MemoryDeckIndex >= 0 && m.MemoryDeckIndex < len(m.MemoryDeck) {
+			card := m.MemoryDeck[m.MemoryDeckIndex]
+			if m.Manager != nil && m.Manager.Storage != nil {
+				if memStore, ok := m.Manager.Storage.(storage.MemoryStore); ok {
+					_ = memStore.DeleteMemory(card.Scope, card.SessionID, card.Key)
+				}
+			}
+			m.MemoryDeck = append(m.MemoryDeck[:m.MemoryDeckIndex], m.MemoryDeck[m.MemoryDeckIndex+1:]...)
+			if m.MemoryDeckIndex >= len(m.MemoryDeck) {
+				m.MemoryDeckIndex = len(m.MemoryDeck) - 1
+			}
+			if m.MemoryDeckIndex < 0 {
+				m.MemoryDeckIndex = 0
+			}
+			m.Notification = fmt.Sprintf("Pruned memory %q", card.Key)
+			m.Viewport.SetContent(m.renderMemoriesView())
+		}
+		return m, nil
+	case "esc", "q":
+		m.ViewMode = ModeChat
+		m.MemoryDetailCard = nil
+		m.MemoryDeck = nil
+		m.MemoryDeckFilter = ""
+		m.ViewportOverride = ""
+		m.updateViewportContent()
+		return m, nil
+	}
+
 	var vCmd tea.Cmd
 	m.Viewport, vCmd = m.Viewport.Update(msg)
 	return m, vCmd

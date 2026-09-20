@@ -1577,10 +1577,17 @@ func TestMemoriesCommand(t *testing.T) {
 
 	m := NewModel(cfg, graph, store, mockProvider, "")
 
-	// 1. /memories listing
+	// 1. /memories listing transitions into ModeMemories deck
 	m.HandleCommand("/memories")
-	if !strings.Contains(m.ViewportOverride, "Persistent Agent Memories") || !strings.Contains(m.ViewportOverride, "tui_key") {
-		t.Errorf("expected /memories to list seeded memory, got:\n%s", m.ViewportOverride)
+	if m.ViewMode != ModeMemories {
+		t.Errorf("expected ViewMode to be ModeMemories, got %v", m.ViewMode)
+	}
+	if len(m.MemoryDeck) != 1 || m.MemoryDeck[0].Key != "tui_key" {
+		t.Errorf("expected MemoryDeck to have 1 card 'tui_key', got %v", m.MemoryDeck)
+	}
+	deckView := m.renderMemoriesView()
+	if !strings.Contains(deckView, "Memory Deck") || !strings.Contains(deckView, "tui_key") {
+		t.Errorf("expected /memories to render deck with seeded memory, got:\n%s", deckView)
 	}
 
 	// 2. /memories stats / diag
@@ -1589,22 +1596,124 @@ func TestMemoriesCommand(t *testing.T) {
 		t.Errorf("expected /memories stats output, got:\n%s", m.ViewportOverride)
 	}
 
-	// 3. /memories inspect <key>
+	// 3. /memories inspect <key> opens card directly in ModeMemories
 	m.HandleCommand("/memories inspect tui_key")
-	if !strings.Contains(m.ViewportOverride, "Memory Inspection: tui_key") || !strings.Contains(m.ViewportOverride, "TUI memory testing invariant") {
-		t.Errorf("expected /memories inspect output, got:\n%s", m.ViewportOverride)
+	if m.ViewMode != ModeMemories || m.MemoryDetailCard == nil {
+		t.Fatalf("expected /memories inspect to open card view, got mode=%v card=%v", m.ViewMode, m.MemoryDetailCard)
+	}
+	if m.MemoryDetailCard.Key != "tui_key" {
+		t.Errorf("expected inspect card key 'tui_key', got %s", m.MemoryDetailCard.Key)
+	}
+	cardView := m.renderMemoriesView()
+	if !strings.Contains(cardView, "Card: tui_key") || !strings.Contains(cardView, "TUI memory testing invariant") {
+		t.Errorf("expected /memories inspect output, got:\n%s", cardView)
 	}
 
 	// 4. /memory search
 	m.HandleCommand("/memory search testing")
-	if !strings.Contains(m.ViewportOverride, "tui_key") {
-		t.Errorf("expected search to match tui_key, got:\n%s", m.ViewportOverride)
+	if len(m.MemoryDeck) != 1 || m.MemoryDeck[0].Key != "tui_key" {
+		t.Errorf("expected search to match tui_key in deck, got: %v", m.MemoryDeck)
 	}
 
 	// 5. /memory search nonexistent
 	m.HandleCommand("/memory search nonexistent_random_term")
-	if !strings.Contains(m.ViewportOverride, "No memories matching query") {
-		t.Errorf("expected empty search result, got:\n%s", m.ViewportOverride)
+	if len(m.MemoryDeck) != 0 {
+		t.Errorf("expected empty search deck, got: %v", m.MemoryDeck)
+	}
+	emptyView := m.renderMemoriesView()
+	if !strings.Contains(emptyView, "No memories matching filter") {
+		t.Errorf("expected empty search result message, got:\n%s", emptyView)
+	}
+}
+
+func TestMemoriesDeckNavigation_AndPrune(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	store, err := engine.NewSQLiteStorage(dbPath, "")
+	if err != nil {
+		t.Fatalf("failed to create sqlite storage: %v", err)
+	}
+
+	for _, key := range []string{"key_alpha", "key_beta", "key_gamma"} {
+		_ = store.SaveMemory(&storage.Memory{
+			Key:      key,
+			Content:  "Content for " + key,
+			Category: storage.CategoryWorkflow,
+			Scope:    storage.ScopeWorkspace,
+		})
+	}
+
+	graph := engine.NewGraph()
+	mockProvider := &engine.MockLLMProvider{}
+	cfg := engine.NewDefaultConfig()
+
+	m := NewModel(cfg, graph, store, mockProvider, "")
+
+	// Open memories deck
+	m.HandleCommand("/memories")
+	if m.ViewMode != ModeMemories || len(m.MemoryDeck) != 3 {
+		t.Fatalf("expected ModeMemories with 3 cards, got mode=%v len=%d", m.ViewMode, len(m.MemoryDeck))
+	}
+	if m.MemoryDeckIndex != 0 {
+		t.Fatalf("expected initial index 0, got %d", m.MemoryDeckIndex)
+	}
+
+	targetKey := m.MemoryDeck[2].Key
+
+	// Step down via 'j'
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	if m.MemoryDeckIndex != 1 {
+		t.Errorf("expected index 1 after 'j', got %d", m.MemoryDeckIndex)
+	}
+
+	// Step down via down arrow
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyDown})
+	if m.MemoryDeckIndex != 2 {
+		t.Errorf("expected index 2 after down arrow, got %d", m.MemoryDeckIndex)
+	}
+
+	// Wrap around to top
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyDown})
+	if m.MemoryDeckIndex != 0 {
+		t.Errorf("expected index wrap to 0, got %d", m.MemoryDeckIndex)
+	}
+
+	// Wrap back to bottom via 'k'
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	if m.MemoryDeckIndex != 2 {
+		t.Errorf("expected index wrap to 2 via 'k', got %d", m.MemoryDeckIndex)
+	}
+
+	// Flip card via Enter
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.MemoryDetailCard == nil || m.MemoryDetailCard.Key != targetKey {
+		t.Fatalf("expected card %q to open, got %v", targetKey, m.MemoryDetailCard)
+	}
+
+	// Exit card detail view back to deck via Esc
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.MemoryDetailCard != nil {
+		t.Errorf("expected MemoryDetailCard to be nil after esc, got %v", m.MemoryDetailCard)
+	}
+	if m.ViewMode != ModeMemories {
+		t.Errorf("expected still in ModeMemories after esc from card, got %v", m.ViewMode)
+	}
+
+	// Prune card at index 2 via 'x'
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	if len(m.MemoryDeck) != 2 {
+		t.Errorf("expected 2 cards left after prune, got %d", len(m.MemoryDeck))
+	}
+	mem, _ := store.GetMemory(storage.ScopeWorkspace, "", targetKey)
+	if mem != nil {
+		t.Errorf("expected %s to be deleted from store", targetKey)
+	}
+
+	// Exit deck back to chat via Esc
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.ViewMode != ModeChat {
+		t.Errorf("expected return to ModeChat after second esc, got %v", m.ViewMode)
 	}
 }
 

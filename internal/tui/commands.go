@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/bartkleypas/please/internal/engine"
 	"github.com/bartkleypas/please/internal/storage"
@@ -1366,45 +1365,38 @@ func (c *MemoriesCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) 
 			return m, nil
 		}
 		key := args[1]
-		mem, err := memStore.GetMemory(storage.ScopeWorkspace, m.SessionID, key)
-		if err != nil || mem == nil {
+		mem, _ := memStore.GetMemory(storage.ScopeWorkspace, m.SessionID, key)
+		if mem == nil {
 			mem, _ = memStore.GetMemory(storage.ScopeGlobal, "", key)
+		}
+		if mem == nil {
+			// Fuzzy / prefix search
+			candidates, _ := memStore.QueryMemories(storage.MemoryFilter{Limit: 100})
+			lower := strings.ToLower(key)
+			for _, c := range candidates {
+				if strings.Contains(strings.ToLower(c.Key), lower) {
+					found := c
+					mem = &found
+					break
+				}
+			}
 		}
 		if mem == nil {
 			m.Notification = fmt.Sprintf("Memory %q not found", key)
 			return m, nil
 		}
 
-		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("--- 🧠 Memory Inspection: %s ---\n\n", mem.Key))
-		sb.WriteString(fmt.Sprintf("Scope:        %s\n", mem.Scope))
-		sb.WriteString(fmt.Sprintf("Category:     %s\n", mem.Category))
-		sb.WriteString(fmt.Sprintf("Confidence:   %.2f\n", mem.Confidence))
-		if mem.SessionID != "" {
-			sb.WriteString(fmt.Sprintf("Session ID:   %s\n", mem.SessionID))
-		}
-		if mem.SourceNodeID != "" {
-			sb.WriteString(fmt.Sprintf("Source Node:  %s\n", mem.SourceNodeID))
-		}
-		if len(mem.Tags) > 0 {
-			sb.WriteString(fmt.Sprintf("Tags:         %s\n", strings.Join(mem.Tags, ", ")))
-		}
-		sb.WriteString(fmt.Sprintf("Access Count: %d\n", mem.AccessCount))
-		if mem.LastAccessedAt != nil {
-			sb.WriteString(fmt.Sprintf("Last Access:  %s (%s ago)\n", mem.LastAccessedAt.Format("2006-01-02 15:04:05"), time.Since(*mem.LastAccessedAt).Round(time.Minute)))
-		}
-		sb.WriteString(fmt.Sprintf("Updated:      %s (%s ago)\n\n", mem.UpdatedAt.Format("2006-01-02 15:04:05"), time.Since(mem.UpdatedAt).Round(time.Minute)))
-		sb.WriteString("Content:\n")
-		sb.WriteString(mem.Content)
-		sb.WriteString("\n")
-
-		m.ViewportOverride = sb.String()
-		m.Viewport.SetContent(m.ViewportOverride)
+		m.ViewMode = ModeMemories
+		m.MemoryDeck = []storage.Memory{*mem}
+		m.MemoryDeckIndex = 0
+		m.MemoryDetailCard = mem
+		m.ViewportOverride = ""
+		m.Viewport.SetContent(m.renderMemoriesView())
 		m.Viewport.GotoTop()
 		return m, nil
 
 	default:
-		filter := storage.MemoryFilter{Limit: 50}
+		filter := storage.MemoryFilter{Limit: 100}
 		if sub == "search" || sub == "find" || sub == "q" {
 			if len(args) > 1 {
 				filter.Query = strings.Join(args[1:], " ")
@@ -1419,34 +1411,13 @@ func (c *MemoriesCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) 
 			return m, nil
 		}
 
-		var sb strings.Builder
-		sb.WriteString("--- 🧠 Persistent Agent Memories (ADR 014) ---\n\n")
-		if len(mems) == 0 {
-			if filter.Query != "" {
-				sb.WriteString(fmt.Sprintf("No memories matching query %q.\n", filter.Query))
-			} else {
-				sb.WriteString("No persistent memories stored yet.\nMemories are automatically recorded when the agent discovers critical invariants or via `memory_store`.\n")
-			}
-		} else {
-			sb.WriteString(fmt.Sprintf("%-18s %-12s %-14s %-6s %s\n", "KEY", "SCOPE", "CATEGORY", "ACCESS", "PREVIEW"))
-			sb.WriteString(strings.Repeat("─", 76) + "\n")
-			for _, mem := range mems {
-				key := mem.Key
-				if len(key) > 17 {
-					key = key[:15] + ".."
-				}
-				preview := strings.ReplaceAll(mem.Content, "\n", " ")
-				if len(preview) > 34 {
-					preview = preview[:31] + "..."
-				}
-				sb.WriteString(fmt.Sprintf("%-18s %-12s %-14s %-6d %s\n", key, mem.Scope, mem.Category, mem.AccessCount, preview))
-			}
-			sb.WriteString(strings.Repeat("─", 76) + "\n")
-			sb.WriteString(fmt.Sprintf("\nTotal: %d memories. Use '/memories inspect <key>' to view full details.\n", len(mems)))
-		}
-
-		m.ViewportOverride = sb.String()
-		m.Viewport.SetContent(m.ViewportOverride)
+		m.ViewMode = ModeMemories
+		m.MemoryDeck = mems
+		m.MemoryDeckIndex = 0
+		m.MemoryDetailCard = nil
+		m.MemoryDeckFilter = filter.Query
+		m.ViewportOverride = ""
+		m.Viewport.SetContent(m.renderMemoriesView())
 		m.Viewport.GotoTop()
 		return m, nil
 	}

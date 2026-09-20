@@ -464,10 +464,14 @@ please memory prune --older-than=30d [--dry-run]
   [11 workspace memories | 3 global memories | 4.8 KB total | WAL healthy]
 ```
 
-#### B. TUI Interactive Overlay (`/memories`)
+#### B. TUI Interactive Card Deck (`/memories` and `ModeMemories`)
 In the interactive terminal UI ([`internal/tui`](../internal/tui)):
-- Typing `/memories` or `/memory` opens a modal Bubble Tea viewport displaying stored memories.
-- Operators can filter by search query, browse memory content, toggle scopes, or hit `x` to delete a stale memory directly from the TUI without leaving their pairing session.
+- Typing `/memories` or `/memory` transitions the interface into `ModeMemories` (joining `ModeChat` and `ModeMap`).
+- **Deck Browsing**: Renders memories as an interactive card deck with dynamic key column widths (scaling up to 36–40 characters) preventing premature truncation of hierarchical identifiers (e.g., `workflow:test-caching-bypass`).
+- **Tactile Navigation**: Operators use `↑`/`↓` (or `k`/`j`) to navigate the cursor through cards in the deck.
+- **Card Inspection**: Pressing `Enter` or `Space` flips open the selected card to inspect full markdown content, confidence rating, access telemetry, and source node ID. Pressing `Esc` flips back to the deck or returns to `ModeChat`.
+- **Card Pruning**: Pressing `x` or `d` deletes the active card from SQLite directly from the TUI without leaving the pairing session.
+- **Fuzzy Search & Quick Recall**: Typing `/memories <query>` filters the deck, while `/memories <index>` immediately targets that card.
 
 ---
 
@@ -576,8 +580,11 @@ To prevent cache-invalidation penalties across turns:
    - Wire `source_node_id` and `session_id` automatic injection into `memory_store` calls within `SessionHarness`.
    - Implement `MemorySteeringContract` and proactive `<recalled_memories>` prefix construction in `Manager.BuildLLMContext()`, enforcing the 300–500 token budget cap.
 
-5. **Phase 5: TUI Interactive Modal (`internal/tui`)**
-   - Introduce `/memories` slash command and Bubble Tea inspection overlay.
+5. **Phase 5: TUI Interactive Card Deck & Ergonomics (`internal/tui`)**
+   - Introduce `ModeMemories` view mode with tactile arrow-key navigation (`↑`/`↓`, `k`/`j`) and card selection cursor.
+   - Implement dynamic key column scaling in both the TUI deck and CLI `please memory list` (preventing key truncation).
+   - Add Card View (`Enter`/`Space` to inspect card content, `Esc` to return) and `x`/`d` card pruning.
+   - Add smart fuzzy/prefix matching in `please memory inspect <key>` and `/memories inspect <key>`.
 
 ---
 
