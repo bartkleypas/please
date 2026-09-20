@@ -12,6 +12,7 @@ import (
 
 	"github.com/bartkleypas/please/internal/engine"
 	"github.com/bartkleypas/please/internal/server"
+	"github.com/bartkleypas/please/internal/storage"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -1553,3 +1554,57 @@ func TestBellCommand_AndPhonicStaging(t *testing.T) {
 		t.Errorf("expected stream finish to stay silent when disabled, got %q", bellBuf.String())
 	}
 }
+
+func TestMemoriesCommand(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	store, err := engine.NewSQLiteStorage(dbPath, "")
+	if err != nil {
+		t.Fatalf("failed to create sqlite storage: %v", err)
+	}
+
+	_ = store.SaveMemory(&storage.Memory{
+		Key:      "tui_key",
+		Content:  "TUI memory testing invariant",
+		Category: storage.CategoryArchitecture,
+		Scope:    storage.ScopeWorkspace,
+	})
+
+	graph := engine.NewGraph()
+	mockProvider := &engine.MockLLMProvider{}
+	cfg := engine.NewDefaultConfig()
+
+	m := NewModel(cfg, graph, store, mockProvider, "")
+
+	// 1. /memories listing
+	m.HandleCommand("/memories")
+	if !strings.Contains(m.ViewportOverride, "Persistent Agent Memories") || !strings.Contains(m.ViewportOverride, "tui_key") {
+		t.Errorf("expected /memories to list seeded memory, got:\n%s", m.ViewportOverride)
+	}
+
+	// 2. /memories stats / diag
+	m.HandleCommand("/memories stats")
+	if !strings.Contains(m.ViewportOverride, "Memory Vault Telemetry & Health") || !strings.Contains(m.ViewportOverride, "Total Memories:    1") {
+		t.Errorf("expected /memories stats output, got:\n%s", m.ViewportOverride)
+	}
+
+	// 3. /memories inspect <key>
+	m.HandleCommand("/memories inspect tui_key")
+	if !strings.Contains(m.ViewportOverride, "Memory Inspection: tui_key") || !strings.Contains(m.ViewportOverride, "TUI memory testing invariant") {
+		t.Errorf("expected /memories inspect output, got:\n%s", m.ViewportOverride)
+	}
+
+	// 4. /memory search
+	m.HandleCommand("/memory search testing")
+	if !strings.Contains(m.ViewportOverride, "tui_key") {
+		t.Errorf("expected search to match tui_key, got:\n%s", m.ViewportOverride)
+	}
+
+	// 5. /memory search nonexistent
+	m.HandleCommand("/memory search nonexistent_random_term")
+	if !strings.Contains(m.ViewportOverride, "No memories matching query") {
+		t.Errorf("expected empty search result, got:\n%s", m.ViewportOverride)
+	}
+}
+

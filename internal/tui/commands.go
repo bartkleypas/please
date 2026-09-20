@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/bartkleypas/please/internal/engine"
+	"github.com/bartkleypas/please/internal/storage"
 	"github.com/bartkleypas/please/internal/worktree"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -48,6 +50,8 @@ func init() {
 	commandRegistry["/worktree"] = &WorktreeCommand{}
 	commandRegistry["/worktrees"] = &WorktreeCommand{}
 	commandRegistry["/sandbox"] = &SandboxCommand{}
+	commandRegistry["/memories"] = &MemoriesCommand{}
+	commandRegistry["/memory"] = &MemoriesCommand{}
 
 	// Tool confirmation commands
 	commandRegistry["/yes"] = &ConfirmToolCommand{}
@@ -877,6 +881,7 @@ func (c *HelpCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	s.WriteString("  /compact [hint] Summarize the current branch into a milestone Supernode (alias: /compress)\n")
 	s.WriteString("  /fold [all]     Fold/unfold reasoning thought process blocks (key: Tab / Shift+Tab)\n")
 	s.WriteString("  /sandbox [mode] Inspect or set sandbox security policy (strict|standard|permissive)\n")
+	s.WriteString("  /memories       Inspect persistent cybernetic agent memories (alias: /memory)\n")
 	s.WriteString("  /parameters     Inspect Stable Diffusion metadata parameters for current node images (alias: /info)\n")
 	s.WriteString("  /q, /quit, /bye Exit the application\n\n")
 	s.WriteString("Navigation:\n")
@@ -1295,6 +1300,154 @@ func (c *WorktreeCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) 
 
 	default:
 		m.Notification = "Usage: /worktree [list|remove <session>]"
+		return m, nil
+	}
+}
+
+type MemoriesCommand struct{}
+
+func (c *MemoriesCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
+	if m.Manager == nil || m.Manager.Storage == nil {
+		m.Notification = "Storage not initialized"
+		return m, nil
+	}
+
+	memStore, ok := m.Manager.Storage.(storage.MemoryStore)
+	if !ok {
+		m.Notification = "Persistent agent memory requires SQLite storage (.db)"
+		return m, nil
+	}
+
+	sub := ""
+	if len(args) > 0 {
+		sub = strings.ToLower(args[0])
+	}
+
+	switch sub {
+	case "diag", "diagnose", "stats":
+		diag, err := memStore.DiagnoseMemories("", "")
+		if err != nil {
+			m.Notification = fmt.Sprintf("Failed to diagnose memories: %v", err)
+			return m, nil
+		}
+		var sb strings.Builder
+		sb.WriteString("--- 🧠 Memory Vault Telemetry & Health (ADR 014) ---\n\n")
+		sb.WriteString(fmt.Sprintf("Total Memories:    %d\n", diag.TotalMemories))
+		sb.WriteString(fmt.Sprintf("Storage Footprint: %.2f KB (%d bytes)\n\n", float64(diag.StorageBytes)/1024.0, diag.StorageBytes))
+
+		sb.WriteString("Scope Distribution:\n")
+		for sc, count := range diag.ByScope {
+			sb.WriteString(fmt.Sprintf("  • %-12s: %d\n", sc, count))
+		}
+
+		sb.WriteString("\nCategory Distribution:\n")
+		for cat, count := range diag.ByCategory {
+			sb.WriteString(fmt.Sprintf("  • %-14s: %d\n", cat, count))
+		}
+
+		if len(diag.MostAccessed) > 0 {
+			sb.WriteString("\n🔥 Most Accessed Memories:\n")
+			for i, mem := range diag.MostAccessed {
+				if i >= 5 {
+					break
+				}
+				sb.WriteString(fmt.Sprintf("  %d. %s (%s, %d accesses)\n", i+1, mem.Key, mem.Scope, mem.AccessCount))
+			}
+		}
+
+		m.ViewportOverride = sb.String()
+		m.Viewport.SetContent(m.ViewportOverride)
+		m.Viewport.GotoTop()
+		return m, nil
+
+	case "inspect", "show", "get":
+		if len(args) < 2 {
+			m.Notification = "Usage: /memories inspect <key>"
+			return m, nil
+		}
+		key := args[1]
+		mem, err := memStore.GetMemory(storage.ScopeWorkspace, m.SessionID, key)
+		if err != nil || mem == nil {
+			mem, _ = memStore.GetMemory(storage.ScopeGlobal, "", key)
+		}
+		if mem == nil {
+			m.Notification = fmt.Sprintf("Memory %q not found", key)
+			return m, nil
+		}
+
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("--- 🧠 Memory Inspection: %s ---\n\n", mem.Key))
+		sb.WriteString(fmt.Sprintf("Scope:        %s\n", mem.Scope))
+		sb.WriteString(fmt.Sprintf("Category:     %s\n", mem.Category))
+		sb.WriteString(fmt.Sprintf("Confidence:   %.2f\n", mem.Confidence))
+		if mem.SessionID != "" {
+			sb.WriteString(fmt.Sprintf("Session ID:   %s\n", mem.SessionID))
+		}
+		if mem.SourceNodeID != "" {
+			sb.WriteString(fmt.Sprintf("Source Node:  %s\n", mem.SourceNodeID))
+		}
+		if len(mem.Tags) > 0 {
+			sb.WriteString(fmt.Sprintf("Tags:         %s\n", strings.Join(mem.Tags, ", ")))
+		}
+		sb.WriteString(fmt.Sprintf("Access Count: %d\n", mem.AccessCount))
+		if mem.LastAccessedAt != nil {
+			sb.WriteString(fmt.Sprintf("Last Access:  %s (%s ago)\n", mem.LastAccessedAt.Format("2006-01-02 15:04:05"), time.Since(*mem.LastAccessedAt).Round(time.Minute)))
+		}
+		sb.WriteString(fmt.Sprintf("Updated:      %s (%s ago)\n\n", mem.UpdatedAt.Format("2006-01-02 15:04:05"), time.Since(mem.UpdatedAt).Round(time.Minute)))
+		sb.WriteString("Content:\n")
+		sb.WriteString(mem.Content)
+		sb.WriteString("\n")
+
+		m.ViewportOverride = sb.String()
+		m.Viewport.SetContent(m.ViewportOverride)
+		m.Viewport.GotoTop()
+		return m, nil
+
+	default:
+		filter := storage.MemoryFilter{Limit: 50}
+		if sub == "search" || sub == "find" || sub == "q" {
+			if len(args) > 1 {
+				filter.Query = strings.Join(args[1:], " ")
+			}
+		} else if len(args) > 0 && !strings.HasPrefix(args[0], "/") {
+			filter.Query = strings.Join(args, " ")
+		}
+
+		mems, err := memStore.QueryMemories(filter)
+		if err != nil {
+			m.Notification = fmt.Sprintf("Failed to query memories: %v", err)
+			return m, nil
+		}
+
+		var sb strings.Builder
+		sb.WriteString("--- 🧠 Persistent Agent Memories (ADR 014) ---\n\n")
+		if len(mems) == 0 {
+			if filter.Query != "" {
+				sb.WriteString(fmt.Sprintf("No memories matching query %q.\n", filter.Query))
+			} else {
+				sb.WriteString("No persistent memories stored yet.\nMemories are automatically recorded when the agent discovers critical invariants or via `memory_store`.\n")
+			}
+		} else {
+			sb.WriteString(fmt.Sprintf("%-18s %-12s %-14s %-6s %s\n", "KEY", "SCOPE", "CATEGORY", "ACCESS", "PREVIEW"))
+			sb.WriteString(strings.Repeat("─", 76) + "\n")
+			for _, mem := range mems {
+				key := mem.Key
+				if len(key) > 17 {
+					key = key[:15] + ".."
+				}
+				preview := strings.ReplaceAll(mem.Content, "\n", " ")
+				if len(preview) > 34 {
+					preview = preview[:31] + "..."
+				}
+				sb.WriteString(fmt.Sprintf("%-18s %-12s %-14s %-6d %s\n", key, mem.Scope, mem.Category, mem.AccessCount, preview))
+			}
+			sb.WriteString(strings.Repeat("─", 76) + "\n")
+			sb.WriteString(fmt.Sprintf("\nTotal: %d memories. Use '/memories inspect <key>' to view full details.\n", len(mems)))
+		}
+
+		m.ViewportOverride = sb.String()
+		m.Viewport.SetContent(m.ViewportOverride)
+		m.Viewport.GotoTop()
 		return m, nil
 	}
 }

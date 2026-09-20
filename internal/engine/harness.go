@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/bartkleypas/please/internal/tools"
 )
 
 // HarnessEventKind defines the types of events emitted during turn execution.
@@ -244,13 +246,13 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 			return asstNode, err
 		}
 
-		var tools []Tool
+		var availableTools []Tool
 		if h.Manager.Registry != nil {
 			policy := ""
 			if h.Config != nil {
 				policy = h.Config.GetSandboxPolicy()
 			}
-			tools = h.Manager.Registry.GetToolsForPolicy(policy)
+			availableTools = h.Manager.Registry.GetToolsForPolicy(policy)
 		}
 
 		// Circuit Breaker 1: Runway Wrap-Up
@@ -258,7 +260,7 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 		// This forces the model to synthesize a final natural language response rather
 		// than initiating a tool call that would be truncated abruptly without execution.
 		if depth >= maxDepth-1 {
-			tools = nil
+			availableTools = nil
 		}
 
 		// Circuit Breaker 2: Context Budget Exhaustion
@@ -266,11 +268,11 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 		// suppress tools to force a natural language summary before context overflow errors occur.
 		if depth > 0 && h.Manager != nil {
 			if fillRatio, _, err := h.Manager.EstimateContextFill(contextNodeID); err == nil && fillRatio >= 0.85 {
-				tools = nil
+				availableTools = nil
 			}
 		}
 
-		contentChan, thoughtChan, toolCallsChan, errChan := h.Provider.GenerateResponseStream(ctx, messages, tools)
+		contentChan, thoughtChan, toolCallsChan, errChan := h.Provider.GenerateResponseStream(ctx, messages, availableTools)
 
 		var fullContent strings.Builder
 		var fullThought strings.Builder
@@ -487,7 +489,8 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 					}
 				}
 
-				result, execErr = h.Manager.ExecuteToolCall(ctx, call)
+				toolCtx := tools.WithMemoryContext(ctx, sessionID, asstNode.ID)
+				result, execErr = h.Manager.ExecuteToolCall(toolCtx, call)
 				if execErr != nil {
 					errStr = execErr.Error()
 					result = fmt.Sprintf("Error: %s", execErr.Error())

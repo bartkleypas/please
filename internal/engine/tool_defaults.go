@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"github.com/bartkleypas/please/internal/storage"
 	"github.com/bartkleypas/please/internal/tools"
 )
 
@@ -17,4 +18,7 @@ func (m *Manager) RegisterDefaultTools(workspaceDir ...string) {
 		m.WorkspaceDir = ws
 	}
 	tools.RegisterDefaultTools(m.Registry, workspaceDir...)
+	if memStore, ok := m.Storage.(storage.MemoryStore); ok && memStore != nil {
+		m.Registry.RegisterMemory(NewMemoryToolsAdapter(memStore), "workspace")
+	}
 }
