@@ -44,6 +44,18 @@ func setupMemoryStore(vaultPath, configPath string) (storage.MemoryStore, *confi
 	if vaultPath != "" {
 		finalVaultPath = vaultPath
 	}
+	if finalVaultPath == "" {
+		for _, candidate := range []string{"test_vault/livefire.db", "vault.db", "livefire.db"} {
+			if _, err := os.Stat(candidate); err == nil {
+				finalVaultPath = candidate
+				break
+			}
+		}
+	}
+
+	if finalVaultPath == "" {
+		return nil, nil, fmt.Errorf("persistent agent memory requires an SQLite vault (.db/.sqlite). Specify with -v <path> or configure server.vault_path")
+	}
 
 	ext := filepath.Ext(finalVaultPath)
 	if ext != ".db" && ext != ".sqlite" {
@@ -151,7 +163,7 @@ func runMemoryList(args []string) {
 		return
 	}
 
-	maxKeyLen := 18
+	maxKeyLen := 20
 	for _, m := range mems {
 		if len(m.Key) > maxKeyLen {
 			maxKeyLen = len(m.Key)
@@ -161,15 +173,16 @@ func runMemoryList(args []string) {
 		maxKeyLen = 36
 	}
 
-	dividerLen := maxKeyLen + 74
+	dividerLen := maxKeyLen + 85
+	border := strings.Repeat("━", dividerLen)
 	divider := strings.Repeat("─", dividerLen)
 
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println(border)
 	fmt.Println(memHeaderStyle.Render("🧠 Persistent Agent Memories (ADR 014)"))
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	headerFmt := fmt.Sprintf("%%-%ds %%-12s %%-14s %%-6s %%-10s %%s\n", maxKeyLen)
-	rowFmt := fmt.Sprintf("%%-%ds %%-12s %%-14s %%-6d %%-10s %%s\n", maxKeyLen)
-	fmt.Printf(headerFmt, "KEY", "SCOPE", "CATEGORY", "ACCESS", "UPDATED", "CONTENT")
+	fmt.Println(border)
+
+	colFmt := fmt.Sprintf("%%-%ds  %%-11s  %%-14s  %%-6s  %%-10s  %%s\n", maxKeyLen)
+	fmt.Printf(colFmt, "KEY", "SCOPE", "CATEGORY", "ACCESS", "UPDATED", "CONTENT")
 	fmt.Println(divider)
 
 	for _, m := range mems {
@@ -188,12 +201,18 @@ func runMemoryList(args []string) {
 			contentClean = contentClean[:37] + "..."
 		}
 
-		fmt.Printf(rowFmt,
-			memKeyStyle.Render(keyDisp),
-			memScopeStyle.Render(string(m.Scope)),
-			memCatStyle.Render(string(m.Category)),
-			m.AccessCount,
-			memDimStyle.Render(age),
+		keyPadded := fmt.Sprintf(fmt.Sprintf("%%-%ds", maxKeyLen), keyDisp)
+		scopePadded := fmt.Sprintf("%-11s", string(m.Scope))
+		catPadded := fmt.Sprintf("%-14s", string(m.Category))
+		accessPadded := fmt.Sprintf("%-6d", m.AccessCount)
+		agePadded := fmt.Sprintf("%-10s", age)
+
+		fmt.Printf("%s  %s  %s  %s  %s  %s\n",
+			memKeyStyle.Render(keyPadded),
+			memScopeStyle.Render(scopePadded),
+			memCatStyle.Render(catPadded),
+			accessPadded,
+			memDimStyle.Render(agePadded),
 			contentClean,
 		)
 	}
@@ -369,12 +388,12 @@ func runMemoryDiagnose(args []string) {
 
 	fmt.Println("\n  Scope Distribution:")
 	for sc, count := range diag.ByScope {
-		fmt.Printf("    - %-12s: %d\n", memScopeStyle.Render(string(sc)), count)
+		fmt.Printf("    - %s: %d\n", memScopeStyle.Render(fmt.Sprintf("%-12s", string(sc))), count)
 	}
 
 	fmt.Println("\n  Category Distribution:")
 	for cat, count := range diag.ByCategory {
-		fmt.Printf("    - %-14s: %d\n", memCatStyle.Render(string(cat)), count)
+		fmt.Printf("    - %s: %d\n", memCatStyle.Render(fmt.Sprintf("%-14s", string(cat))), count)
 	}
 
 	if len(diag.MostAccessed) > 0 {
