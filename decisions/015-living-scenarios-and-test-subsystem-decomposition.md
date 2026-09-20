@@ -51,9 +51,11 @@ Upon architectural reflection, this term carries unwanted baggage:
 
 **Decision**: All references to `livefire` are deprecated and replaced with **End-to-End (E2E)**:
 - `PLEASE_LIVE_FIRE=1` $\rightarrow$ `PLEASE_E2E=1` (and `//go:build e2e`)
-- `make test-livefire` $\rightarrow$ `make test-e2e`
+- `make test-livefire` $\rightarrow$ `make test-e2e` (with `test-livefire: test-e2e` retained as a transition alias)
 - `livefire.json` $\rightarrow$ `e2e.json`
 - `test_vault/livefire.db` $\rightarrow$ `test_vault/e2e.db`
+- Automatic CLI vault fallback candidate list in `cmd/please/memory.go` expands to check:
+  `[]string{"test_vault/e2e.db", "vault.db", "e2e.db", "test_vault/livefire.db", "livefire.db"}`
 
 ---
 
@@ -225,6 +227,9 @@ seed-vault:
 # 4. Full End-to-End test suite (Canary + George Archivist Scenario)
 test-e2e: test-canary
 	PLEASE_E2E=1 go test -v -tags=e2e -timeout 30m ./test/scenarios/...
+
+# 5. Backwards-compatibility transition alias
+test-livefire: test-e2e
 ```
 
 ---
