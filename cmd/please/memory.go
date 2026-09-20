@@ -21,7 +21,6 @@ var (
 	memScopeStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#60a5fa"))
 	memCatStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#facc15"))
 	memDimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#64748b"))
-	memAlertStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#fb7185"))
 )
 
 func setupMemoryStore(vaultPath, configPath string) (storage.MemoryStore, *config.Config, error) {

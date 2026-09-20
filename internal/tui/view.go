@@ -135,19 +135,20 @@ func (m Model) View() string {
 	m.TextInput.FocusedStyle.Prompt = lipgloss.NewStyle()
 
 	// Footer Rendering
-	if m.ViewMode == ModeMap {
+	switch m.ViewMode {
+	case ModeMap:
 		if m.Searching {
 			s += "\n\n" + inputBoxStyle.Render(m.SearchInput.View())
 		} else if !m.AwaitingPruneConfirmation && !m.AwaitingCompactConfirmation && !m.IsCompressing {
 			s += "\n\n" + m.renderFooterHelp("h/l: fold/unfold • j/k: move • g/G: top/end • /: search • c: compact • d: prune • esc: chat")
 		}
-	} else if m.ViewMode == ModeMemories {
+	case ModeMemories:
 		if m.MemoryDetailCard != nil {
 			s += "\n\n" + m.renderFooterHelp("esc/backspace/q: back to deck • d/x: prune • ↑/↓: scroll")
 		} else {
 			s += "\n\n" + m.renderFooterHelp("↑/↓/j/k: select card • enter/space: flip card • d/x: prune • esc/q: chat")
 		}
-	} else {
+	default:
 		if len(m.PendingImages) > 0 {
 			var filenames []string
 			for _, img := range m.PendingImages {
