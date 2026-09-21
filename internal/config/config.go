@@ -370,26 +370,46 @@ func FindWorkspaceRoot(startDir ...string) (string, bool) {
 		abs = resolved
 	}
 
+	globalDir, _ := GetGlobalPleaseDir()
+	if resolvedGlobal, err := filepath.EvalSymlinks(globalDir); err == nil {
+		globalDir = resolvedGlobal
+	}
+
 	curr := abs
 	var gitRoot string
 	for {
-		// 1. If an existing .please directory is found, that is the active workspace root
+		// 1. If an existing .please directory is found, that is the active workspace root,
+		// provided it is NOT the global anchor directory (~/.please).
 		pleasePath := filepath.Join(curr, ".please")
-		if fi, err := os.Stat(pleasePath); err == nil && fi.IsDir() {
-			return curr, true
+		if pleasePath != globalDir {
+			if fi, err := os.Stat(pleasePath); err == nil && fi.IsDir() {
+				return curr, true
+			}
 		}
 
-		// 2. Track closest .git boundary as candidate root for initialization
+		// 2. Track closest .git boundary as candidate root for initialization.
+		// Stop climbing once we hit a git boundary; a workspace cannot extend beyond its enclosing repo.
 		if gitRoot == "" {
 			gitPath := filepath.Join(curr, ".git")
 			if _, err := os.Stat(gitPath); err == nil {
 				gitRoot = curr
+				break
 			}
 		}
 
 		parent := filepath.Dir(curr)
 		if parent == curr || parent == "" {
 			break
+		}
+
+		// Do not cross above the user's home directory
+		if home, err := os.UserHomeDir(); err == nil {
+			if resolvedHome, err := filepath.EvalSymlinks(home); err == nil {
+				home = resolvedHome
+			}
+			if curr == home {
+				break
+			}
 		}
 		curr = parent
 	}
@@ -402,6 +422,15 @@ func FindWorkspaceRoot(startDir ...string) (string, bool) {
 
 // GetWorkspacePleaseDir returns the path to <workspace_root>/.please if it exists.
 func GetWorkspacePleaseDir(startDir ...string) (string, bool) {
+	if ws := os.Getenv("PLEASE_WORKSPACE_DIR"); ws != "" {
+		return ws, true
+	}
+	// If PLEASE_CONFIG_DIR is set (e.g. unit test isolation), disable ambient workspace discovery
+	// unless an explicit start directory was provided.
+	if os.Getenv("PLEASE_CONFIG_DIR") != "" && (len(startDir) == 0 || startDir[0] == "") {
+		return "", false
+	}
+
 	start := "."
 	if len(startDir) > 0 && startDir[0] != "" {
 		start = startDir[0]
@@ -414,11 +443,18 @@ func GetWorkspacePleaseDir(startDir ...string) (string, bool) {
 		abs = resolved
 	}
 
+	globalDir, _ := GetGlobalPleaseDir()
+	if resolvedGlobal, err := filepath.EvalSymlinks(globalDir); err == nil {
+		globalDir = resolvedGlobal
+	}
+
 	curr := abs
 	for {
 		pleasePath := filepath.Join(curr, ".please")
-		if fi, err := os.Stat(pleasePath); err == nil && fi.IsDir() {
-			return pleasePath, true
+		if pleasePath != globalDir {
+			if fi, err := os.Stat(pleasePath); err == nil && fi.IsDir() {
+				return pleasePath, true
+			}
 		}
 
 		// Do not cross above a git boundary searching for .please
@@ -430,6 +466,14 @@ func GetWorkspacePleaseDir(startDir ...string) (string, bool) {
 		parent := filepath.Dir(curr)
 		if parent == curr || parent == "" {
 			break
+		}
+		if home, err := os.UserHomeDir(); err == nil {
+			if resolvedHome, err := filepath.EvalSymlinks(home); err == nil {
+				home = resolvedHome
+			}
+			if curr == home {
+				break
+			}
 		}
 		curr = parent
 	}

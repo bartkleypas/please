@@ -704,9 +704,33 @@ func TestConfig_FindWorkspaceRoot_And_PleaseDir(t *testing.T) {
 	if !hasPlease || pleaseDir != expectedPlease {
 		t.Errorf("expected hasPlease=true with pleaseDir=%s, got hasPlease=%v pleaseDir=%s", expectedPlease, hasPlease, pleaseDir)
 	}
+
+	// 4. Verification: globalDir (~/.please) is never mistaken for a workspace dot-directory
+	globalFakeDir := filepath.Join(tmpDir, "fake-home", ".please")
+	_ = os.MkdirAll(globalFakeDir, 0755)
+	t.Setenv("PLEASE_GLOBAL_DIR", globalFakeDir)
+
+	wsDir, isWs := GetWorkspacePleaseDir(filepath.Join(tmpDir, "fake-home"))
+	if isWs {
+		t.Errorf("expected globalDir not to be identified as workspace, got %s", wsDir)
+	}
+
+	// 5. Verification: search does not escape .git boundary even if parent has .please
+	parentWithPlease := filepath.Join(tmpDir, "parent-please")
+	_ = os.MkdirAll(filepath.Join(parentWithPlease, ".please"), 0755)
+	nestedGit := filepath.Join(parentWithPlease, "nested-repo")
+	_ = os.MkdirAll(filepath.Join(nestedGit, ".git"), 0755)
+	nestedSub := filepath.Join(nestedGit, "sub")
+	_ = os.MkdirAll(nestedSub, 0755)
+
+	nestedPlease, foundNested := GetWorkspacePleaseDir(nestedSub)
+	if foundNested {
+		t.Errorf("expected GetWorkspacePleaseDir not to cross above .git boundary, found %s", nestedPlease)
+	}
 }
 
 func TestConfig_DiscoveryLadder_WorkspaceCascade(t *testing.T) {
+	t.Setenv("PLEASE_CONFIG_DIR", "")
 	globalDir := t.TempDir()
 	t.Setenv("PLEASE_GLOBAL_DIR", globalDir)
 
