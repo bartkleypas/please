@@ -885,6 +885,10 @@ func TestConfig_SaveScoped_OptionA(t *testing.T) {
 	if !strings.Contains(string(wsBytes), "custom-project-model") {
 		t.Errorf("workspace config missing project setting: %s", string(wsBytes))
 	}
+	// Verify workspace config does NOT leak global client settings or global encryption key
+	if strings.Contains(string(wsBytes), `"natural_pacing"`) {
+		t.Errorf("workspace config should not contain global client settings: %s", string(wsBytes))
+	}
 
 	// 2. Save a Client Setting (e.g. Natural Pacing) -> must persist to global ~/.please/config.json
 	pacingVal := false
@@ -903,6 +907,13 @@ func TestConfig_SaveScoped_OptionA(t *testing.T) {
 	}
 	if !strings.Contains(string(globalBytes), `"natural_pacing": false`) {
 		t.Errorf("global config missing client setting: %s", string(globalBytes))
+	}
+	// CRITICAL PROTECTION: Global config must NOT have been polluted by workspace's model override!
+	if strings.Contains(string(globalBytes), "custom-project-model") {
+		t.Errorf("FATAL: global config was polluted with workspace model override: %s", string(globalBytes))
+	}
+	if !strings.Contains(string(globalBytes), "baseline-global-model") {
+		t.Errorf("global config lost its original model setting: %s", string(globalBytes))
 	}
 }
 

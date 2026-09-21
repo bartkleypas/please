@@ -504,8 +504,8 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		m.Config.Client = &engine.ClientConfig{}
 	}
 
-	key := args[0]
-	value := args[1]
+	key := strings.ToLower(strings.TrimSpace(args[0]))
+	value := strings.Trim(strings.TrimSpace(strings.Join(args[1:], " ")), "\"'")
 
 	switch key {
 	case "model":
@@ -527,7 +527,7 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		m.Config.Server.Endpoint = value
 		m.Notification = "Endpoint updated to " + value
 	case "workspace", "dir", "root", "workdir":
-		if strings.ToLower(value) == "default" || strings.ToLower(value) == "reset" || strings.ToLower(value) == "none" || value == "." {
+		if strings.ToLower(value) == "default" || strings.ToLower(value) == "reset" || strings.ToLower(value) == "none" || value == "." || value == "" {
 			m.Config.Server.WorkspaceDir = ""
 			m.Manager.RegisterDefaultTools(".")
 			m.Notification = "Workspace directory reset to current directory."
@@ -537,7 +537,8 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 			m.Notification = fmt.Sprintf("Workspace directory set to %s", m.Config.GetWorkspaceDir())
 		}
 	case "key", "encryption_key", "encryption":
-		if strings.ToLower(value) == "default" || strings.ToLower(value) == "reset" || strings.ToLower(value) == "none" || strings.ToLower(value) == "clear" || strings.ToLower(value) == "off" {
+		valLower := strings.ToLower(value)
+		if value == "" || valLower == "default" || valLower == "reset" || valLower == "none" || valLower == "clear" || valLower == "off" {
 			m.Config.Server.EncryptionKey = ""
 			m.Notification = "Encryption key cleared."
 		} else {

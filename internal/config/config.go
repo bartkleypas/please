@@ -200,7 +200,7 @@ func (c *Config) RecordOrigin(key string, isProjectSetting bool) {
 
 // SaveScoped persists configuration changes based on whether a workspace is active and setting scope.
 // Project settings (model, provider, options, sandbox, worktree) in an active workspace write to .please/config.json.
-// Operator personal settings (bell, pacing) or settings changed in global mode write to ~/.please/config.json.
+// Operator personal settings (bell, pacing, encryption_key) or settings changed in global mode write to ~/.please/config.json.
 func (c *Config) SaveScoped(isProjectSetting bool) (savedPath string, err error) {
 	if c.ReadOnly {
 		return "", fmt.Errorf("cannot save configuration: running in read-only mode")
@@ -214,6 +214,40 @@ func (c *Config) SaveScoped(isProjectSetting bool) (savedPath string, err error)
 			c.Origins = make(map[string]string)
 		}
 		return filepath.Join(c.WorkspaceRoot, ".please", "config.json"), nil
+	}
+
+	// Saving client/operator preference or in global mode
+	if c.WorkspaceRoot != "" {
+		// When inside an active workspace, do NOT clobber global server settings (model, vault_path, etc.)
+		globalCfg, err := loadGlobalConfig()
+		if err != nil {
+			return "", fmt.Errorf("failed to load global config: %w", err)
+		}
+		if c.Client != nil {
+			if globalCfg.Client == nil {
+				globalCfg.Client = defaultClientConfig()
+			}
+			if c.Client.NaturalPacing != nil {
+				globalCfg.Client.NaturalPacing = c.Client.NaturalPacing
+			}
+			if c.Client.BellOnTurnComplete != nil {
+				globalCfg.Client.BellOnTurnComplete = c.Client.BellOnTurnComplete
+			}
+			if c.Client.RemoteURL != "" {
+				globalCfg.Client.RemoteURL = c.Client.RemoteURL
+			}
+		}
+		if c.Server != nil && c.Origins != nil && c.Origins["server.encryption_key"] == OriginGlobal {
+			if globalCfg.Server == nil {
+				globalCfg.Server = defaultServerConfig()
+			}
+			globalCfg.Server.EncryptionKey = c.Server.EncryptionKey
+		}
+		if err := globalCfg.Save(); err != nil {
+			return "", err
+		}
+		appDir, _ := GetConfigDir()
+		return filepath.Join(appDir, "config.json"), nil
 	}
 
 	if err := c.Save(); err != nil {
@@ -1078,7 +1112,21 @@ func (c *Config) SaveWorkspace(workspaceDir ...string) error {
 	}
 
 	configPath := filepath.Join(pleaseDir, "config.json")
-	data, err := json.MarshalIndent(c, "", "  ")
+
+	// Never leak global secrets or non-workspace settings into workspace file
+	toSave := *c
+	if toSave.Server != nil {
+		srvCopy := *toSave.Server
+		if c.Origins == nil || c.Origins["server.encryption_key"] != OriginWorkspace {
+			srvCopy.EncryptionKey = ""
+		}
+		toSave.Server = &srvCopy
+	}
+	if c.Origins == nil || (c.Origins["client.natural_pacing"] != OriginWorkspace && c.Origins["client.bell_on_turn_complete"] != OriginWorkspace) {
+		toSave.Client = nil
+	}
+
+	data, err := json.MarshalIndent(&toSave, "", "  ")
 	if err != nil {
 		return err
 	}

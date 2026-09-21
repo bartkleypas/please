@@ -1823,4 +1823,14 @@ func TestTUI_ConfigOriginBadgesAndScopedSaving(t *testing.T) {
 	if strings.Contains(string(wsBytesKey), "operator-secret") {
 		t.Errorf("leaked encryption key into workspace config file!")
 	}
+
+	// 6. Execute /config key "" (quoted empty string: must clear key, not set literal quotes)
+	m.HandleCommand(`/config key ""`)
+	if m.Config.Server.EncryptionKey != "" {
+		t.Errorf("expected empty encryption key after /config key \"\", got: %q", m.Config.Server.EncryptionKey)
+	}
+	globalBytesCleared, err := os.ReadFile(filepath.Join(globalDir, "config.json"))
+	if err != nil || strings.Contains(string(globalBytesCleared), "operator-secret") {
+		t.Errorf("global config still contains cleared key: %s", string(globalBytesCleared))
+	}
 }
