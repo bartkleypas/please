@@ -685,24 +685,38 @@ func TestConfig_FindWorkspaceRoot_And_PleaseDir(t *testing.T) {
 	subPkg := filepath.Join(gitDir, "pkg", "subpkg")
 	_ = os.MkdirAll(subPkg, 0755)
 
-	root, found = FindWorkspaceRoot(subPkg)
+	// In gitDir itself: has .git boundary
+	root, found = FindWorkspaceRoot(gitDir)
 	if !found || root != gitDir {
 		t.Errorf("expected found=true with root=%s, got found=%v root=%s", gitDir, found, root)
 	}
 
-	// Without .please, GetWorkspacePleaseDir should return false
+	// In subPkg: zero crawling upward! It should NOT climb to gitDir
+	rootSub, foundSub := FindWorkspaceRoot(subPkg)
+	if foundSub {
+		t.Errorf("expected foundSub=false (zero crawling), got rootSub=%s", rootSub)
+	}
+
+	// Without .please in subPkg, GetWorkspacePleaseDir returns false
 	pleaseDir, hasPlease := GetWorkspacePleaseDir(subPkg)
 	if hasPlease {
 		t.Errorf("expected hasPlease=false before .please is initialized, got %s", pleaseDir)
 	}
 
-	// 3. Directory with .please initialized
+	// 3. Directory with .please initialized in gitDir
 	expectedPlease := filepath.Join(gitDir, ".please")
 	_ = os.MkdirAll(expectedPlease, 0755)
 
-	pleaseDir, hasPlease = GetWorkspacePleaseDir(subPkg)
+	// GetWorkspacePleaseDir in gitDir finds it directly
+	pleaseDir, hasPlease = GetWorkspacePleaseDir(gitDir)
 	if !hasPlease || pleaseDir != expectedPlease {
 		t.Errorf("expected hasPlease=true with pleaseDir=%s, got hasPlease=%v pleaseDir=%s", expectedPlease, hasPlease, pleaseDir)
+	}
+
+	// But in subPkg: ZERO climbing! It should NOT find gitDir/.please
+	pleaseSubDir, hasSubPlease := GetWorkspacePleaseDir(subPkg)
+	if hasSubPlease {
+		t.Errorf("expected hasSubPlease=false (no upward crawling), got %s", pleaseSubDir)
 	}
 
 	// 4. Verification: globalDir (~/.please) is never mistaken for a workspace dot-directory
@@ -713,19 +727,6 @@ func TestConfig_FindWorkspaceRoot_And_PleaseDir(t *testing.T) {
 	wsDir, isWs := GetWorkspacePleaseDir(filepath.Join(tmpDir, "fake-home"))
 	if isWs {
 		t.Errorf("expected globalDir not to be identified as workspace, got %s", wsDir)
-	}
-
-	// 5. Verification: search does not escape .git boundary even if parent has .please
-	parentWithPlease := filepath.Join(tmpDir, "parent-please")
-	_ = os.MkdirAll(filepath.Join(parentWithPlease, ".please"), 0755)
-	nestedGit := filepath.Join(parentWithPlease, "nested-repo")
-	_ = os.MkdirAll(filepath.Join(nestedGit, ".git"), 0755)
-	nestedSub := filepath.Join(nestedGit, "sub")
-	_ = os.MkdirAll(nestedSub, 0755)
-
-	nestedPlease, foundNested := GetWorkspacePleaseDir(nestedSub)
-	if foundNested {
-		t.Errorf("expected GetWorkspacePleaseDir not to cross above .git boundary, found %s", nestedPlease)
 	}
 }
 

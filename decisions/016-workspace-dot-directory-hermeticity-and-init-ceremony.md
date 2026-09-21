@@ -101,8 +101,8 @@ When `please` (CLI, TUI, or daemon) resolves its configuration and vault paths, 
                       Found? ├── Yes ──► Use explicitly specified paths
                              │ No
                              ▼
-              [2. Workspace Anchor (.please/)]
-         Walk upwards from PWD looking for .please/
+              [2. Local Workspace Anchor (.please/)]
+         Inspect current working directory (zero crawling)
                              │
                       Found? ├── Yes ──► Use .please/config.json & .please/vault.db
                              │ No
@@ -118,10 +118,10 @@ When `please` (CLI, TUI, or daemon) resolves its configuration and vault paths, 
 
 #### Deterministic Precedence Rules:
 1. **CLI Flags Override All**: `-c, --config <path>` and `-v, --vault <path>` always take absolute priority.
-2. **Workspace Precedence**: If `.please/` exists in the current directory or any parent up to a `.git` root or filesystem boundary, `.please/` is adopted as the workspace anchor.
+2. **Local Workspace Precedence (Zero Climbing)**: If `.please/` exists in the targeted working directory (and is not the global `~/.please` anchor), `.please/` is adopted as the workspace anchor. Please does **not** crawl upwards into parent directories or downwards into child subtrees. If a directory lacks a `.please/` directory, it operates purely in global mode.
 3. **Configuration Cascading / Merging**: 
    - Global configuration (`~/.please/config.json`) is loaded as the baseline.
-   - Workspace configuration (`.please/config.json`), if present, is merged on top as an override layer.
+   - Workspace configuration (`.please/config.json`), if present in the working directory, is merged on top as an override layer.
 4. **Vault Binding**:
    - In an initialized workspace, `vault.db` is anchored to `.please/vault.db`.
    - Outside an initialized workspace, `vault.db` defaults to `~/.please/vault.db`.
@@ -208,7 +208,7 @@ Previously, both scopes were stored in whichever single `vault.db` was active. W
 - **Root Working Tree Cleanliness**: Zero stray `vault.db`, `vault.db-wal`, or `vault.db-shm` files polluting project directories.
 - **Automated Git Hygiene**: `please init` automatically protects `.gitignore`, preventing accidental commits of multi-megabyte SQLite databases.
 - **Physical Memory Alignment**: 1:1 conceptual mapping between ADR-014 `ScopeWorkspace` / `ScopeGlobal` and `.please/vault.db` / `~/.please/vault.db`.
-- **Deterministic Discovery**: Eliminates fragile heuristics in favor of an upward-walking path resolver.
+- **Deterministic Local Discovery**: Eliminates fragile crawling heuristics in favor of a strictly local, non-crawling working tree resolver.
 
 ### Negative / Trade-offs
 - **New CLI Command**: Adds `please init` to the CLI surface area (though highly natural for any developer familiar with `git init`, `npm init`, or `cargo init`).

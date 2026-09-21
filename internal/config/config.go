@@ -354,9 +354,9 @@ func migrateLegacyConfig(globalDir string) {
 	_ = os.WriteFile(newConfigPath, oldData, 0644)
 }
 
-// FindWorkspaceRoot walks up directory ancestors starting from startDir looking for an existing
-// .please directory or a .git boundary (which defines the repository root for initialization).
-// Returns the directory path and whether a root boundary was discovered.
+// FindWorkspaceRoot inspects startDir (defaulting to current working directory).
+// It does NOT crawl up or down directory hierarchies.
+// Returns the directory path and whether a workspace anchor (.please) or repo (.git) exists in startDir.
 func FindWorkspaceRoot(startDir ...string) (string, bool) {
 	start := "."
 	if len(startDir) > 0 && startDir[0] != "" {
@@ -375,52 +375,25 @@ func FindWorkspaceRoot(startDir ...string) (string, bool) {
 		globalDir = resolvedGlobal
 	}
 
-	curr := abs
-	var gitRoot string
-	for {
-		// 1. If an existing .please directory is found, that is the active workspace root,
-		// provided it is NOT the global anchor directory (~/.please).
-		pleasePath := filepath.Join(curr, ".please")
-		if pleasePath != globalDir {
-			if fi, err := os.Stat(pleasePath); err == nil && fi.IsDir() {
-				return curr, true
-			}
+	// 1. Check if startDir contains a .please directory (and is not global ~/.please)
+	pleasePath := filepath.Join(abs, ".please")
+	if pleasePath != globalDir {
+		if fi, err := os.Stat(pleasePath); err == nil && fi.IsDir() {
+			return abs, true
 		}
-
-		// 2. Track closest .git boundary as candidate root for initialization.
-		// Stop climbing once we hit a git boundary; a workspace cannot extend beyond its enclosing repo.
-		if gitRoot == "" {
-			gitPath := filepath.Join(curr, ".git")
-			if _, err := os.Stat(gitPath); err == nil {
-				gitRoot = curr
-				break
-			}
-		}
-
-		parent := filepath.Dir(curr)
-		if parent == curr || parent == "" {
-			break
-		}
-
-		// Do not cross above the user's home directory
-		if home, err := os.UserHomeDir(); err == nil {
-			if resolvedHome, err := filepath.EvalSymlinks(home); err == nil {
-				home = resolvedHome
-			}
-			if curr == home {
-				break
-			}
-		}
-		curr = parent
 	}
 
-	if gitRoot != "" {
-		return gitRoot, true
+	// 2. Check if startDir is a git repository boundary
+	gitPath := filepath.Join(abs, ".git")
+	if _, err := os.Stat(gitPath); err == nil {
+		return abs, true
 	}
+
 	return abs, false
 }
 
-// GetWorkspacePleaseDir returns the path to <workspace_root>/.please if it exists.
+// GetWorkspacePleaseDir returns the path to <target_dir>/.please if it exists in startDir.
+// It does NOT crawl up or down parent/child directories.
 func GetWorkspacePleaseDir(startDir ...string) (string, bool) {
 	if ws := os.Getenv("PLEASE_WORKSPACE_DIR"); ws != "" {
 		return ws, true
@@ -448,34 +421,11 @@ func GetWorkspacePleaseDir(startDir ...string) (string, bool) {
 		globalDir = resolvedGlobal
 	}
 
-	curr := abs
-	for {
-		pleasePath := filepath.Join(curr, ".please")
-		if pleasePath != globalDir {
-			if fi, err := os.Stat(pleasePath); err == nil && fi.IsDir() {
-				return pleasePath, true
-			}
+	pleasePath := filepath.Join(abs, ".please")
+	if pleasePath != globalDir {
+		if fi, err := os.Stat(pleasePath); err == nil && fi.IsDir() {
+			return pleasePath, true
 		}
-
-		// Do not cross above a git boundary searching for .please
-		gitPath := filepath.Join(curr, ".git")
-		if _, err := os.Stat(gitPath); err == nil {
-			break
-		}
-
-		parent := filepath.Dir(curr)
-		if parent == curr || parent == "" {
-			break
-		}
-		if home, err := os.UserHomeDir(); err == nil {
-			if resolvedHome, err := filepath.EvalSymlinks(home); err == nil {
-				home = resolvedHome
-			}
-			if curr == home {
-				break
-			}
-		}
-		curr = parent
 	}
 
 	return "", false
