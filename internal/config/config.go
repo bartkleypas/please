@@ -110,6 +110,32 @@ func (c *Config) GetWorkspaceDir() string {
 	return dir
 }
 
+// GetVaultPath returns the resolved vault path from ServerConfig, expanding ~ and environment variables.
+func (s *ServerConfig) GetVaultPath() string {
+	if s == nil || s.VaultPath == "" {
+		return ""
+	}
+	path := os.ExpandEnv(s.VaultPath)
+	if strings.HasPrefix(path, "~/") || path == "~" {
+		if home, err := os.UserHomeDir(); err == nil {
+			if path == "~" {
+				path = home
+			} else {
+				path = filepath.Join(home, path[2:])
+			}
+		}
+	}
+	return filepath.Clean(path)
+}
+
+// GetVaultPath returns the resolved vault path across configuration, expanding ~ and environment variables.
+func (c *Config) GetVaultPath() string {
+	if c == nil || c.Server == nil {
+		return ""
+	}
+	return c.Server.GetVaultPath()
+}
+
 // SupportsVision returns whether the configured model supports vision/multimodal capabilities
 func (c *Config) SupportsVision() bool {
 	if c == nil || c.Server == nil {

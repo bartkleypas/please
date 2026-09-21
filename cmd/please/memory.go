@@ -39,8 +39,8 @@ func setupMemoryStore(vaultPath, configPath string) (storage.MemoryStore, *confi
 	finalVaultPath := ""
 	if vaultPath != "" {
 		finalVaultPath = vaultPath
-	} else if cfg.Server != nil && cfg.Server.VaultPath != "" {
-		finalVaultPath = cfg.Server.VaultPath
+	} else if cfg != nil {
+		finalVaultPath = cfg.GetVaultPath()
 	}
 
 	if finalVaultPath == "" {

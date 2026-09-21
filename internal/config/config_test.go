@@ -654,6 +654,34 @@ func TestConfig_WorkspaceDir(t *testing.T) {
 	}
 }
 
+func TestConfig_VaultPath_TildeExpansion(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("skipping test; home dir not available")
+	}
+
+	cfg := Config{
+		Server: &ServerConfig{
+			VaultPath: "~/.please/vault.db",
+		},
+	}
+
+	expected := filepath.Join(home, ".please", "vault.db")
+	if cfg.GetVaultPath() != expected {
+		t.Errorf("expected %s, got %s", expected, cfg.GetVaultPath())
+	}
+
+	// Environment variable expansion
+	envCfg := Config{
+		Server: &ServerConfig{
+			VaultPath: "$HOME/.please/vault.db",
+		},
+	}
+	if envCfg.GetVaultPath() != expected {
+		t.Errorf("expected %s, got %s", expected, envCfg.GetVaultPath())
+	}
+}
+
 func TestConfig_GlobalPleaseDir_Isolation(t *testing.T) {
 	isolatedDir := t.TempDir()
 	t.Setenv("PLEASE_GLOBAL_DIR", isolatedDir)
