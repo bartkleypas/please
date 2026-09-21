@@ -33,4 +33,10 @@ var (
 
 	// GetConfigDir returns the path to the please configuration directory
 	GetConfigDir = config.GetConfigDir
+
+	// GetGlobalPleaseDir returns the universal user-level Please directory (~/.please)
+	GetGlobalPleaseDir = config.GetGlobalPleaseDir
+
+	// GetWorkspacePleaseDir returns the workspace-local Please directory if present
+	GetWorkspacePleaseDir = config.GetWorkspacePleaseDir
 )

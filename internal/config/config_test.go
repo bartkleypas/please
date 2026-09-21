@@ -815,4 +815,93 @@ func TestConfig_DiscoveryLadder_WorkspaceCascade(t *testing.T) {
 	if loaded.Server.VaultPath != expectedVault {
 		t.Errorf("expected vault path %s, got %s", expectedVault, loaded.Server.VaultPath)
 	}
+	// 4. Origin tracking and badges
+	if !loaded.IsWorkspaceActive() {
+		t.Errorf("expected workspace to be active")
+	}
+	if loaded.GetOrigin("server.model") != OriginWorkspace {
+		t.Errorf("expected origin %q for server.model, got %q", OriginWorkspace, loaded.GetOrigin("server.model"))
+	}
+	if loaded.OriginBadge("server.model") != "[workspace override]" {
+		t.Errorf("expected badge '[workspace override]', got %q", loaded.OriginBadge("server.model"))
+	}
+	if loaded.GetOrigin("server.endpoint") != OriginGlobal {
+		t.Errorf("expected origin %q for server.endpoint, got %q", OriginGlobal, loaded.GetOrigin("server.endpoint"))
+	}
+	if loaded.OriginBadge("server.endpoint") != "[global preference]" {
+		t.Errorf("expected badge '[global preference]', got %q", loaded.OriginBadge("server.endpoint"))
+	}
+	if loaded.GetOrigin("server.vault_path") != OriginAnchor {
+		t.Errorf("expected origin %q for server.vault_path, got %q", OriginAnchor, loaded.GetOrigin("server.vault_path"))
+	}
+	if loaded.OriginBadge("server.vault_path") != "[workspace anchor]" {
+		t.Errorf("expected badge '[workspace anchor]', got %q", loaded.OriginBadge("server.vault_path"))
+	}
+}
+
+func TestConfig_SaveScoped_OptionA(t *testing.T) {
+	t.Setenv("PLEASE_CONFIG_DIR", "")
+	globalDir := t.TempDir()
+	t.Setenv("PLEASE_GLOBAL_DIR", globalDir)
+
+	// Write baseline global config
+	globalCfg := defaultConfig()
+	globalCfg.Server.Model = "baseline-global-model"
+	if err := globalCfg.Save(); err != nil {
+		t.Fatalf("failed to save initial global config: %v", err)
+	}
+
+	// Create workspace
+	wsDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		wsDir = t.TempDir()
+	}
+	wsPlease := filepath.Join(wsDir, ".please")
+	_ = os.MkdirAll(wsPlease, 0755)
+
+	origWd, _ := os.Getwd()
+	defer os.Chdir(origWd)
+	_ = os.Chdir(wsDir)
+
+	loaded, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	// 1. Save a Project Setting (e.g. Model) -> must persist to workspace .please/config.json
+	loaded.Server.Model = "custom-project-model"
+	savedWsPath, err := loaded.SaveScoped(true)
+	if err != nil {
+		t.Fatalf("SaveScoped(true) failed: %v", err)
+	}
+	expectedWsConfig := filepath.Join(wsPlease, "config.json")
+	if savedWsPath != expectedWsConfig {
+		t.Errorf("expected saved path %s, got %s", expectedWsConfig, savedWsPath)
+	}
+	wsBytes, err := os.ReadFile(expectedWsConfig)
+	if err != nil {
+		t.Fatalf("failed to read workspace config: %v", err)
+	}
+	if !strings.Contains(string(wsBytes), "custom-project-model") {
+		t.Errorf("workspace config missing project setting: %s", string(wsBytes))
+	}
+
+	// 2. Save a Client Setting (e.g. Natural Pacing) -> must persist to global ~/.please/config.json
+	pacingVal := false
+	loaded.Client.NaturalPacing = &pacingVal
+	savedGlobalPath, err := loaded.SaveScoped(false)
+	if err != nil {
+		t.Fatalf("SaveScoped(false) failed: %v", err)
+	}
+	expectedGlobalConfig := filepath.Join(globalDir, "config.json")
+	if savedGlobalPath != expectedGlobalConfig {
+		t.Errorf("expected global path %s, got %s", expectedGlobalConfig, savedGlobalPath)
+	}
+	globalBytes, err := os.ReadFile(expectedGlobalConfig)
+	if err != nil {
+		t.Fatalf("failed to read global config: %v", err)
+	}
+	if !strings.Contains(string(globalBytes), `"natural_pacing": false`) {
+		t.Errorf("global config missing client setting: %s", string(globalBytes))
+	}
 }

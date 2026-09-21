@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/bartkleypas/please/internal/engine"
@@ -113,8 +114,11 @@ func (c *PacingCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		m.Notification = "Natural reading pacing disabled."
 	}
 
+	m.Config.RecordOrigin("client.natural_pacing", false)
 	if !m.Config.ReadOnly {
-		_ = m.Config.Save()
+		if savedPath, err := m.Config.SaveScoped(false); err == nil {
+			m.Notification += fmt.Sprintf(" (saved to %s)", savedPath)
+		}
 	}
 	return m, nil
 }
@@ -148,8 +152,11 @@ func (c *BellCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		m.Notification = "🔕 Terminal bell disabled"
 	}
 
+	m.Config.RecordOrigin("client.bell_on_turn_complete", false)
 	if !m.Config.ReadOnly {
-		_ = m.Config.Save()
+		if savedPath, err := m.Config.SaveScoped(false); err == nil {
+			m.Notification += fmt.Sprintf(" (saved to %s)", savedPath)
+		}
 	}
 	return m, nil
 }
@@ -312,12 +319,27 @@ func (m *Model) renderConfigString() string {
 		cli = &engine.ClientConfig{}
 	}
 
-	// Active Session
+	// Active Session & Scope
 	sessionStr := "Standalone (Local Embedded Engine)"
 	if m.RemoteURL != "" {
 		sessionStr = fmt.Sprintf("Connected (%s 🟢)", m.RemoteURL)
 	}
-	fmt.Fprintf(&s, "  • Active Session:  %s\n\n", sessionStr)
+	fmt.Fprintf(&s, "  • Active Session:  %s\n", sessionStr)
+	if m.Config.IsWorkspaceActive() {
+		wsFile := filepath.Join(m.Config.WorkspaceRoot, ".please", "config.json")
+		fmt.Fprintf(&s, "  • Active Scope:    Workspace (%s)\n", m.Config.WorkspaceRoot)
+		fmt.Fprintf(&s, "  • Workspace File:  %s\n", wsFile)
+		if gDir, err := engine.GetGlobalPleaseDir(); err == nil {
+			fmt.Fprintf(&s, "  • Global File:     %s\n\n", filepath.Join(gDir, "config.json"))
+		} else {
+			s.WriteString("\n")
+		}
+	} else {
+		if gDir, err := engine.GetGlobalPleaseDir(); err == nil {
+			fmt.Fprintf(&s, "  • Active Scope:    Global Anchor (~/.please)\n")
+			fmt.Fprintf(&s, "  • Global File:     %s\n\n", filepath.Join(gDir, "config.json"))
+		}
+	}
 
 	// [ Server / Engine Backend ]
 	s.WriteString("  [ Server / Engine Backend ]\n")
@@ -325,18 +347,22 @@ func (m *Model) renderConfigString() string {
 	if providerStr == "" {
 		providerStr = "ollama"
 	}
-	fmt.Fprintf(&s, "    Provider:        %s (%s)\n", providerStr, srv.Model)
-	fmt.Fprintf(&s, "    Endpoint:        %s\n", srv.Endpoint)
+	providerBadge := m.Config.OriginBadge("server.provider")
+	if m.Config.GetOrigin("server.model") != "default" {
+		providerBadge = m.Config.OriginBadge("server.model")
+	}
+	fmt.Fprintf(&s, "    Provider:        %-32s %s\n", fmt.Sprintf("%s (%s)", providerStr, srv.Model), providerBadge)
+	fmt.Fprintf(&s, "    Endpoint:        %-32s %s\n", srv.Endpoint, m.Config.OriginBadge("server.endpoint"))
 	storageType := srv.StorageType
 	if storageType == "" {
 		storageType = "sqlite"
 	}
-	fmt.Fprintf(&s, "    Vault:           %s (%s)\n", srv.VaultPath, storageType)
+	fmt.Fprintf(&s, "    Vault:           %-32s %s\n", fmt.Sprintf("%s (%s)", srv.VaultPath, storageType), m.Config.OriginBadge("server.vault_path"))
 	wsStr := srv.WorkspaceDir
 	if wsStr == "" {
 		wsStr = "(current directory)"
 	}
-	fmt.Fprintf(&s, "    Workspace:       %s\n", wsStr)
+	fmt.Fprintf(&s, "    Workspace:       %-32s %s\n", wsStr, m.Config.OriginBadge("server.workspace_dir"))
 	encStr := "(disabled)"
 	if srv.EncryptionKey != "" {
 		encStr = "•••••••• (configured)"
@@ -351,17 +377,17 @@ func (m *Model) renderConfigString() string {
 	if sandboxStr == "" {
 		sandboxStr = "standard (default)"
 	}
-	fmt.Fprintf(&s, "    Sandbox Policy:  %s\n", sandboxStr)
+	fmt.Fprintf(&s, "    Sandbox Policy:  %-32s %s\n", sandboxStr, m.Config.OriginBadge("server.sandbox_policy"))
 	signatStr := "disabled (pure prompt, silent metadata derivation)"
 	if m.Config.EnableSignatSteering() {
 		signatStr = "enabled (layered Genesis prompt steering)"
 	}
-	fmt.Fprintf(&s, "    Signat Steering:    %s\n", signatStr)
+	fmt.Fprintf(&s, "    Signat Steering:    %s %s\n", signatStr, m.Config.OriginBadge("server.signat_steering"))
 	telemStr := "disabled (pure human turns)"
 	if m.Config.EnableAmbientTelemetry() {
 		telemStr = "enabled (bounded XML leaf envelope)"
 	}
-	fmt.Fprintf(&s, "    Ambient Telemetry:  %s\n", telemStr)
+	fmt.Fprintf(&s, "    Ambient Telemetry:  %s %s\n", telemStr, m.Config.OriginBadge("server.ambient_telemetry"))
 
 	s.WriteString("\n    Inference Parameters:\n")
 	if srv.Options != nil {
@@ -415,12 +441,12 @@ func (m *Model) renderConfigString() string {
 	if m.Config.EnableNaturalPacing() {
 		pacingStr = "enabled (natural reading pace)"
 	}
-	fmt.Fprintf(&s, "    Pacing:          %s\n", pacingStr)
+	fmt.Fprintf(&s, "    Pacing:          %-32s %s\n", pacingStr, m.Config.OriginBadge("client.natural_pacing"))
 	bellStr := "disabled"
 	if m.Config.EnableBellOnTurnComplete() {
 		bellStr = "enabled (ASCII 0x07 / \\a)"
 	}
-	fmt.Fprintf(&s, "    Terminal Bell:   %s\n", bellStr)
+	fmt.Fprintf(&s, "    Terminal Bell:   %-32s %s\n", bellStr, m.Config.OriginBadge("client.bell_on_turn_complete"))
 	remoteURL := cli.RemoteURL
 	if remoteURL == "" {
 		remoteURL = "http://127.0.0.1:8080 (default)"
@@ -779,10 +805,37 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	isProject := true
+	originKey := "server." + key
+	switch key {
+	case "bell", "bell_on_turn_complete":
+		isProject = false
+		originKey = "client.bell_on_turn_complete"
+	case "pacing":
+		isProject = false
+		originKey = "client.natural_pacing"
+	case "remote", "daemon", "server_url", "url":
+		isProject = false
+		originKey = "client.remote_url"
+	case "model":
+		originKey = "server.model"
+	case "provider":
+		originKey = "server.provider"
+	case "endpoint":
+		originKey = "server.endpoint"
+	case "signats":
+		originKey = "server.signat_steering"
+	case "telemetry", "ambient_telemetry":
+		originKey = "server.ambient_telemetry"
+	}
+	m.Config.RecordOrigin(originKey, isProject)
+
 	if m.Config.ReadOnly {
 		m.Notification = "Configuration updated in-memory only (saving disabled for external config)."
-	} else if err := m.Config.Save(); err != nil {
+	} else if savedPath, err := m.Config.SaveScoped(isProject); err != nil {
 		m.Notification = fmt.Sprintf("Error saving config: %v", err)
+	} else {
+		m.Notification += fmt.Sprintf(" (saved to %s)", savedPath)
 	}
 
 	if m.ViewportOverride != "" && strings.Contains(m.ViewportOverride, "Configuration") {
@@ -959,6 +1012,12 @@ func (c *SandboxCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	case engine.SandboxPolicyStrict, engine.SandboxPolicyStandard, engine.SandboxPolicyPermissive:
 		m.Config.Server.SandboxPolicy = targetPolicy
 		m.Notification = fmt.Sprintf("Sandbox policy switched to %s", strings.ToUpper(targetPolicy))
+		m.Config.RecordOrigin("server.sandbox_policy", true)
+		if !m.Config.ReadOnly {
+			if savedPath, err := m.Config.SaveScoped(true); err == nil {
+				m.Notification += fmt.Sprintf(" (saved to %s)", savedPath)
+			}
+		}
 		if m.ViewportOverride != "" && strings.Contains(m.ViewportOverride, "Please Sandbox Security Perimeter") {
 			return c.Execute(m, nil)
 		}
@@ -966,6 +1025,12 @@ func (c *SandboxCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	case "default", "reset":
 		m.Config.Server.SandboxPolicy = ""
 		m.Notification = "Sandbox policy reset to standard default"
+		m.Config.RecordOrigin("server.sandbox_policy", true)
+		if !m.Config.ReadOnly {
+			if savedPath, err := m.Config.SaveScoped(true); err == nil {
+				m.Notification += fmt.Sprintf(" (saved to %s)", savedPath)
+			}
+		}
 		return m, nil
 	default:
 		m.Notification = fmt.Sprintf("Unknown sandbox policy %q. Expected 'strict', 'standard', or 'permissive'", targetPolicy)
