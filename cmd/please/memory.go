@@ -61,15 +61,6 @@ func setupMemoryStore(vaultPath, configPath string) (storage.MemoryStore, *confi
 				}
 			}
 		}
-		// 3. Test fixtures and legacy fallbacks
-		if finalVaultPath == "" {
-			for _, candidate := range []string{"test_vault/e2e.db", "vault.db", "e2e.db", "test_vault/livefire.db", "livefire.db"} {
-				if _, err := os.Stat(candidate); err == nil {
-					finalVaultPath = candidate
-					break
-				}
-			}
-		}
 	}
 
 	if finalVaultPath == "" {
