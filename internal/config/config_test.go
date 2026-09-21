@@ -905,3 +905,80 @@ func TestConfig_SaveScoped_OptionA(t *testing.T) {
 		t.Errorf("global config missing client setting: %s", string(globalBytes))
 	}
 }
+
+func TestConfig_EncryptionKey_CascadeAndEnv(t *testing.T) {
+	t.Setenv("PLEASE_CONFIG_DIR", "")
+	globalDir := t.TempDir()
+	t.Setenv("PLEASE_GLOBAL_DIR", globalDir)
+
+	// Baseline global config with an encryption key
+	globalCfg := defaultConfig()
+	globalCfg.Server.EncryptionKey = "global-secret-key"
+	if err := globalCfg.Save(); err != nil {
+		t.Fatalf("failed to save global config: %v", err)
+	}
+
+	wsDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		wsDir = t.TempDir()
+	}
+	wsPlease := filepath.Join(wsDir, ".please")
+	_ = os.MkdirAll(wsPlease, 0755)
+
+	origWd, _ := os.Getwd()
+	defer os.Chdir(origWd)
+	_ = os.Chdir(wsDir)
+
+	// 1. Inherit global key by default in workspace
+	cfg1, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if cfg1.Server.EncryptionKey != "global-secret-key" {
+		t.Errorf("expected global encryption key, got %q", cfg1.Server.EncryptionKey)
+	}
+	if cfg1.OriginBadge("server.encryption_key") != "[global preference]" {
+		t.Errorf("expected [global preference], got %q", cfg1.OriginBadge("server.encryption_key"))
+	}
+
+	// 2. Workspace override
+	wsConfigData := `{"version": 2, "server": {"encryption_key": "workspace-isolated-key"}}`
+	_ = os.WriteFile(filepath.Join(wsPlease, "config.json"), []byte(wsConfigData), 0644)
+	cfg2, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if cfg2.Server.EncryptionKey != "workspace-isolated-key" {
+		t.Errorf("expected workspace encryption key, got %q", cfg2.Server.EncryptionKey)
+	}
+	if cfg2.OriginBadge("server.encryption_key") != "[workspace override]" {
+		t.Errorf("expected [workspace override], got %q", cfg2.OriginBadge("server.encryption_key"))
+	}
+
+	// 3. Workspace opt-out ("none")
+	wsOptOutData := `{"version": 2, "server": {"encryption_key": "none"}}`
+	_ = os.WriteFile(filepath.Join(wsPlease, "config.json"), []byte(wsOptOutData), 0644)
+	cfg3, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if cfg3.Server.EncryptionKey != "" {
+		t.Errorf("expected empty encryption key after opt-out, got %q", cfg3.Server.EncryptionKey)
+	}
+	if cfg3.OriginBadge("server.encryption_key") != "[workspace opt-out]" {
+		t.Errorf("expected [workspace opt-out], got %q", cfg3.OriginBadge("server.encryption_key"))
+	}
+
+	// 4. Environment variable precedence
+	t.Setenv("PLEASE_ENCRYPTION_KEY", "env-injected-secret")
+	cfg4, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if cfg4.Server.EncryptionKey != "env-injected-secret" {
+		t.Errorf("expected env encryption key, got %q", cfg4.Server.EncryptionKey)
+	}
+	if cfg4.OriginBadge("server.encryption_key") != "[env override]" {
+		t.Errorf("expected [env override], got %q", cfg4.OriginBadge("server.encryption_key"))
+	}
+}

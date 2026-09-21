@@ -145,6 +145,7 @@ func (c *Config) IsWorkspaceActive() bool {
 
 // Provenance origins for configuration values.
 const (
+	OriginEnv       = "env"
 	OriginWorkspace = "workspace"
 	OriginAnchor    = "workspace anchor"
 	OriginGlobal    = "global"
@@ -166,7 +167,12 @@ func (c *Config) GetOrigin(key string) string {
 func (c *Config) OriginBadge(key string) string {
 	origin := c.GetOrigin(key)
 	switch origin {
+	case OriginEnv:
+		return "[env override]"
 	case OriginWorkspace:
+		if key == "server.encryption_key" && c.Server != nil && c.Server.EncryptionKey == "" {
+			return "[workspace opt-out]"
+		}
 		return "[workspace override]"
 	case OriginAnchor:
 		return "[workspace anchor]"
@@ -719,12 +725,14 @@ func LoadConfig() (*Config, error) {
 				merged.Origins["server.vault_path"] = "workspace anchor"
 				merged.Origins["server.workspace_dir"] = "workspace anchor"
 				merged.ReadOnly = false
+				applyEnvironmentOverrides(merged)
 				return merged, nil
 			}
 		} else {
 			// .please/ directory exists without config.json: use global config and bind vault to .please/vault.db
 			cfg, err := loadGlobalConfig()
 			if err == nil {
+				populateGlobalOrigins(cfg)
 				if cfg.Server == nil {
 					cfg.Server = defaultServerConfig()
 				}
@@ -736,6 +744,7 @@ func LoadConfig() (*Config, error) {
 				}
 				cfg.Origins["server.vault_path"] = "workspace anchor"
 				cfg.Origins["server.workspace_dir"] = "workspace anchor"
+				applyEnvironmentOverrides(cfg)
 				return cfg, nil
 			}
 		}
@@ -745,8 +754,29 @@ func LoadConfig() (*Config, error) {
 	cfg, err := loadGlobalConfig()
 	if err == nil {
 		populateGlobalOrigins(cfg)
+		applyEnvironmentOverrides(cfg)
 	}
 	return cfg, err
+}
+
+func applyEnvironmentOverrides(cfg *Config) {
+	if cfg == nil {
+		return
+	}
+	if envKey := os.Getenv("PLEASE_ENCRYPTION_KEY"); envKey != "" {
+		if cfg.Server == nil {
+			cfg.Server = defaultServerConfig()
+		}
+		if cfg.Origins == nil {
+			cfg.Origins = make(map[string]string)
+		}
+		if envKey == "none" || envKey == "disabled" || envKey == "clear" || envKey == "off" || envKey == "0" {
+			cfg.Server.EncryptionKey = ""
+		} else {
+			cfg.Server.EncryptionKey = envKey
+		}
+		cfg.Origins["server.encryption_key"] = OriginEnv
+	}
 }
 
 func populateGlobalOrigins(cfg *Config) {
@@ -768,6 +798,7 @@ func populateGlobalOrigins(cfg *Config) {
 	setGlobalOrDef("server.endpoint", srv && cfg.Server.Endpoint != "")
 	setGlobalOrDef("server.vault_path", srv && cfg.Server.VaultPath != "")
 	setGlobalOrDef("server.workspace_dir", srv && cfg.Server.WorkspaceDir != "")
+	setGlobalOrDef("server.encryption_key", srv && cfg.Server.EncryptionKey != "")
 	setGlobalOrDef("server.sandbox_policy", srv && cfg.Server.SandboxPolicy != "")
 	setGlobalOrDef("server.worktree_isolation", srv && cfg.Server.WorktreeIsolation != nil)
 	setGlobalOrDef("server.signat_steering", srv && cfg.Server.SignatSteering != nil)
@@ -879,6 +910,13 @@ func mergeConfigs(base, override *Config) *Config {
 			if override.Server.WorkspaceDir != "" {
 				s.WorkspaceDir = override.Server.WorkspaceDir
 			}
+			if override.Server.EncryptionKey != "" {
+				if override.Server.EncryptionKey == "none" || override.Server.EncryptionKey == "disabled" || override.Server.EncryptionKey == "clear" || override.Server.EncryptionKey == "off" {
+					s.EncryptionKey = ""
+				} else {
+					s.EncryptionKey = override.Server.EncryptionKey
+				}
+			}
 			if override.Server.SandboxPolicy != "" {
 				s.SandboxPolicy = override.Server.SandboxPolicy
 			}
@@ -927,6 +965,9 @@ func mergeConfigs(base, override *Config) *Config {
 		if override.Server.Endpoint != "" {
 			merged.Origins["server.endpoint"] = "workspace"
 		}
+		if override.Server.EncryptionKey != "" {
+			merged.Origins["server.encryption_key"] = "workspace"
+		}
 		if override.Server.SandboxPolicy != "" {
 			merged.Origins["server.sandbox_policy"] = "workspace"
 		}
@@ -965,6 +1006,7 @@ func mergeConfigs(base, override *Config) *Config {
 	checkBase("server.model", baseSrv && base.Server.Model != "")
 	checkBase("server.provider", baseSrv && base.Server.Provider != "")
 	checkBase("server.endpoint", baseSrv && base.Server.Endpoint != "")
+	checkBase("server.encryption_key", baseSrv && base.Server.EncryptionKey != "")
 	checkBase("server.sandbox_policy", baseSrv && base.Server.SandboxPolicy != "")
 	checkBase("server.worktree_isolation", baseSrv && base.Server.WorktreeIsolation != nil)
 	checkBase("server.signat_steering", baseSrv && base.Server.SignatSteering != nil)

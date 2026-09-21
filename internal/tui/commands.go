@@ -367,7 +367,7 @@ func (m *Model) renderConfigString() string {
 	if srv.EncryptionKey != "" {
 		encStr = "•••••••• (configured)"
 	}
-	fmt.Fprintf(&s, "    Encryption:      %s\n", encStr)
+	fmt.Fprintf(&s, "    Encryption:      %-32s %s\n", encStr, m.Config.OriginBadge("server.encryption_key"))
 	authStr := "disabled (open local)"
 	if srv.AuthToken != "" {
 		authStr = "enabled (Bearer token active)"
@@ -817,6 +817,9 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	case "remote", "daemon", "server_url", "url":
 		isProject = false
 		originKey = "client.remote_url"
+	case "key", "encryption_key", "encryption":
+		isProject = false
+		originKey = "server.encryption_key"
 	case "model":
 		originKey = "server.model"
 	case "provider":

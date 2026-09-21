@@ -1806,4 +1806,21 @@ func TestTUI_ConfigOriginBadgesAndScopedSaving(t *testing.T) {
 	if m.Config.GetOrigin("server.sandbox_policy") != "workspace" {
 		t.Errorf("expected origin workspace for sandbox_policy, got: %s", m.Config.GetOrigin("server.sandbox_policy"))
 	}
+
+	// 5. Execute /config key operator-secret (Operator secret: must persist to globalDir, never workspace)
+	m.HandleCommand("/config key operator-secret")
+	if !strings.Contains(m.Notification, filepath.Join(globalDir, "config.json")) {
+		t.Errorf("expected notification to contain global config path for key, got: %s", m.Notification)
+	}
+	if m.Config.GetOrigin("server.encryption_key") != "global" {
+		t.Errorf("expected origin global for encryption_key, got: %s", m.Config.GetOrigin("server.encryption_key"))
+	}
+	globalBytesKey, err := os.ReadFile(filepath.Join(globalDir, "config.json"))
+	if err != nil || !strings.Contains(string(globalBytesKey), "operator-secret") {
+		t.Errorf("global config was not updated with encryption key: %v", err)
+	}
+	wsBytesKey, _ := os.ReadFile(filepath.Join(wsPlease, "config.json"))
+	if strings.Contains(string(wsBytesKey), "operator-secret") {
+		t.Errorf("leaked encryption key into workspace config file!")
+	}
 }
