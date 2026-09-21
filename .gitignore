@@ -5,4 +5,5 @@ Lore/
 test_vault/
 *.db
 livefire.json
+e2e.json
 .DS_Store

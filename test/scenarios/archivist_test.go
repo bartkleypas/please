@@ -42,6 +42,29 @@ func setupArchivist(t *testing.T) (*engine.Manager, providers.Provider, *config.
 		t.Fatalf("failed to initialize sqlite storage: %v", err)
 	}
 
+	// Pre-seed foundational architectural invariants to activate <RECALLED_MEMORIES> prefix steering (ADR 014)
+	baseMemories := []*storage.Memory{
+		{
+			Key:        "arch:storage:wal-mode",
+			Content:    "SQLite database operates with SetMaxOpenConns(1) and single-connection WAL mode to prevent BUSY locking errors.",
+			Category:   storage.CategoryArchitecture,
+			Scope:      storage.ScopeWorkspace,
+			Confidence: 1.0,
+		},
+		{
+			Key:        "constraint:hermetic-build",
+			Content:    "Zero-CGo hermetic compilation required; use modernc.org/sqlite for all storage operations.",
+			Category:   storage.CategoryConstraint,
+			Scope:      storage.ScopeWorkspace,
+			Confidence: 1.0,
+		},
+	}
+	for _, m := range baseMemories {
+		if err := store.SaveMemory(m); err != nil {
+			t.Fatalf("failed to pre-seed foundational memory: %v", err)
+		}
+	}
+
 	g, _, err := store.LoadGraph()
 	if err != nil {
 		t.Fatalf("failed to load graph: %v", err)
@@ -127,7 +150,7 @@ func TestScenario_GeorgeArchivist(t *testing.T) {
 	harness := engine.NewSessionHarness(mgr, provider, cfg)
 
 	// 2. Mission Primer Turn
-	primerPrompt := "Greetings George! Over the next 5 turns, explore this workspace autonomously. On each turn, use the read_file tool to inspect a different core file (e.g. README.md, docs/context_resonance.md, GEMINI.md, internal/engine/service.go, internal/tui/map.go) and weave your findings into the lore of Please. Your continuation prompt will always be simply: 'Please proceed.'"
+	primerPrompt := "Greetings George! Over the next 5 turns, explore this workspace autonomously. On each turn, use the read_file tool to inspect a different core file (e.g. README.md, docs/context_resonance.md, GEMINI.md, internal/engine/service.go, internal/tui/map.go) and weave your findings into the lore of Please. As you uncover key architectural invariants or constraints, record them into the persistent memory vault using the memory_store tool. Your continuation prompt will always be simply: 'Please proceed.'"
 	primerTurn, err := harness.ExecuteTurn(ctx, engine.TurnRequest{
 		ParentID: sysNode.ID,
 		Message:  primerPrompt,
@@ -181,6 +204,22 @@ func TestScenario_GeorgeArchivist(t *testing.T) {
 	if !strings.Contains(superNode.Content, "🎯 Trajectory:") {
 		t.Errorf("expected supernode to contain '🎯 Trajectory:' header, got:\n%s", superNode.Content)
 	}
+
+	// 5. Verify Persistent Memory Health & Living Fixtures (ADR 014 / ADR 015)
+	t.Log("=== Verifying Persistent Memory Health ===")
+	memStore, ok := mgr.Storage.(storage.MemoryStore)
+	if !ok {
+		t.Fatal("expected manager storage to implement storage.MemoryStore")
+	}
+
+	diag, err := memStore.DiagnoseMemories(storage.ScopeWorkspace, "")
+	if err != nil {
+		t.Fatalf("failed to diagnose memories: %v", err)
+	}
+	if diag.TotalMemories < 2 {
+		t.Errorf("expected at least 2 memories in vault, found %d", diag.TotalMemories)
+	}
+	t.Logf("✓ Memory Vault Status: %d total memories, %d bytes storage", diag.TotalMemories, diag.StorageBytes)
 
 	t.Logf("✓ George the Archivist scenario complete! Database seeded at: %s", dbPath)
 }
