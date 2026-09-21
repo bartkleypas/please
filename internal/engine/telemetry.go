@@ -27,6 +27,9 @@ func DeriveAmbientTelemetry(workspaceDir string, clientContext map[string]string
 
 	// 2. Active Git branch (fast, non-blocking check with timeout)
 	if branch := getGitBranch(workspaceDir); branch != "" {
+		if len(branch) > 40 {
+			branch = branch[:24] + "..." + branch[len(branch)-13:]
+		}
 		lines = append(lines, fmt.Sprintf("git_branch: %s", branch))
 	}
 

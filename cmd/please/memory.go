@@ -21,7 +21,6 @@ var (
 	memScopeStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#60a5fa"))
 	memCatStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#facc15"))
 	memDimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#64748b"))
-	memAlertStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#fb7185"))
 )
 
 func setupMemoryStore(vaultPath, configPath string) (storage.MemoryStore, *config.Config, error) {
@@ -45,7 +44,7 @@ func setupMemoryStore(vaultPath, configPath string) (storage.MemoryStore, *confi
 		finalVaultPath = vaultPath
 	}
 	if finalVaultPath == "" {
-		for _, candidate := range []string{"test_vault/livefire.db", "vault.db", "livefire.db"} {
+		for _, candidate := range []string{"test_vault/e2e.db", "vault.db", "e2e.db", "test_vault/livefire.db", "livefire.db"} {
 			if _, err := os.Stat(candidate); err == nil {
 				finalVaultPath = candidate
 				break

@@ -84,8 +84,6 @@ func (s *MockStorage) UpdateNodeMetadata(n *Node) error                         
 func (s *MockStorage) UpdateNodeParentID(id, p string) error                         { return nil }
 func (s *MockStorage) UpdateNodeObservations(id string, obs []ToolObservation) error { return nil }
 func (s *MockStorage) GarbageCollect() (int64, error)                                { return 0, nil }
-func (s *MockStorage) Close() error                                                  { return nil }
-func (s *MockStorage) Vacuum() error                                                 { return nil }
 func (s *MockStorage) SaveSessionHead(sessionID, nodeID string) error {
 	if s.Sessions == nil {
 		s.Sessions = make(map[string]string)

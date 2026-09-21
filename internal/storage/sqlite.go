@@ -998,6 +998,9 @@ func (s *SQLiteStorage) queryMemoriesFallbackLike(filter MemoryFilter) ([]Memory
 
 		memories = append(memories, mem)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating search memories: %w", err)
+	}
 	return memories, nil
 }
 
@@ -1048,6 +1051,10 @@ func (s *SQLiteStorage) DiagnoseMemories(scope MemoryScope, sessionID string) (*
 				diag.TotalMemories += count
 			}
 		}
+		if err := scopeRows.Err(); err != nil {
+			_ = scopeRows.Close()
+			return nil, fmt.Errorf("error iterating diagnostic scope rows: %w", err)
+		}
 		scopeRows.Close()
 	}
 
@@ -1060,6 +1067,10 @@ func (s *SQLiteStorage) DiagnoseMemories(scope MemoryScope, sessionID string) (*
 			if err := catRows.Scan(&cat, &count); err == nil {
 				diag.ByCategory[MemoryCategory(cat)] = count
 			}
+		}
+		if err := catRows.Err(); err != nil {
+			_ = catRows.Close()
+			return nil, fmt.Errorf("error iterating diagnostic category rows: %w", err)
 		}
 		catRows.Close()
 	}

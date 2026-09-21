@@ -1,11 +1,13 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/bartkleypas/please/internal/providers"
 	"github.com/bartkleypas/please/internal/tools"
 )
 
@@ -520,5 +522,134 @@ func TestConfig_EnableBellOnTurnComplete(t *testing.T) {
 	}
 	if !flatCfgTrue.EnableBellOnTurnComplete() {
 		t.Errorf("expected migrated flat config with 'bell': true to enable bell")
+	}
+}
+
+func TestConfig_OptionsSerialization(t *testing.T) {
+	temp := 0.5
+	ctxVal := 8192
+	cfg := &Config{
+		Server: &ServerConfig{
+			Provider:    "ollama",
+			Model:       "llama3:8b",
+			Endpoint:    "http://localhost:11434/api/chat",
+			VaultPath:   "vault.db",
+			StorageType: "sqlite",
+			Options: &providers.ModelOptions{
+				Temperature: &temp,
+				NumCtx:      &ctxVal,
+			},
+		},
+	}
+
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("failed to marshal config: %v", err)
+	}
+
+	var loaded Config
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		t.Fatalf("failed to unmarshal config: %v", err)
+	}
+
+	if loaded.Server == nil || loaded.Server.Options == nil {
+		t.Fatalf("expected server options to be non-nil")
+	}
+	if loaded.Server.Options.Temperature == nil || *loaded.Server.Options.Temperature != 0.5 {
+		t.Errorf("expected temperature 0.5, got %v", loaded.Server.Options.Temperature)
+	}
+	if loaded.Server.Options.NumCtx == nil || *loaded.Server.Options.NumCtx != 8192 {
+		t.Errorf("expected num_ctx 8192, got %v", loaded.Server.Options.NumCtx)
+	}
+	if loaded.Server.Options.TopP != nil {
+		t.Errorf("expected top_p to be nil, got %v", loaded.Server.Options.TopP)
+	}
+}
+
+func TestConfig_SaveAndLoad_Isolation(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
+
+	temp := 0.6
+	cfg := &Config{
+		Server: &ServerConfig{
+			Provider:    "openai",
+			Model:       "gpt-4o-mini",
+			Endpoint:    "https://api.openai.com/v1/chat/completions",
+			VaultPath:   filepath.Join(tmpDir, "vault.db"),
+			StorageType: "sqlite",
+			Options: &providers.ModelOptions{
+				Temperature: &temp,
+			},
+		},
+	}
+
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("failed to save config to isolated dir: %v", err)
+	}
+
+	loaded, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("failed to load config from isolated dir: %v", err)
+	}
+
+	if loaded.Server == nil || loaded.Server.Model != "gpt-4o-mini" {
+		t.Errorf("expected model gpt-4o-mini, got %v", loaded.Server)
+	}
+	if loaded.Server.Options == nil || loaded.Server.Options.Temperature == nil || *loaded.Server.Options.Temperature != 0.6 {
+		t.Errorf("expected temperature 0.6, got %v", loaded.Server.Options)
+	}
+}
+
+func TestConfig_WorkspaceDir(t *testing.T) {
+	// 1. Unset returns "."
+	var emptyCfg Config
+	if emptyCfg.GetWorkspaceDir() != "." {
+		t.Errorf("expected empty WorkspaceDir to return '.', got %s", emptyCfg.GetWorkspaceDir())
+	}
+
+	// 2. Custom path returns absolute path
+	tmpDir := t.TempDir()
+	cfg := Config{Server: &ServerConfig{WorkspaceDir: tmpDir}}
+	absTmp, _ := filepath.Abs(tmpDir)
+	if cfg.GetWorkspaceDir() != absTmp {
+		t.Errorf("expected %s, got %s", absTmp, cfg.GetWorkspaceDir())
+	}
+
+	// 3. Tilde expansion & trailing slash handling
+	home, _ := os.UserHomeDir()
+	tildeCfg := Config{Server: &ServerConfig{WorkspaceDir: "~/my-project"}}
+	expectedTilde := filepath.Join(home, "my-project")
+	if tildeCfg.GetWorkspaceDir() != expectedTilde {
+		t.Errorf("expected %s, got %s", expectedTilde, tildeCfg.GetWorkspaceDir())
+	}
+
+	tildeSlashCfg := Config{Server: &ServerConfig{WorkspaceDir: "~/my-project/"}}
+	if tildeSlashCfg.GetWorkspaceDir() != expectedTilde {
+		t.Errorf("expected %s for trailing slash, got %s", expectedTilde, tildeSlashCfg.GetWorkspaceDir())
+	}
+
+	// 4. Environment variable expansion ($HOME)
+	envCfg := Config{Server: &ServerConfig{WorkspaceDir: "$HOME/my-project"}}
+	if envCfg.GetWorkspaceDir() != expectedTilde {
+		t.Errorf("expected %s for $HOME expansion, got %s", expectedTilde, envCfg.GetWorkspaceDir())
+	}
+
+	envBraceCfg := Config{Server: &ServerConfig{WorkspaceDir: "${HOME}/my-project/"}}
+	if envBraceCfg.GetWorkspaceDir() != expectedTilde {
+		t.Errorf("expected %s for ${HOME} with trailing slash, got %s", expectedTilde, envBraceCfg.GetWorkspaceDir())
+	}
+
+	// 5. JSON roundtrip
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("failed to marshal config: %v", err)
+	}
+	var loaded Config
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		t.Fatalf("failed to unmarshal config: %v", err)
+	}
+	if loaded.Server == nil || loaded.Server.WorkspaceDir != tmpDir {
+		t.Errorf("expected WorkspaceDir %s, got %v", tmpDir, loaded.Server)
 	}
 }
