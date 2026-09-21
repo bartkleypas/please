@@ -68,8 +68,17 @@ func TestACP_BinaryE2E(t *testing.T) {
 		t.Skip("Skipping binary E2E test; please binary not built (run make build)")
 	}
 
+	configPath := "../../e2e.json"
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		configPath = "../../livefire.json"
+	}
+	vaultPath := "../../test_vault/e2e.db"
+	if _, err := os.Stat(vaultPath); os.IsNotExist(err) {
+		vaultPath = "../../test_vault/livefire.db"
+	}
+
 	// Test multicall invocation via please-acp (simulates Xcode calling the symlink directly with no subcommand argument)
-	cmd := exec.Command("../../please-acp", "-c", "../../livefire.json", "-v", "../../test_vault/livefire.db")
+	cmd := exec.Command("../../please-acp", "-c", configPath, "-v", vaultPath)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatalf("failed to open stdin pipe: %v", err)

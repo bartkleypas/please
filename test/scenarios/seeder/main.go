@@ -37,6 +37,29 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Pre-seed foundational architectural invariants to activate <RECALLED_MEMORIES> prefix steering (ADR 014)
+	baseMemories := []*storage.Memory{
+		{
+			Key:        "arch:storage:wal-mode",
+			Content:    "SQLite database operates with SetMaxOpenConns(1) and single-connection WAL mode to prevent BUSY locking errors.",
+			Category:   storage.CategoryArchitecture,
+			Scope:      storage.ScopeWorkspace,
+			Confidence: 1.0,
+		},
+		{
+			Key:        "constraint:hermetic-build",
+			Content:    "Zero-CGo hermetic compilation required; use modernc.org/sqlite for all storage operations.",
+			Category:   storage.CategoryConstraint,
+			Scope:      storage.ScopeWorkspace,
+			Confidence: 1.0,
+		},
+	}
+	for _, m := range baseMemories {
+		if err := store.SaveMemory(m); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to pre-seed memory %s: %v\n", m.Key, err)
+		}
+	}
+
 	// 2. Load configuration
 	var activeCfg *config.Config
 	if cfg, err := config.LoadConfigFile(*configPath); err == nil {
@@ -119,7 +142,7 @@ func main() {
 	fmt.Printf("  • Genesis Root Node established (ID: %s)\n", sysNode.ID)
 
 	// 4. Mission Primer Turn
-	primerPrompt := fmt.Sprintf("Greetings George! Over the next %d turns, explore this workspace autonomously. On each turn, use the read_file tool to inspect a different core file (e.g. README.md, docs/context_resonance.md, GEMINI.md, internal/engine/service.go, internal/tui/map.go) and weave your findings into the lore of Please. Your continuation prompt will always be simply: 'Please proceed.'", *turns)
+	primerPrompt := fmt.Sprintf("Greetings George! Over the next %d turns, explore this workspace autonomously. On each turn, use the read_file tool to inspect a different core file (e.g. README.md, docs/context_resonance.md, GEMINI.md, internal/engine/service.go, internal/tui/map.go) and weave your findings into the lore of Please. As you uncover key architectural invariants or constraints, record them into the persistent memory vault using the memory_store tool. Your continuation prompt will always be simply: 'Please proceed.'", *turns)
 	fmt.Println("  • Dispatching Mission Primer Turn...")
 
 	primerTurn, err := harness.ExecuteTurn(ctx, engine.TurnRequest{
@@ -168,14 +191,25 @@ func main() {
 	}
 	fmt.Printf("    ✓ Supernode created (ID: %s, Role: %s)\n", superNode.ID, superNode.Role)
 
+	// Memory diagnostics
+	diag, _ := store.DiagnoseMemories(storage.ScopeWorkspace, "")
+	totalMemories := 0
+	if diag != nil {
+		totalMemories = diag.TotalMemories
+	}
+
 	// Summary output
 	fmt.Println(strings.Repeat("━", 75))
 	fmt.Println("🎉 Living showcase database successfully seeded!")
 	fmt.Printf("   • Vault Path: %s\n", *vaultPath)
 	fmt.Printf("   • Total Nodes: %d (1 Root, %d User/Assistant turns, 1 Supernode)\n", len(mgr.Graph.Nodes), *turns*2)
 	fmt.Printf("   • Active Head: %s\n", superNode.ID)
+	fmt.Printf("   • Persistent Memories: %d items in vault\n", totalMemories)
 	fmt.Println(strings.Repeat("─", 75))
+	fmt.Printf("To inspect stored memories:\n")
+	fmt.Printf("   please memory list -v %s\n", *vaultPath)
+	fmt.Printf("   please memory diagnose -v %s\n", *vaultPath)
 	fmt.Printf("To explore the seeded narrative in the TUI, run:\n")
-	fmt.Printf("   please -v %s\n", *vaultPath)
+	fmt.Printf("   please -v %s (press /memories to browse memory deck)\n", *vaultPath)
 	fmt.Println(strings.Repeat("━", 75))
 }

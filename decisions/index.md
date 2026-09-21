@@ -31,4 +31,5 @@ This index tracks key architectural decisions and engineering conventions throug
 *   [013-acoustic-theatrics-phonic-staging-and-talon-tap-telemetry](013-acoustic-theatrics-phonic-staging-and-talon-tap-telemetry.md) - Terminal bell staging (\a), turn-completion acoustic telemetry, and the journey from overengineered DSP pipelines to pure ASCII 0x07 simplicity.
 *   [014-persistent-agent-memory-and-cybernetic-recall](014-persistent-agent-memory-and-cybernetic-recall.md) - Persistent SQLite agent memory store, cybernetic memory_* tool suite (store, recall, delete, diagnose), and diagnostic inspection telemetry.
 *   [015-living-scenarios-and-test-subsystem-decomposition](015-living-scenarios-and-test-subsystem-decomposition.md) - End-to-End (E2E) living scenarios, seeded database fixtures, and test subsystem repatriation (retiring 'livefire' jargon).
+*   [016-workspace-dot-directory-hermeticity-and-init-ceremony](016-workspace-dot-directory-hermeticity-and-init-ceremony.md) - Workspace dot-directory hermeticity (.please/), universal global anchor (~/.please/), and the 'please init' setup ceremony.
 
