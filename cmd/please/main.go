@@ -64,6 +64,9 @@ func main() {
 		case "memory":
 			runMemory(os.Args[2:])
 			return
+		case "init":
+			runInit(os.Args[2:])
+			return
 		}
 	}
 

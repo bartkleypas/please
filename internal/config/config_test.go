@@ -653,3 +653,113 @@ func TestConfig_WorkspaceDir(t *testing.T) {
 		t.Errorf("expected WorkspaceDir %s, got %v", tmpDir, loaded.Server)
 	}
 }
+
+func TestConfig_GlobalPleaseDir_Isolation(t *testing.T) {
+	isolatedDir := t.TempDir()
+	t.Setenv("PLEASE_GLOBAL_DIR", isolatedDir)
+
+	globalDir, err := GetGlobalPleaseDir()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if globalDir != isolatedDir {
+		t.Errorf("expected global dir %s, got %s", isolatedDir, globalDir)
+	}
+}
+
+func TestConfig_FindWorkspaceRoot_And_PleaseDir(t *testing.T) {
+	tmpDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		tmpDir = t.TempDir()
+	}
+
+	// 1. Plain directory (no .git, no .please)
+	root, found := FindWorkspaceRoot(tmpDir)
+	if found {
+		t.Errorf("expected found=false for plain directory, got root=%s", root)
+	}
+
+	// 2. Directory with .git boundary
+	gitDir := filepath.Join(tmpDir, "my-repo")
+	_ = os.MkdirAll(filepath.Join(gitDir, ".git"), 0755)
+	subPkg := filepath.Join(gitDir, "pkg", "subpkg")
+	_ = os.MkdirAll(subPkg, 0755)
+
+	root, found = FindWorkspaceRoot(subPkg)
+	if !found || root != gitDir {
+		t.Errorf("expected found=true with root=%s, got found=%v root=%s", gitDir, found, root)
+	}
+
+	// Without .please, GetWorkspacePleaseDir should return false
+	pleaseDir, hasPlease := GetWorkspacePleaseDir(subPkg)
+	if hasPlease {
+		t.Errorf("expected hasPlease=false before .please is initialized, got %s", pleaseDir)
+	}
+
+	// 3. Directory with .please initialized
+	expectedPlease := filepath.Join(gitDir, ".please")
+	_ = os.MkdirAll(expectedPlease, 0755)
+
+	pleaseDir, hasPlease = GetWorkspacePleaseDir(subPkg)
+	if !hasPlease || pleaseDir != expectedPlease {
+		t.Errorf("expected hasPlease=true with pleaseDir=%s, got hasPlease=%v pleaseDir=%s", expectedPlease, hasPlease, pleaseDir)
+	}
+}
+
+func TestConfig_DiscoveryLadder_WorkspaceCascade(t *testing.T) {
+	globalDir := t.TempDir()
+	t.Setenv("PLEASE_GLOBAL_DIR", globalDir)
+
+	// Write global config with baseline settings
+	globalCfg := defaultConfig()
+	globalCfg.Server.Model = "gemma4:base-global"
+	globalCfg.Server.Endpoint = "http://localhost:11434/api/chat"
+	if err := globalCfg.Save(); err != nil {
+		t.Fatalf("failed to save global config: %v", err)
+	}
+
+	// Create workspace with .please/
+	wsDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		wsDir = t.TempDir()
+	}
+	wsPlease := filepath.Join(wsDir, ".please")
+	_ = os.MkdirAll(wsPlease, 0755)
+
+	// Write workspace config overriding model
+	wsConfigData := `{
+		"version": 2,
+		"server": {
+			"model": "gemma4:project-override",
+			"signat_steering": true
+		}
+	}`
+	if err := os.WriteFile(filepath.Join(wsPlease, "config.json"), []byte(wsConfigData), 0644); err != nil {
+		t.Fatalf("failed to write workspace config: %v", err)
+	}
+
+	// Temporarily chdir to workspace to test upward discovery ladder
+	origWd, _ := os.Getwd()
+	defer os.Chdir(origWd)
+	_ = os.Chdir(wsDir)
+
+	loaded, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	// Assertions:
+	// 1. Model overridden from workspace config
+	if loaded.Server.Model != "gemma4:project-override" {
+		t.Errorf("expected overridden model 'gemma4:project-override', got %q", loaded.Server.Model)
+	}
+	// 2. Endpoint inherited from global config
+	if loaded.Server.Endpoint != "http://localhost:11434/api/chat" {
+		t.Errorf("expected inherited endpoint, got %q", loaded.Server.Endpoint)
+	}
+	// 3. Vault automatically bound to .please/vault.db
+	expectedVault := filepath.Join(wsPlease, "vault.db")
+	if loaded.Server.VaultPath != expectedVault {
+		t.Errorf("expected vault path %s, got %s", expectedVault, loaded.Server.VaultPath)
+	}
+}
