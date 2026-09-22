@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -24,7 +26,17 @@ type SQLiteStorage struct {
 
 // NewSQLiteStorage creates a new instance of SQLiteStorage and initializes the schema
 func NewSQLiteStorage(path, key string) (*SQLiteStorage, error) {
-	s := &SQLiteStorage{DBPath: path, encryptionKey: key}
+	resolvedPath := os.ExpandEnv(path)
+	if strings.HasPrefix(resolvedPath, "~/") || resolvedPath == "~" {
+		if home, err := os.UserHomeDir(); err == nil {
+			if resolvedPath == "~" {
+				resolvedPath = home
+			} else {
+				resolvedPath = filepath.Join(home, resolvedPath[2:])
+			}
+		}
+	}
+	s := &SQLiteStorage{DBPath: filepath.Clean(resolvedPath), encryptionKey: key}
 	db, err := s.open()
 	if err != nil {
 		return nil, err

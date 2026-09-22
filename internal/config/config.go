@@ -57,11 +57,13 @@ type ClientConfig struct {
 
 // Config is the top-level configuration container (v2 schema)
 type Config struct {
-	Version  int           `json:"version"`
-	Mode     string        `json:"mode,omitempty"` // "standalone", "server", "client"
-	Server   *ServerConfig `json:"server"`
-	Client   *ClientConfig `json:"client"`
-	ReadOnly bool          `json:"-"` // Prevents persisting mutations to disk when loaded via external file
+	Version       int               `json:"version"`
+	Mode          string            `json:"mode,omitempty"` // "standalone", "server", "client"
+	Server        *ServerConfig     `json:"server"`
+	Client        *ClientConfig     `json:"client"`
+	ReadOnly      bool              `json:"-"` // Prevents persisting mutations to disk when loaded via external file
+	WorkspaceRoot string            `json:"-"` // Root path of active workspace, empty if running in global mode
+	Origins       map[string]string `json:"-"` // Tracks setting provenance: "workspace", "global", "workspace anchor", "default"
 }
 
 // legacyV1Config mirrors the flat v1 schema for migration
@@ -108,6 +110,151 @@ func (c *Config) GetWorkspaceDir() string {
 		return abs
 	}
 	return dir
+}
+
+// GetVaultPath returns the resolved vault path from ServerConfig, expanding ~ and environment variables.
+func (s *ServerConfig) GetVaultPath() string {
+	if s == nil || s.VaultPath == "" {
+		return ""
+	}
+	path := os.ExpandEnv(s.VaultPath)
+	if strings.HasPrefix(path, "~/") || path == "~" {
+		if home, err := os.UserHomeDir(); err == nil {
+			if path == "~" {
+				path = home
+			} else {
+				path = filepath.Join(home, path[2:])
+			}
+		}
+	}
+	return filepath.Clean(path)
+}
+
+// GetVaultPath returns the resolved vault path across configuration, expanding ~ and environment variables.
+func (c *Config) GetVaultPath() string {
+	if c == nil || c.Server == nil {
+		return ""
+	}
+	return c.Server.GetVaultPath()
+}
+
+// IsWorkspaceActive returns true if the configuration is running inside an initialized workspace.
+func (c *Config) IsWorkspaceActive() bool {
+	return c != nil && c.WorkspaceRoot != ""
+}
+
+// Provenance origins for configuration values.
+const (
+	OriginEnv       = "env"
+	OriginWorkspace = "workspace"
+	OriginAnchor    = "workspace anchor"
+	OriginGlobal    = "global"
+	OriginDefault   = "default"
+)
+
+// GetOrigin returns the origin of a configuration field ("workspace", "workspace anchor", "global", or "default").
+func (c *Config) GetOrigin(key string) string {
+	if c == nil || c.Origins == nil {
+		return OriginDefault
+	}
+	if origin, ok := c.Origins[key]; ok && origin != "" {
+		return origin
+	}
+	return OriginDefault
+}
+
+// OriginBadge returns a formatted provenance label for display in the TUI.
+func (c *Config) OriginBadge(key string) string {
+	origin := c.GetOrigin(key)
+	switch origin {
+	case OriginEnv:
+		return "[env override]"
+	case OriginWorkspace:
+		if key == "server.encryption_key" && c.Server != nil && c.Server.EncryptionKey == "" {
+			return "[workspace opt-out]"
+		}
+		return "[workspace override]"
+	case OriginAnchor:
+		return "[workspace anchor]"
+	case OriginGlobal:
+		return "[global preference]"
+	default:
+		return "[default]"
+	}
+}
+
+// RecordOrigin updates the provenance of a configuration key after an interactive update.
+func (c *Config) RecordOrigin(key string, isProjectSetting bool) {
+	if c == nil {
+		return
+	}
+	if c.Origins == nil {
+		c.Origins = make(map[string]string)
+	}
+	if isProjectSetting && c.WorkspaceRoot != "" {
+		c.Origins[key] = OriginWorkspace
+	} else {
+		c.Origins[key] = OriginGlobal
+	}
+}
+
+// SaveScoped persists configuration changes based on whether a workspace is active and setting scope.
+// Project settings (model, provider, options, sandbox, worktree) in an active workspace write to .please/config.json.
+// Operator personal settings (bell, pacing, encryption_key) or settings changed in global mode write to ~/.please/config.json.
+func (c *Config) SaveScoped(isProjectSetting bool) (savedPath string, err error) {
+	if c.ReadOnly {
+		return "", fmt.Errorf("cannot save configuration: running in read-only mode")
+	}
+
+	if isProjectSetting && c.WorkspaceRoot != "" {
+		if err := c.SaveWorkspace(c.WorkspaceRoot); err != nil {
+			return "", err
+		}
+		if c.Origins == nil {
+			c.Origins = make(map[string]string)
+		}
+		return filepath.Join(c.WorkspaceRoot, ".please", "config.json"), nil
+	}
+
+	// Saving client/operator preference or in global mode
+	if c.WorkspaceRoot != "" {
+		// When inside an active workspace, do NOT clobber global server settings (model, vault_path, etc.)
+		globalCfg, err := loadGlobalConfig()
+		if err != nil {
+			return "", fmt.Errorf("failed to load global config: %w", err)
+		}
+		if c.Client != nil {
+			if globalCfg.Client == nil {
+				globalCfg.Client = defaultClientConfig()
+			}
+			if c.Client.NaturalPacing != nil {
+				globalCfg.Client.NaturalPacing = c.Client.NaturalPacing
+			}
+			if c.Client.BellOnTurnComplete != nil {
+				globalCfg.Client.BellOnTurnComplete = c.Client.BellOnTurnComplete
+			}
+			if c.Client.RemoteURL != "" {
+				globalCfg.Client.RemoteURL = c.Client.RemoteURL
+			}
+		}
+		if c.Server != nil && c.Origins != nil && c.Origins["server.encryption_key"] == OriginGlobal {
+			if globalCfg.Server == nil {
+				globalCfg.Server = defaultServerConfig()
+			}
+			globalCfg.Server.EncryptionKey = c.Server.EncryptionKey
+		}
+		if err := globalCfg.Save(); err != nil {
+			return "", err
+		}
+		appDir, _ := GetConfigDir()
+		return filepath.Join(appDir, "config.json"), nil
+	}
+
+	if err := c.Save(); err != nil {
+		return "", err
+	}
+	appDir, _ := GetConfigDir()
+	return filepath.Join(appDir, "config.json"), nil
 }
 
 // SupportsVision returns whether the configured model supports vision/multimodal capabilities
@@ -304,19 +451,136 @@ func getTestFallbackDir() string {
 	return testAutoDir
 }
 
-// GetConfigDir returns the directory where the configuration file is stored.
-func GetConfigDir() (string, error) {
+// GetGlobalPleaseDir returns the universal user-level Please directory (~/.please).
+// It respects PLEASE_GLOBAL_DIR and PLEASE_CONFIG_DIR overrides and isolates test environments.
+func GetGlobalPleaseDir() (string, error) {
+	if dir := os.Getenv("PLEASE_GLOBAL_DIR"); dir != "" {
+		_ = os.MkdirAll(dir, 0755)
+		return dir, nil
+	}
 	if dir := os.Getenv("PLEASE_CONFIG_DIR"); dir != "" {
+		_ = os.MkdirAll(dir, 0755)
 		return dir, nil
 	}
 	if isTestEnvironment() {
 		return getTestFallbackDir(), nil
 	}
-	configDir, err := os.UserConfigDir()
+
+	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("could not determine user config directory: %w", err)
+		return "", fmt.Errorf("could not determine user home directory: %w", err)
 	}
-	return filepath.Join(configDir, "please"), nil
+	globalDir := filepath.Join(home, ".please")
+	_ = os.MkdirAll(globalDir, 0755)
+
+	// Transparent Migration from legacy UserConfigDir() (e.g. ~/Library/Application Support/please/config.json)
+	migrateLegacyConfig(globalDir)
+
+	return globalDir, nil
+}
+
+// migrateLegacyConfig copies existing configuration from the OS-specific application support
+// directory to ~/.please/config.json if ~/.please/config.json does not yet exist.
+func migrateLegacyConfig(globalDir string) {
+	newConfigPath := filepath.Join(globalDir, "config.json")
+	if _, err := os.Stat(newConfigPath); err == nil {
+		return
+	}
+
+	legacyConfigDir, err := os.UserConfigDir()
+	if err != nil {
+		return
+	}
+	oldConfigPath := filepath.Join(legacyConfigDir, "please", "config.json")
+	oldData, err := os.ReadFile(oldConfigPath)
+	if err != nil || len(oldData) == 0 {
+		return
+	}
+
+	_ = os.MkdirAll(globalDir, 0755)
+	_ = os.WriteFile(newConfigPath, oldData, 0644)
+}
+
+// FindWorkspaceRoot inspects startDir (defaulting to current working directory).
+// It does NOT crawl up or down directory hierarchies.
+// Returns the directory path and whether a workspace anchor (.please) or repo (.git) exists in startDir.
+func FindWorkspaceRoot(startDir ...string) (string, bool) {
+	start := "."
+	if len(startDir) > 0 && startDir[0] != "" {
+		start = startDir[0]
+	}
+	abs, err := filepath.Abs(start)
+	if err != nil {
+		abs = start
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	}
+
+	globalDir, _ := GetGlobalPleaseDir()
+	if resolvedGlobal, err := filepath.EvalSymlinks(globalDir); err == nil {
+		globalDir = resolvedGlobal
+	}
+
+	// 1. Check if startDir contains a .please directory (and is not global ~/.please)
+	pleasePath := filepath.Join(abs, ".please")
+	if pleasePath != globalDir {
+		if fi, err := os.Stat(pleasePath); err == nil && fi.IsDir() {
+			return abs, true
+		}
+	}
+
+	// 2. Check if startDir is a git repository boundary
+	gitPath := filepath.Join(abs, ".git")
+	if _, err := os.Stat(gitPath); err == nil {
+		return abs, true
+	}
+
+	return abs, false
+}
+
+// GetWorkspacePleaseDir returns the path to <target_dir>/.please if it exists in startDir.
+// It does NOT crawl up or down parent/child directories.
+func GetWorkspacePleaseDir(startDir ...string) (string, bool) {
+	if ws := os.Getenv("PLEASE_WORKSPACE_DIR"); ws != "" {
+		return ws, true
+	}
+	// If PLEASE_CONFIG_DIR is set (e.g. unit test isolation), disable ambient workspace discovery
+	// unless an explicit start directory was provided.
+	if os.Getenv("PLEASE_CONFIG_DIR") != "" && (len(startDir) == 0 || startDir[0] == "") {
+		return "", false
+	}
+
+	start := "."
+	if len(startDir) > 0 && startDir[0] != "" {
+		start = startDir[0]
+	}
+	abs, err := filepath.Abs(start)
+	if err != nil {
+		abs = start
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	}
+
+	globalDir, _ := GetGlobalPleaseDir()
+	if resolvedGlobal, err := filepath.EvalSymlinks(globalDir); err == nil {
+		globalDir = resolvedGlobal
+	}
+
+	pleasePath := filepath.Join(abs, ".please")
+	if pleasePath != globalDir {
+		if fi, err := os.Stat(pleasePath); err == nil && fi.IsDir() {
+			return pleasePath, true
+		}
+	}
+
+	return "", false
+}
+
+// GetConfigDir returns the directory where the global configuration file is stored.
+func GetConfigDir() (string, error) {
+	return GetGlobalPleaseDir()
 }
 
 // migrateConfig inspects raw JSON and converts legacy v1 flat configs to modern v2 schema
@@ -463,10 +727,125 @@ func LoadConfigFile(configPath string) (*Config, error) {
 	return cfg, nil
 }
 
-// LoadConfig attempts to load the config from the user's config directory,
-// automatically migrating older schemas to the modern v2 namespaced format.
+// LoadConfig loads the active configuration following the ADR 016 discovery ladder:
+// 1. Workspace-local anchor (.please/config.json if in an initialized workspace)
+// 2. Global anchor (~/.please/config.json)
+// 3. Built-in defaults
 func LoadConfig() (*Config, error) {
-	appDir, err := GetConfigDir()
+	// 1. Check for workspace-local anchor
+	if wsPleaseDir, ok := GetWorkspacePleaseDir(); ok {
+		wsRoot := filepath.Dir(wsPleaseDir)
+		wsConfigFile := filepath.Join(wsPleaseDir, "config.json")
+		wsVaultFile := filepath.Join(wsPleaseDir, "vault.db")
+
+		if _, err := os.Stat(wsConfigFile); err == nil {
+			// Load global config as baseline
+			globalCfg, _ := loadGlobalConfigQuietly()
+
+			// Load workspace config
+			wsCfg, err := LoadConfigFile(wsConfigFile)
+			if err == nil {
+				merged := mergeConfigs(globalCfg, wsCfg)
+				if merged.Server == nil {
+					merged.Server = defaultServerConfig()
+				}
+				// Bind workspace anchors
+				merged.Server.VaultPath = wsVaultFile
+				merged.Server.WorkspaceDir = wsRoot
+				merged.WorkspaceRoot = wsRoot
+				if merged.Origins == nil {
+					merged.Origins = make(map[string]string)
+				}
+				merged.Origins["server.vault_path"] = "workspace anchor"
+				merged.Origins["server.workspace_dir"] = "workspace anchor"
+				merged.ReadOnly = false
+				applyEnvironmentOverrides(merged)
+				return merged, nil
+			}
+		} else {
+			// .please/ directory exists without config.json: use global config and bind vault to .please/vault.db
+			cfg, err := loadGlobalConfig()
+			if err == nil {
+				populateGlobalOrigins(cfg)
+				if cfg.Server == nil {
+					cfg.Server = defaultServerConfig()
+				}
+				cfg.Server.VaultPath = wsVaultFile
+				cfg.Server.WorkspaceDir = wsRoot
+				cfg.WorkspaceRoot = wsRoot
+				if cfg.Origins == nil {
+					cfg.Origins = make(map[string]string)
+				}
+				cfg.Origins["server.vault_path"] = "workspace anchor"
+				cfg.Origins["server.workspace_dir"] = "workspace anchor"
+				applyEnvironmentOverrides(cfg)
+				return cfg, nil
+			}
+		}
+	}
+
+	// 2. Global anchor (~/.please/config.json)
+	cfg, err := loadGlobalConfig()
+	if err == nil {
+		populateGlobalOrigins(cfg)
+		applyEnvironmentOverrides(cfg)
+	}
+	return cfg, err
+}
+
+func applyEnvironmentOverrides(cfg *Config) {
+	if cfg == nil {
+		return
+	}
+	if envKey := os.Getenv("PLEASE_ENCRYPTION_KEY"); envKey != "" {
+		if cfg.Server == nil {
+			cfg.Server = defaultServerConfig()
+		}
+		if cfg.Origins == nil {
+			cfg.Origins = make(map[string]string)
+		}
+		if envKey == "none" || envKey == "disabled" || envKey == "clear" || envKey == "off" || envKey == "0" {
+			cfg.Server.EncryptionKey = ""
+		} else {
+			cfg.Server.EncryptionKey = envKey
+		}
+		cfg.Origins["server.encryption_key"] = OriginEnv
+	}
+}
+
+func populateGlobalOrigins(cfg *Config) {
+	if cfg == nil {
+		return
+	}
+	cfg.Origins = make(map[string]string)
+	setGlobalOrDef := func(key string, present bool) {
+		if present {
+			cfg.Origins[key] = "global"
+		} else {
+			cfg.Origins[key] = "default"
+		}
+	}
+
+	srv := cfg.Server != nil
+	setGlobalOrDef("server.model", srv && cfg.Server.Model != "")
+	setGlobalOrDef("server.provider", srv && cfg.Server.Provider != "")
+	setGlobalOrDef("server.endpoint", srv && cfg.Server.Endpoint != "")
+	setGlobalOrDef("server.vault_path", srv && cfg.Server.VaultPath != "")
+	setGlobalOrDef("server.workspace_dir", srv && cfg.Server.WorkspaceDir != "")
+	setGlobalOrDef("server.encryption_key", srv && cfg.Server.EncryptionKey != "")
+	setGlobalOrDef("server.sandbox_policy", srv && cfg.Server.SandboxPolicy != "")
+	setGlobalOrDef("server.worktree_isolation", srv && cfg.Server.WorktreeIsolation != nil)
+	setGlobalOrDef("server.signat_steering", srv && cfg.Server.SignatSteering != nil)
+	setGlobalOrDef("server.ambient_telemetry", srv && cfg.Server.AmbientTelemetry != nil)
+	setGlobalOrDef("server.options", srv && cfg.Server.Options != nil)
+
+	cli := cfg.Client != nil
+	setGlobalOrDef("client.natural_pacing", cli && cfg.Client.NaturalPacing != nil)
+	setGlobalOrDef("client.bell_on_turn_complete", cli && cfg.Client.BellOnTurnComplete != nil)
+}
+
+func loadGlobalConfig() (*Config, error) {
+	appDir, err := GetGlobalPleaseDir()
 	if err != nil {
 		return nil, err
 	}
@@ -474,7 +853,7 @@ func LoadConfig() (*Config, error) {
 	configPath := filepath.Join(appDir, "config.json")
 
 	if err := os.MkdirAll(appDir, 0755); err != nil {
-		return nil, fmt.Errorf("could not create config directory: %w", err)
+		return nil, fmt.Errorf("could not create global please directory: %w", err)
 	}
 
 	data, err := os.ReadFile(configPath)
@@ -494,12 +873,185 @@ func LoadConfig() (*Config, error) {
 		return nil, err
 	}
 
-	// If migrated from older schema, persist clean v2 config to disk
 	if migrated {
 		_ = cfg.Save()
 	}
 
 	return cfg, nil
+}
+
+func loadGlobalConfigQuietly() (*Config, error) {
+	appDir, err := GetGlobalPleaseDir()
+	if err != nil {
+		return defaultConfig(), nil
+	}
+	configPath := filepath.Join(appDir, "config.json")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return defaultConfig(), nil
+	}
+	cfg, _, err := migrateConfig(data)
+	if err != nil {
+		return defaultConfig(), nil
+	}
+	return cfg, nil
+}
+
+// mergeConfigs merges workspace override settings on top of base global configuration.
+func mergeConfigs(base, override *Config) *Config {
+	if base == nil {
+		return override
+	}
+	if override == nil {
+		return base
+	}
+
+	merged := *base
+
+	if override.Mode != "" {
+		merged.Mode = override.Mode
+	}
+
+	if override.Server != nil {
+		if merged.Server == nil {
+			merged.Server = override.Server
+		} else {
+			s := *merged.Server
+			if override.Server.Host != "" {
+				s.Host = override.Server.Host
+			}
+			if override.Server.Port != 0 {
+				s.Port = override.Server.Port
+			}
+			if override.Server.Provider != "" {
+				s.Provider = override.Server.Provider
+			}
+			if override.Server.Model != "" {
+				s.Model = override.Server.Model
+			}
+			if override.Server.Endpoint != "" {
+				s.Endpoint = override.Server.Endpoint
+			}
+			if override.Server.APIKey != "" {
+				s.APIKey = override.Server.APIKey
+			}
+			if override.Server.VaultPath != "" {
+				s.VaultPath = override.Server.VaultPath
+			}
+			if override.Server.StorageType != "" {
+				s.StorageType = override.Server.StorageType
+			}
+			if override.Server.WorkspaceDir != "" {
+				s.WorkspaceDir = override.Server.WorkspaceDir
+			}
+			if override.Server.EncryptionKey != "" {
+				if override.Server.EncryptionKey == "none" || override.Server.EncryptionKey == "disabled" || override.Server.EncryptionKey == "clear" || override.Server.EncryptionKey == "off" {
+					s.EncryptionKey = ""
+				} else {
+					s.EncryptionKey = override.Server.EncryptionKey
+				}
+			}
+			if override.Server.SandboxPolicy != "" {
+				s.SandboxPolicy = override.Server.SandboxPolicy
+			}
+			if override.Server.WorktreeIsolation != nil {
+				s.WorktreeIsolation = override.Server.WorktreeIsolation
+			}
+			if override.Server.SignatSteering != nil {
+				s.SignatSteering = override.Server.SignatSteering
+			}
+			if override.Server.AmbientTelemetry != nil {
+				s.AmbientTelemetry = override.Server.AmbientTelemetry
+			}
+			if override.Server.Options != nil {
+				s.Options = override.Server.Options
+			}
+			merged.Server = &s
+		}
+	}
+
+	if override.Client != nil {
+		if merged.Client == nil {
+			merged.Client = override.Client
+		} else {
+			c := *merged.Client
+			if override.Client.RemoteURL != "" {
+				c.RemoteURL = override.Client.RemoteURL
+			}
+			if override.Client.NaturalPacing != nil {
+				c.NaturalPacing = override.Client.NaturalPacing
+			}
+			if override.Client.BellOnTurnComplete != nil {
+				c.BellOnTurnComplete = override.Client.BellOnTurnComplete
+			}
+			merged.Client = &c
+		}
+	}
+
+	merged.Origins = make(map[string]string)
+	if override.Server != nil {
+		if override.Server.Model != "" {
+			merged.Origins["server.model"] = "workspace"
+		}
+		if override.Server.Provider != "" {
+			merged.Origins["server.provider"] = "workspace"
+		}
+		if override.Server.Endpoint != "" {
+			merged.Origins["server.endpoint"] = "workspace"
+		}
+		if override.Server.EncryptionKey != "" {
+			merged.Origins["server.encryption_key"] = "workspace"
+		}
+		if override.Server.SandboxPolicy != "" {
+			merged.Origins["server.sandbox_policy"] = "workspace"
+		}
+		if override.Server.WorktreeIsolation != nil {
+			merged.Origins["server.worktree_isolation"] = "workspace"
+		}
+		if override.Server.SignatSteering != nil {
+			merged.Origins["server.signat_steering"] = "workspace"
+		}
+		if override.Server.AmbientTelemetry != nil {
+			merged.Origins["server.ambient_telemetry"] = "workspace"
+		}
+		if override.Server.Options != nil {
+			merged.Origins["server.options"] = "workspace"
+		}
+	}
+	if override.Client != nil {
+		if override.Client.NaturalPacing != nil {
+			merged.Origins["client.natural_pacing"] = "workspace"
+		}
+		if override.Client.BellOnTurnComplete != nil {
+			merged.Origins["client.bell_on_turn_complete"] = "workspace"
+		}
+	}
+
+	checkBase := func(key string, present bool) {
+		if _, ok := merged.Origins[key]; !ok {
+			if present {
+				merged.Origins[key] = "global"
+			} else {
+				merged.Origins[key] = "default"
+			}
+		}
+	}
+	baseSrv := base.Server != nil
+	checkBase("server.model", baseSrv && base.Server.Model != "")
+	checkBase("server.provider", baseSrv && base.Server.Provider != "")
+	checkBase("server.endpoint", baseSrv && base.Server.Endpoint != "")
+	checkBase("server.encryption_key", baseSrv && base.Server.EncryptionKey != "")
+	checkBase("server.sandbox_policy", baseSrv && base.Server.SandboxPolicy != "")
+	checkBase("server.worktree_isolation", baseSrv && base.Server.WorktreeIsolation != nil)
+	checkBase("server.signat_steering", baseSrv && base.Server.SignatSteering != nil)
+	checkBase("server.ambient_telemetry", baseSrv && base.Server.AmbientTelemetry != nil)
+	checkBase("server.options", baseSrv && base.Server.Options != nil)
+
+	baseCli := base.Client != nil
+	checkBase("client.natural_pacing", baseCli && base.Client.NaturalPacing != nil)
+	checkBase("client.bell_on_turn_complete", baseCli && base.Client.BellOnTurnComplete != nil)
+
+	return &merged
 }
 
 // Save writes the current configuration to the user's config directory in v2 format
@@ -539,10 +1091,52 @@ func (c *Config) Save() error {
 	return os.WriteFile(configPath, data, 0644)
 }
 
+// SaveWorkspace writes the configuration to <workspace_root>/.please/config.json
+func (c *Config) SaveWorkspace(workspaceDir ...string) error {
+	var wsRoot string
+	if len(workspaceDir) > 0 && workspaceDir[0] != "" {
+		wsRoot = workspaceDir[0]
+	} else {
+		wsRoot, _ = FindWorkspaceRoot()
+	}
+	if wsRoot == "" {
+		var err error
+		wsRoot, err = os.Getwd()
+		if err != nil {
+			return fmt.Errorf("could not determine workspace root: %w", err)
+		}
+	}
+	pleaseDir := filepath.Join(wsRoot, ".please")
+	if err := os.MkdirAll(pleaseDir, 0755); err != nil {
+		return fmt.Errorf("could not create workspace .please directory: %w", err)
+	}
+
+	configPath := filepath.Join(pleaseDir, "config.json")
+
+	// Never leak global secrets or non-workspace settings into workspace file
+	toSave := *c
+	if toSave.Server != nil {
+		srvCopy := *toSave.Server
+		if c.Origins == nil || c.Origins["server.encryption_key"] != OriginWorkspace {
+			srvCopy.EncryptionKey = ""
+		}
+		toSave.Server = &srvCopy
+	}
+	if c.Origins == nil || (c.Origins["client.natural_pacing"] != OriginWorkspace && c.Origins["client.bell_on_turn_complete"] != OriginWorkspace) {
+		toSave.Client = nil
+	}
+
+	data, err := json.MarshalIndent(&toSave, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(configPath, data, 0644)
+}
+
 func defaultServerConfig() *ServerConfig {
-	home, _ := os.UserHomeDir()
-	vaultDir := filepath.Join(home, ".local", "share", "please")
-	_ = os.MkdirAll(vaultDir, 0755)
+	globalDir, _ := GetGlobalPleaseDir()
+	vaultPath := filepath.Join(globalDir, "vault.db")
 
 	return &ServerConfig{
 		Host:        "127.0.0.1",
@@ -550,7 +1144,7 @@ func defaultServerConfig() *ServerConfig {
 		Provider:    "ollama",
 		Model:       "gemma4:e4b",
 		Endpoint:    "http://localhost:11434/api/chat",
-		VaultPath:   filepath.Join(vaultDir, "vault.db"),
+		VaultPath:   vaultPath,
 		StorageType: "sqlite",
 	}
 }

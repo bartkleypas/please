@@ -37,17 +37,28 @@ func setupMemoryStore(vaultPath, configPath string) (storage.MemoryStore, *confi
 	}
 
 	finalVaultPath := ""
-	if cfg.Server != nil && cfg.Server.VaultPath != "" {
-		finalVaultPath = cfg.Server.VaultPath
-	}
 	if vaultPath != "" {
 		finalVaultPath = vaultPath
+	} else if cfg != nil {
+		finalVaultPath = cfg.GetVaultPath()
 	}
+
 	if finalVaultPath == "" {
-		for _, candidate := range []string{"test_vault/e2e.db", "vault.db", "e2e.db", "test_vault/livefire.db", "livefire.db"} {
+		// ADR 016 Discovery Ladder:
+		// 1. Workspace-local anchor (.please/vault.db)
+		if wsPleaseDir, ok := config.GetWorkspacePleaseDir(); ok {
+			candidate := filepath.Join(wsPleaseDir, "vault.db")
 			if _, err := os.Stat(candidate); err == nil {
 				finalVaultPath = candidate
-				break
+			}
+		}
+		// 2. Global anchor (~/.please/vault.db)
+		if finalVaultPath == "" {
+			if globalDir, err := config.GetGlobalPleaseDir(); err == nil {
+				candidate := filepath.Join(globalDir, "vault.db")
+				if _, err := os.Stat(candidate); err == nil {
+					finalVaultPath = candidate
+				}
 			}
 		}
 	}

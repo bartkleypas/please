@@ -7,3 +7,6 @@ test_vault/
 livefire.json
 e2e.json
 .DS_Store
+
+# Please agent workspace state and vault (ADR 016)
+.please/

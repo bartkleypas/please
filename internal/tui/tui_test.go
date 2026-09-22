@@ -1716,3 +1716,159 @@ func TestMemoriesDeckNavigation_AndPrune(t *testing.T) {
 		t.Errorf("expected return to ModeChat after second esc, got %v", m.ViewMode)
 	}
 }
+
+func TestTUI_ConfigOriginBadgesAndScopedSaving(t *testing.T) {
+	globalDir := t.TempDir()
+	t.Setenv("PLEASE_CONFIG_DIR", "")
+	t.Setenv("PLEASE_GLOBAL_DIR", globalDir)
+
+	wsDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		wsDir = t.TempDir()
+	}
+	wsPlease := filepath.Join(wsDir, ".please")
+	_ = os.MkdirAll(wsPlease, 0755)
+
+	dbPath := filepath.Join(wsPlease, "vault.db")
+	store, err := storage.NewSQLiteStorage(dbPath, "")
+	if err != nil {
+		t.Fatalf("failed to create sqlite store: %v", err)
+	}
+
+	g := engine.NewGraph()
+	mockProvider := &engine.MockLLMProvider{}
+
+	cfg := &engine.Config{
+		Version:       engine.CurrentConfigVersion,
+		WorkspaceRoot: wsDir,
+		Server: &engine.ServerConfig{
+			Provider:  "ollama",
+			Model:     "test-model",
+			Endpoint:  "http://localhost:11434/api/chat",
+			VaultPath: dbPath,
+		},
+		Client: &engine.ClientConfig{},
+		Origins: map[string]string{
+			"server.model":      "workspace",
+			"server.endpoint":   "global",
+			"server.vault_path": "workspace anchor",
+		},
+	}
+
+	m := NewModel(cfg, g, store, mockProvider, "")
+
+	// 1. Verify renderConfigString output includes provenance badges and scope
+	cfgStr := m.renderConfigString()
+	if !strings.Contains(cfgStr, "Active Scope:    Workspace") {
+		t.Errorf("expected Active Scope: Workspace in renderConfigString, got:\n%s", cfgStr)
+	}
+	if !strings.Contains(cfgStr, "[workspace override]") {
+		t.Errorf("expected [workspace override] in renderConfigString, got:\n%s", cfgStr)
+	}
+	if !strings.Contains(cfgStr, "[workspace anchor]") {
+		t.Errorf("expected [workspace anchor] in renderConfigString, got:\n%s", cfgStr)
+	}
+	if !strings.Contains(cfgStr, "[global preference]") {
+		t.Errorf("expected [global preference] in renderConfigString, got:\n%s", cfgStr)
+	}
+
+	// 2. Execute /config model new-project-model (Project setting)
+	m.HandleCommand("/config model new-project-model")
+	if !strings.Contains(m.Notification, filepath.Join(wsPlease, "config.json")) {
+		t.Errorf("expected notification to contain workspace config path, got: %s", m.Notification)
+	}
+	if m.Config.GetOrigin("server.model") != "workspace" {
+		t.Errorf("expected origin workspace for model, got: %s", m.Config.GetOrigin("server.model"))
+	}
+	wsBytes, err := os.ReadFile(filepath.Join(wsPlease, "config.json"))
+	if err != nil || !strings.Contains(string(wsBytes), "new-project-model") {
+		t.Errorf("workspace config was not updated with new model: %v", err)
+	}
+
+	// 3. Execute /pacing off (Client setting)
+	m.HandleCommand("/pacing off")
+	if !strings.Contains(m.Notification, filepath.Join(globalDir, "config.json")) {
+		t.Errorf("expected notification to contain global config path, got: %s", m.Notification)
+	}
+	if m.Config.GetOrigin("client.natural_pacing") != "global" {
+		t.Errorf("expected origin global for natural_pacing, got: %s", m.Config.GetOrigin("client.natural_pacing"))
+	}
+	globalBytes, err := os.ReadFile(filepath.Join(globalDir, "config.json"))
+	if err != nil || !strings.Contains(string(globalBytes), `"natural_pacing": false`) {
+		t.Errorf("global config was not updated with natural_pacing: %v", err)
+	}
+
+	// 4. Execute /sandbox strict (Project setting)
+	m.HandleCommand("/sandbox strict")
+	if !strings.Contains(m.Notification, filepath.Join(wsPlease, "config.json")) {
+		t.Errorf("expected notification to contain workspace config path, got: %s", m.Notification)
+	}
+	if m.Config.GetOrigin("server.sandbox_policy") != "workspace" {
+		t.Errorf("expected origin workspace for sandbox_policy, got: %s", m.Config.GetOrigin("server.sandbox_policy"))
+	}
+
+	// 5. Execute /config key operator-secret (Operator secret: must persist to globalDir, never workspace)
+	m.HandleCommand("/config key operator-secret")
+	if !strings.Contains(m.Notification, filepath.Join(globalDir, "config.json")) {
+		t.Errorf("expected notification to contain global config path for key, got: %s", m.Notification)
+	}
+	if m.Config.GetOrigin("server.encryption_key") != "global" {
+		t.Errorf("expected origin global for encryption_key, got: %s", m.Config.GetOrigin("server.encryption_key"))
+	}
+	globalBytesKey, err := os.ReadFile(filepath.Join(globalDir, "config.json"))
+	if err != nil || !strings.Contains(string(globalBytesKey), "operator-secret") {
+		t.Errorf("global config was not updated with encryption key: %v", err)
+	}
+	wsBytesKey, _ := os.ReadFile(filepath.Join(wsPlease, "config.json"))
+	if strings.Contains(string(wsBytesKey), "operator-secret") {
+		t.Errorf("leaked encryption key into workspace config file!")
+	}
+
+	// 6. Execute /config key "" (quoted empty string: must clear key, not set literal quotes)
+	m.HandleCommand(`/config key ""`)
+	if m.Config.Server.EncryptionKey != "" {
+		t.Errorf("expected empty encryption key after /config key \"\", got: %q", m.Config.Server.EncryptionKey)
+	}
+	globalBytesCleared, err := os.ReadFile(filepath.Join(globalDir, "config.json"))
+	if err != nil || strings.Contains(string(globalBytesCleared), "operator-secret") {
+		t.Errorf("global config still contains cleared key: %s", string(globalBytesCleared))
+	}
+}
+
+func TestMemoryCardWrapping(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	store, err := storage.NewSQLiteStorage(dbPath, "")
+	if err != nil {
+		t.Fatalf("failed to create sqlite store: %v", err)
+	}
+
+	longContent := "This is an extremely long single line memory entry designed to verify that the extended memory card view wraps properly within the viewport width rather than blowing past the container boundaries."
+	_ = store.SaveMemory(&storage.Memory{
+		Key:      "wrapping_test",
+		Content:  longContent,
+		Category: storage.CategoryArchitecture,
+		Scope:    storage.ScopeWorkspace,
+	})
+
+	g := engine.NewGraph()
+	mockProvider := &engine.MockLLMProvider{}
+	cfg := &engine.Config{}
+	m := NewModel(cfg, g, store, mockProvider, "")
+	m.Width = 80
+	m.Viewport.Width = 76
+
+	m.HandleCommand("/memories inspect wrapping_test")
+	cardView := m.renderMemoriesView()
+
+	if !strings.Contains(cardView, "Card: wrapping_test") {
+		t.Fatalf("expected card title in view, got:\n%s", cardView)
+	}
+
+	for _, line := range strings.Split(cardView, "\n") {
+		lineWidth := lipgloss.Width(line)
+		if lineWidth > m.Viewport.Width {
+			t.Errorf("line exceeded viewport width (%d > %d): %q", lineWidth, m.Viewport.Width, line)
+		}
+	}
+}
