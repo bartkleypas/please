@@ -33,7 +33,16 @@ func (m *Model) handleCompactionFinished(msg compactionFinishedMsg) (tea.Model, 
 		}
 	}
 
-	m.Notification = "Branch compacted into Supernode."
+	if msg.node != nil && msg.node.Metadata != nil && msg.node.Metadata["memories_harvested"] != "" && msg.node.Metadata["memories_harvested"] != "0" {
+		count := msg.node.Metadata["memories_harvested"]
+		memWord := "memories"
+		if count == "1" {
+			memWord = "memory"
+		}
+		m.Notification = fmt.Sprintf("Branch compacted into Supernode (🧠 harvested %s workspace %s).", count, memWord)
+	} else {
+		m.Notification = "Branch compacted into Supernode."
+	}
 	return m, nil
 }
 
