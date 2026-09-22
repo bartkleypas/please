@@ -127,6 +127,23 @@ func (m *Model) renderMemoriesDeck() string {
 func (m *Model) renderMemoryCard(card *storage.Memory) string {
 	var sb strings.Builder
 
+	// Calculate content width based on viewport or terminal dimensions
+	availWidth := m.Viewport.Width
+	if availWidth <= 0 {
+		availWidth = m.Width - 4
+	}
+	if availWidth <= 0 {
+		availWidth = 80
+	}
+
+	// Account for memCardBoxStyle overhead: border (2) + padding (left 2 + right 2 = 4) + safety margin (2)
+	contentWidth := availWidth - 8
+	if contentWidth < 40 {
+		contentWidth = 40
+	}
+
+	divider := strings.Repeat("─", contentWidth)
+
 	titleLine := fmt.Sprintf("🧠 Card: %s", card.Key)
 	sb.WriteString(memKeyStyle.Render(titleLine))
 	sb.WriteString("\n\n")
@@ -150,13 +167,13 @@ func (m *Model) renderMemoryCard(card *storage.Memory) string {
 	sb.WriteString(fmt.Sprintf("  • Created:      %s\n", card.CreatedAt.Format("2006-01-02 15:04:05")))
 	sb.WriteString(fmt.Sprintf("  • Updated:      %s (%s ago)\n", card.UpdatedAt.Format("2006-01-02 15:04:05"), time.Since(card.UpdatedAt).Round(time.Minute)))
 
-	sb.WriteString("\n────────────────────────────────────────────────────────────────────────────\n")
+	sb.WriteString("\n" + divider + "\n")
 	sb.WriteString("Content:\n\n")
-	sb.WriteString(card.Content)
-	sb.WriteString("\n────────────────────────────────────────────────────────────────────────────\n\n")
+	sb.WriteString(wrapText(card.Content, contentWidth))
+	sb.WriteString("\n" + divider + "\n\n")
 
 	footer := "  [Esc/Backspace/q: Return to Deck | x/d: Prune Card]"
 	sb.WriteString(memFooterStyle.Render(footer))
 
-	return memCardBoxStyle.Render(sb.String())
+	return memCardBoxStyle.Copy().Width(contentWidth).Render(sb.String())
 }

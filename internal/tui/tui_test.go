@@ -1834,3 +1834,41 @@ func TestTUI_ConfigOriginBadgesAndScopedSaving(t *testing.T) {
 		t.Errorf("global config still contains cleared key: %s", string(globalBytesCleared))
 	}
 }
+
+func TestMemoryCardWrapping(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	store, err := storage.NewSQLiteStorage(dbPath, "")
+	if err != nil {
+		t.Fatalf("failed to create sqlite store: %v", err)
+	}
+
+	longContent := "This is an extremely long single line memory entry designed to verify that the extended memory card view wraps properly within the viewport width rather than blowing past the container boundaries."
+	_ = store.SaveMemory(&storage.Memory{
+		Key:      "wrapping_test",
+		Content:  longContent,
+		Category: storage.CategoryArchitecture,
+		Scope:    storage.ScopeWorkspace,
+	})
+
+	g := engine.NewGraph()
+	mockProvider := &engine.MockLLMProvider{}
+	cfg := &engine.Config{}
+	m := NewModel(cfg, g, store, mockProvider, "")
+	m.Width = 80
+	m.Viewport.Width = 76
+
+	m.HandleCommand("/memories inspect wrapping_test")
+	cardView := m.renderMemoriesView()
+
+	if !strings.Contains(cardView, "Card: wrapping_test") {
+		t.Fatalf("expected card title in view, got:\n%s", cardView)
+	}
+
+	for _, line := range strings.Split(cardView, "\n") {
+		lineWidth := lipgloss.Width(line)
+		if lineWidth > m.Viewport.Width {
+			t.Errorf("line exceeded viewport width (%d > %d): %q", lineWidth, m.Viewport.Width, line)
+		}
+	}
+}
