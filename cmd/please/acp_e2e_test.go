@@ -99,7 +99,15 @@ func TestACP_BinaryE2E(t *testing.T) {
 	client := &e2eClient{}
 	conn := acpsdk.NewClientSideConnection(client, stdin, stdout)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	handshakeTimeout := 1 * time.Minute
+	promptTimeout := 3 * time.Minute
+	if custom := os.Getenv("PLEASE_E2E_TIMEOUT"); custom != "" {
+		if d, err := time.ParseDuration(custom); err == nil {
+			promptTimeout = d
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), handshakeTimeout)
 	defer cancel()
 
 	// 1. Handshake (Initialize)
@@ -130,7 +138,7 @@ func TestACP_BinaryE2E(t *testing.T) {
 
 	// 4. Prompt (Real LLM inference through stdio process)
 	t.Log("Sending Prompt to agent over stdio...")
-	promptCtx, promptCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	promptCtx, promptCancel := context.WithTimeout(context.Background(), promptTimeout)
 	defer promptCancel()
 
 	promptResp, err := conn.Prompt(promptCtx, acpsdk.PromptRequest{

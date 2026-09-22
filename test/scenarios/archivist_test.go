@@ -194,6 +194,9 @@ func TestScenario_GeorgeArchivist(t *testing.T) {
 	}
 
 	t.Logf("### Generated Supernode (ID: %s):\n%s", superNode.ID, superNode.Content)
+	if harvested := superNode.Metadata["memories_harvested"]; harvested != "" && harvested != "0" {
+		t.Logf("✓ Supernode compaction distilled %s workspace memories (keys: %s)", harvested, superNode.Metadata["harvested_memory_keys"])
+	}
 
 	if superNode.Role != graph.RoleSummary {
 		t.Errorf("expected supernode to have RoleSummary, got %s", superNode.Role)

@@ -190,6 +190,9 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Printf("    ✓ Supernode created (ID: %s, Role: %s)\n", superNode.ID, superNode.Role)
+	if harvested := superNode.Metadata["memories_harvested"]; harvested != "" && harvested != "0" {
+		fmt.Printf("    🧠 Distilled %s memories during compaction (%s)\n", harvested, superNode.Metadata["harvested_memory_keys"])
+	}
 
 	// Memory diagnostics
 	diag, _ := store.DiagnoseMemories(storage.ScopeWorkspace, "")

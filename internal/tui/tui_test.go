@@ -1872,3 +1872,62 @@ func TestMemoryCardWrapping(t *testing.T) {
 		}
 	}
 }
+
+func TestCompactionFinished_NotificationWithMemories(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, _ := engine.NewSQLiteStorage(filepath.Join(tmpDir, "vault.db"), "")
+	graph := engine.NewGraph()
+	cfg := engine.NewDefaultConfig()
+	m := NewModel(cfg, graph, store, &engine.MockLLMProvider{}, "")
+
+	// Case 1: Multiple memories harvested
+	node2 := &engine.Node{
+		ID:       "super-1",
+		Role:     engine.RoleSummary,
+		Metadata: map[string]string{"memories_harvested": "2"},
+	}
+	resModel, _ := m.handleCompactionFinished(compactionFinishedMsg{node: node2})
+	res := resModel.(*Model)
+	expected2 := "Branch compacted into Supernode (🧠 harvested 2 workspace memories)."
+	if res.Notification != expected2 {
+		t.Errorf("expected notification %q, got %q", expected2, res.Notification)
+	}
+
+	// Case 2: Exactly 1 memory harvested (singular)
+	node1 := &engine.Node{
+		ID:       "super-2",
+		Role:     engine.RoleSummary,
+		Metadata: map[string]string{"memories_harvested": "1"},
+	}
+	resModel, _ = m.handleCompactionFinished(compactionFinishedMsg{node: node1})
+	res = resModel.(*Model)
+	expected1 := "Branch compacted into Supernode (🧠 harvested 1 workspace memory)."
+	if res.Notification != expected1 {
+		t.Errorf("expected notification %q, got %q", expected1, res.Notification)
+	}
+
+	// Case 3: Zero memories harvested
+	node0 := &engine.Node{
+		ID:       "super-3",
+		Role:     engine.RoleSummary,
+		Metadata: map[string]string{"memories_harvested": "0"},
+	}
+	resModel, _ = m.handleCompactionFinished(compactionFinishedMsg{node: node0})
+	res = resModel.(*Model)
+	expected0 := "Branch compacted into Supernode."
+	if res.Notification != expected0 {
+		t.Errorf("expected notification %q, got %q", expected0, res.Notification)
+	}
+
+	// Case 4: Nil metadata
+	nodeNil := &engine.Node{
+		ID:   "super-4",
+		Role: engine.RoleSummary,
+	}
+	resModel, _ = m.handleCompactionFinished(compactionFinishedMsg{node: nodeNil})
+	res = resModel.(*Model)
+	if res.Notification != expected0 {
+		t.Errorf("expected notification %q, got %q", expected0, res.Notification)
+	}
+}
+

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -889,10 +890,24 @@ func (m *Manager) CompactRangeWithDirective(ctx context.Context, provider LLMPro
 		trajectoryHeader = fmt.Sprintf("🎯 Trajectory: %s\n\n", strings.Join(signats, " ➔ "))
 	}
 
-	// 1. Generate Summary
-	summaryPrompt := "You are a concise narrative archivist. Summarize the following conversation segment into a single, high-density milestone paragraph. Preserve key facts, architectural decisions, tool results, and the active state of the world. Do not use filler or introductory phrases."
+	// 1. Generate Summary and Extract Memories
+	summaryPrompt := `You are a concise narrative archivist and knowledge extractor.
+Analyze the following conversation segment and produce:
+1. SUMMARY: A single, high-density milestone paragraph capturing key facts, architectural decisions, tool results, and the active state of the world. Do not use filler or introductory phrases.
+2. MEMORIES: Extract 0-3 enduring facts, technical decisions, or user preferences established in this segment (ignore transient chatter).
+
+Format your response exactly as:
+SUMMARY:
+<milestone paragraph>
+
+MEMORIES:
+- key: <unique_snake_case_key> | category: <architecture|convention|preference|invariant|fact|constraint|workflow> | content: <concise durable fact>
+
+If no enduring memories or decisions exist, output:
+MEMORIES:
+none`
 	if directive != "" {
-		summaryPrompt += fmt.Sprintf("\nUser Steering Directive: Focus particularly on: %s", directive)
+		summaryPrompt += fmt.Sprintf("\n\nUser Steering Directive: Focus particularly on: %s", directive)
 	}
 
 	messages := []Message{
@@ -919,14 +934,33 @@ func (m *Manager) CompactRangeWithDirective(ctx context.Context, provider LLMPro
 		return nil, fmt.Errorf("failed to find last node in range: %w", err)
 	}
 
-	// 3. Create Supernode
-	superNodeContent := trajectoryHeader + strings.TrimSpace(resp.Content)
-	superNode, err := m.createSupernode(parentID, superNodeContent, lastNode.Timestamp.Add(1*time.Millisecond))
+	// 3. Parse compaction output and harvest memories
+	summary, extractedMemories := parseCompactionOutput(resp.Content, lastNodeID)
+
+	var harvestedKeys []string
+	if memStore, ok := m.Storage.(storage.MemoryStore); ok && memStore != nil && len(extractedMemories) > 0 {
+		for i := range extractedMemories {
+			mem := extractedMemories[i]
+			if err := memStore.SaveMemory(&mem); err == nil {
+				harvestedKeys = append(harvestedKeys, mem.Key)
+			}
+		}
+	}
+
+	metadata := make(map[string]string)
+	if len(harvestedKeys) > 0 {
+		metadata["memories_harvested"] = strconv.Itoa(len(harvestedKeys))
+		metadata["harvested_memory_keys"] = strings.Join(harvestedKeys, ",")
+	}
+
+	// 4. Create Supernode
+	superNodeContent := trajectoryHeader + summary
+	superNode, err := m.createSupernode(parentID, superNodeContent, lastNode.Timestamp.Add(1*time.Millisecond), metadata)
 	if err != nil {
 		return nil, err
 	}
 
-	// 4. Graft children of the LAST node in the range onto the Supernode
+	// 5. Graft children of the LAST node in the range onto the Supernode
 	children := m.Graph.GetChildren(lastNodeID)
 	for _, child := range children {
 		if err := m.Storage.UpdateNodeParentID(child.ID, superNode.ID); err != nil {
@@ -934,12 +968,12 @@ func (m *Manager) CompactRangeWithDirective(ctx context.Context, provider LLMPro
 		}
 	}
 
-	// 5. Sync to reflect structural changes
+	// 6. Sync to reflect structural changes
 	_, _, err = m.Sync()
 	return superNode, err
 }
 
-func (m *Manager) createSupernode(parentID string, content string, baseTime time.Time) (*Node, error) {
+func (m *Manager) createSupernode(parentID string, content string, baseTime time.Time, metadata map[string]string) (*Node, error) {
 	id, err := newV7FromTime(baseTime)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate v7 uuid from time: %w", err)
@@ -950,6 +984,10 @@ func (m *Manager) createSupernode(parentID string, content string, baseTime time
 		Role:      RoleSummary,
 		Content:   content,
 		Timestamp: baseTime,
+		Metadata:  metadata,
+	}
+	if node.Metadata == nil {
+		node.Metadata = make(map[string]string)
 	}
 
 	m.Graph.AddNode(node)
@@ -958,6 +996,187 @@ func (m *Manager) createSupernode(parentID string, content string, baseTime time
 	}
 
 	return node, nil
+}
+
+// parseCompactionOutput separates the dual-yield summary paragraph and any distilled memories.
+// If the model generates a legacy unstructured summary, it gracefully treats the entire output as summary.
+func parseCompactionOutput(raw string, sourceNodeID string) (string, []storage.Memory) {
+	rawTrimmed := strings.TrimSpace(raw)
+	if rawTrimmed == "" {
+		return "", nil
+	}
+
+	upperRaw := strings.ToUpper(raw)
+	summaryIdx := strings.Index(upperRaw, "SUMMARY:")
+	memoriesIdx := strings.Index(upperRaw, "MEMORIES:")
+
+	// Legacy or unstructured response fallback
+	if summaryIdx == -1 {
+		return rawTrimmed, nil
+	}
+
+	var summaryPart string
+	var memoriesPart string
+
+	if memoriesIdx != -1 && memoriesIdx > summaryIdx {
+		summaryPart = raw[summaryIdx+len("SUMMARY:") : memoriesIdx]
+		memoriesPart = raw[memoriesIdx+len("MEMORIES:"):]
+	} else {
+		summaryPart = raw[summaryIdx+len("SUMMARY:"):]
+	}
+
+	summary := strings.TrimSpace(summaryPart)
+	summary = strings.TrimPrefix(summary, "**")
+	summary = strings.TrimSuffix(summary, "**")
+	summary = strings.TrimSpace(summary)
+
+	if summary == "" {
+		summary = rawTrimmed
+	}
+
+	if memoriesPart == "" {
+		return summary, nil
+	}
+
+	var memories []storage.Memory
+	seenKeys := make(map[string]bool)
+
+	lines := strings.Split(memoriesPart, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		lineTrimmedMarkers := strings.Trim(line, "*_`# \t\r")
+		if lineTrimmedMarkers == "" {
+			continue
+		}
+		lowerLine := strings.ToLower(lineTrimmedMarkers)
+		if lowerLine == "none" || lowerLine == "none." {
+			continue
+		}
+
+		line = strings.TrimPrefix(line, "- ")
+		line = strings.TrimPrefix(line, "* ")
+		for i := 1; i <= 9; i++ {
+			line = strings.TrimPrefix(line, fmt.Sprintf("%d. ", i))
+			line = strings.TrimPrefix(line, fmt.Sprintf("%d) ", i))
+		}
+		line = strings.TrimSpace(line)
+
+		key, categoryStr, content := parseMemoryLine(line)
+		if key == "" || content == "" || strings.ToLower(content) == "none" {
+			continue
+		}
+
+		if seenKeys[key] {
+			continue
+		}
+		seenKeys[key] = true
+
+		category := normalizeMemoryCategory(categoryStr)
+		memID, _ := uuid.NewV7()
+		now := time.Now()
+
+		mem := storage.Memory{
+			ID:           memID.String(),
+			Key:          key,
+			Content:      content,
+			Category:     category,
+			Scope:        storage.ScopeWorkspace,
+			Confidence:   0.9,
+			SourceNodeID: sourceNodeID,
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		}
+		memories = append(memories, mem)
+	}
+
+	return summary, memories
+}
+
+// parseMemoryLine parses key, category, and content from a memory specification line.
+func parseMemoryLine(line string) (string, string, string) {
+	cleaned := line
+	for _, field := range []string{"key", "category", "content", "Key", "Category", "Content"} {
+		for _, delim := range []string{
+			"**" + field + ":**",
+			"**" + field + "**:",
+			"*" + field + ":*",
+			"*" + field + "*:",
+			"`" + field + ":`",
+			"`" + field + "`:",
+			"_" + field + ":_",
+			"_" + field + "_:",
+		} {
+			cleaned = strings.ReplaceAll(cleaned, delim, strings.ToLower(field)+":")
+		}
+	}
+
+	var key, category, content string
+
+	if strings.Contains(cleaned, "|") {
+		parts := strings.Split(cleaned, "|")
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			part = strings.Trim(part, "*_`")
+			part = strings.TrimSpace(part)
+			lowerPart := strings.ToLower(part)
+			if strings.HasPrefix(lowerPart, "key:") {
+				key = strings.TrimSpace(part[4:])
+			} else if strings.HasPrefix(lowerPart, "category:") {
+				category = strings.TrimSpace(part[9:])
+			} else if strings.HasPrefix(lowerPart, "content:") {
+				content = strings.TrimSpace(part[8:])
+			}
+		}
+	} else {
+		lowerLine := strings.ToLower(cleaned)
+		kIdx := strings.Index(lowerLine, "key:")
+		cIdx := strings.Index(lowerLine, "category:")
+		cntIdx := strings.Index(lowerLine, "content:")
+
+		if kIdx != -1 && cIdx != -1 && cntIdx != -1 {
+			if kIdx < cIdx && cIdx < cntIdx {
+				key = strings.TrimSpace(cleaned[kIdx+4 : cIdx])
+				category = strings.TrimSpace(cleaned[cIdx+9 : cntIdx])
+				content = strings.TrimSpace(cleaned[cntIdx+8:])
+			}
+		}
+	}
+
+	key = strings.Trim(key, ",|; \t\"'`")
+	key = strings.ToLower(key)
+	key = strings.ReplaceAll(key, " ", "_")
+	var validKey strings.Builder
+	for _, r := range key {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			validKey.WriteRune(r)
+		}
+	}
+	key = validKey.String()
+
+	category = strings.Trim(category, ",|; \t\"'`")
+	content = strings.Trim(content, " \t\"'`")
+
+	return key, category, content
+}
+
+// normalizeMemoryCategory maps textual category names to standard storage.MemoryCategory constants.
+func normalizeMemoryCategory(cat string) storage.MemoryCategory {
+	switch strings.ToLower(strings.TrimSpace(cat)) {
+	case "architecture", "arch":
+		return storage.CategoryArchitecture
+	case "preference", "pref":
+		return storage.CategoryPreference
+	case "constraint", "invariant", "convention":
+		return storage.CategoryConstraint
+	case "workflow":
+		return storage.CategoryWorkflow
+	case "scratchpad":
+		return storage.CategoryScratchpad
+	case "fact":
+		return storage.CategoryFact
+	default:
+		return storage.CategoryFact
+	}
 }
 
 // newV7FromTime generates a valid UUIDv7 using a specific timestamp
