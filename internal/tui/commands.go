@@ -278,6 +278,10 @@ func (c *MapCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	m.ViewportOverride = m.generateMapString()
 	m.Viewport.SetContent(m.ViewportOverride)
 	m.Viewport.GotoTop()
+	m.ensureViewStack()
+	if m.ViewStack.Top().Name() != "map" {
+		m.ViewStack.Push(newMapLayer(m))
+	}
 	return m, nil
 }
 
@@ -1066,6 +1070,9 @@ func (c *ConfirmToolCommand) Execute(m *Model, args []string) (tea.Model, tea.Cm
 		return m, nil
 	}
 	m.AwaitingToolConfirmation = false
+	if m.ViewStack != nil && m.ViewStack.Top() != nil && m.ViewStack.Top().Name() == "confirm_tool" {
+		m.ViewStack.Pop()
+	}
 	m.IsThinking = true
 	return m, m.executeToolsCmd()
 }
@@ -1078,6 +1085,9 @@ func (c *CancelToolCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd
 		return m, nil
 	}
 	m.AwaitingToolConfirmation = false
+	if m.ViewStack != nil && m.ViewStack.Top() != nil && m.ViewStack.Top().Name() == "confirm_tool" {
+		m.ViewStack.Pop()
+	}
 	m.IsThinking = true
 	return m, m.cancelToolsCmd()
 }
@@ -1465,6 +1475,13 @@ func (c *MemoriesCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) 
 		m.ViewportOverride = ""
 		m.Viewport.SetContent(m.renderMemoriesView())
 		m.Viewport.GotoTop()
+		m.ensureViewStack()
+		if m.ViewStack.Top().Name() != "memories" {
+			m.ViewStack.Push(newMemoriesDeckLayer(m))
+		}
+		if m.ViewStack.Top().Name() != "memory_card" {
+			m.ViewStack.Push(newMemoryCardOverlay(m, mem))
+		}
 		return m, nil
 
 	default:
@@ -1491,6 +1508,10 @@ func (c *MemoriesCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) 
 		m.ViewportOverride = ""
 		m.Viewport.SetContent(m.renderMemoriesView())
 		m.Viewport.GotoTop()
+		m.ensureViewStack()
+		if m.ViewStack.Top().Name() != "memories" {
+			m.ViewStack.Push(newMemoriesDeckLayer(m))
+		}
 		return m, nil
 	}
 }

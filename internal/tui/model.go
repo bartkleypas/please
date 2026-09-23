@@ -36,6 +36,7 @@ type Model struct {
 	Width             int
 	Height            int
 	ViewMode          ViewMode
+	ViewStack         *ViewStack
 	CurrentID         string
 	PendingUserNodeID string
 	TextInput         textarea.Model
@@ -187,7 +188,15 @@ func NewModel(cfg *config.Config, g *graph.Graph, s storage.Storage, p providers
 		DefaultFoldThoughts: true,
 	}
 
+	m.ensureViewStack()
 	return m
+}
+
+// ensureViewStack initializes the ViewStack if nil, anchored with the root chat layer.
+func (m *Model) ensureViewStack() {
+	if m.ViewStack == nil {
+		m.ViewStack = NewViewStack(newChatLayer(m))
+	}
 }
 
 // ContextStats calculates the estimated active context size and returns the token count, limit, percentage, and theme color

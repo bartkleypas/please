@@ -230,6 +230,14 @@ func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, te
 		}
 
 		m.AwaitingToolConfirmation = true
+		m.ensureViewStack()
+		m.ViewStack.Push(NewToolConfirmOverlay(m.ViewStack, msg.toolCalls, func() tea.Cmd {
+			m.AwaitingToolConfirmation = false
+			return m.executeToolsCmd()
+		}, func() tea.Cmd {
+			m.AwaitingToolConfirmation = false
+			return m.cancelToolsCmd()
+		}))
 	}
 
 	cmds := []tea.Cmd{tick()}

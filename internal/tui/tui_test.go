@@ -1935,3 +1935,129 @@ func TestCompactionFinished_NotificationWithMemories(t *testing.T) {
 		t.Errorf("expected notification %q, got %q", expected0, res.Notification)
 	}
 }
+
+func TestConfirmOverlay_NoKeystrokeLeakageIntegration(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, _ := storage.NewSQLiteStorage(filepath.Join(tmpDir, "vault.db"), "")
+	g := graph.NewGraph()
+	cfg := config.NewDefaultConfig()
+	m := NewModel(cfg, g, store, &providers.MockLLMProvider{}, "")
+
+	// 1. Push a ConfirmOverlay onto ViewStack
+	confirmed := false
+	cancelled := false
+	overlay := NewPruneConfirmOverlay(m.ViewStack, "node-abc", func() tea.Cmd {
+		confirmed = true
+		return nil
+	}, func() tea.Cmd {
+		cancelled = true
+		return nil
+	})
+	m.ViewStack.Push(overlay)
+
+	if m.ViewStack.Top().Name() != "confirm_prune" {
+		t.Fatalf("expected top layer to be confirm_prune, got %q", m.ViewStack.Top().Name())
+	}
+
+	// 2. Type characters "hello" - should be absorbed by overlay and NOT enter m.TextInput!
+	for _, ch := range "hello" {
+		newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+		m = *(newM.(*Model))
+	}
+
+	if m.TextInput.Value() != "" {
+		t.Errorf("SECURITY/UX BUG: keystrokes leaked into TextInput during confirmation overlay! Got: %q", m.TextInput.Value())
+	}
+	if confirmed || cancelled {
+		t.Errorf("neither confirmed nor cancelled should be triggered by 'hello'")
+	}
+	if m.ViewStack.Top().Name() != "confirm_prune" {
+		t.Errorf("overlay should remain on top, got %q", m.ViewStack.Top().Name())
+	}
+
+	// 3. Type 'y' -> triggers confirm and pops overlay
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	m = *(newM.(*Model))
+
+	if !confirmed {
+		t.Errorf("expected confirmed=true after 'y'")
+	}
+	if m.ViewStack.Top().Name() != "chat" {
+		t.Errorf("expected overlay to pop back to chat, got %q", m.ViewStack.Top().Name())
+	}
+}
+
+func TestViewStack_MapAndMemoriesLayers(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
+	dbPath := filepath.Join(tmpDir, "vault.db")
+
+	store, err := storage.NewSQLiteStorage(dbPath, "")
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+
+	g := graph.NewGraph()
+	mockProvider := &providers.MockLLMProvider{ResponseContent: "OK"}
+	cfg := config.NewDefaultConfig()
+	m := NewModel(cfg, g, store, mockProvider, "")
+
+	// 1. Initial stack should have chat as root layer
+	if m.ViewStack.Len() != 1 || m.ViewStack.Top().Name() != "chat" {
+		t.Fatalf("expected initial ViewStack top to be 'chat' at depth 1, got %q (len %d)", m.ViewStack.Top().Name(), m.ViewStack.Len())
+	}
+
+	// 2. Open /map -> pushes MapLayer
+	m.HandleCommand("/map")
+	if m.ViewStack.Len() != 2 || m.ViewStack.Top().Name() != "map" {
+		t.Fatalf("expected ViewStack top to be 'map' at depth 2, got %q (len %d)", m.ViewStack.Top().Name(), m.ViewStack.Len())
+	}
+	if m.ViewStack.Top().IsOverlay() {
+		t.Errorf("map layer should not be an overlay")
+	}
+
+	// 3. Press 'esc' -> pops back to chat
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.ViewStack.Len() != 1 || m.ViewStack.Top().Name() != "chat" {
+		t.Fatalf("expected ViewStack top to return to 'chat' after esc, got %q (len %d)", m.ViewStack.Top().Name(), m.ViewStack.Len())
+	}
+	if m.ViewMode != ModeChat {
+		t.Errorf("expected ViewMode to return to ModeChat, got %v", m.ViewMode)
+	}
+
+	// 4. Seed a memory and open /memories
+	_ = store.SaveMemory(&storage.Memory{
+		Key:      "test_key",
+		Content:  "test summary",
+		Scope:    storage.ScopeWorkspace,
+		Category: storage.CategoryWorkflow,
+	})
+	m.HandleCommand("/memories")
+	if m.ViewStack.Len() != 2 || m.ViewStack.Top().Name() != "memories" {
+		t.Fatalf("expected ViewStack top to be 'memories' at depth 2, got %q (len %d)", m.ViewStack.Top().Name(), m.ViewStack.Len())
+	}
+
+	// 5. Press Enter to inspect memory card -> pushes memory_card overlay
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.ViewStack.Len() != 3 || m.ViewStack.Top().Name() != "memory_card" {
+		t.Fatalf("expected ViewStack top to be 'memory_card' at depth 3, got %q (len %d)", m.ViewStack.Top().Name(), m.ViewStack.Len())
+	}
+	if !m.ViewStack.Top().IsOverlay() {
+		t.Errorf("memory_card layer should be an overlay")
+	}
+
+	// 6. Press esc -> pops back to memories deck
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.ViewStack.Len() != 2 || m.ViewStack.Top().Name() != "memories" {
+		t.Fatalf("expected ViewStack top to return to 'memories' at depth 2, got %q (len %d)", m.ViewStack.Top().Name(), m.ViewStack.Len())
+	}
+
+	// 7. Press esc again -> pops back to root chat
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.ViewStack.Len() != 1 || m.ViewStack.Top().Name() != "chat" {
+		t.Fatalf("expected ViewStack top to return to 'chat' at depth 1, got %q (len %d)", m.ViewStack.Top().Name(), m.ViewStack.Len())
+	}
+	if m.ViewMode != ModeChat {
+		t.Errorf("expected ViewMode to return to ModeChat, got %v", m.ViewMode)
+	}
+}

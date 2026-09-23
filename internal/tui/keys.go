@@ -34,6 +34,21 @@ func (m *Model) handleKeyEvent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
+	m.ensureViewStack()
+
+	// If there are modal or overlay layers on top of root chat, route exclusively through ViewStack
+	if m.ViewStack.Len() > 1 {
+		for _, layer := range m.ViewStack.layers {
+			if aware, ok := layer.(interface{ setModel(*Model) }); ok {
+				aware.setModel(m)
+			}
+		}
+		cmd, handled := m.ViewStack.Update(msg)
+		if handled {
+			return m, cmd
+		}
+	}
+
 	// 1. Let modal interceptors consume standard keys first
 	if newM, cmd, handled := m.handleModalKeys(msg); handled {
 		return newM, cmd
@@ -311,6 +326,18 @@ func (m *Model) handleMapKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 			if len(rangeIDs) > 0 {
 				m.CompactTargetIDs = rangeIDs
 				m.AwaitingCompactConfirmation = true
+				m.ensureViewStack()
+				m.ViewStack.Push(NewCompactConfirmOverlay(m.ViewStack, len(rangeIDs), func() tea.Cmd {
+					m.AwaitingCompactConfirmation = false
+					m.IsCompressing = true
+					return m.runCompaction()
+				}, func() tea.Cmd {
+					m.AwaitingCompactConfirmation = false
+					m.CompactTargetIDs = nil
+					m.CompactDirective = ""
+					m.Notification = "Compaction cancelled."
+					return nil
+				}))
 				return m, nil
 			} else {
 				m.Notification = "Nothing to compress here."
@@ -320,6 +347,26 @@ func (m *Model) handleMapKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 		if m.MapSelectionIndex >= 0 && m.MapSelectionIndex < len(m.MapNodeIDs) {
 			m.PruneTargetID = m.MapNodeIDs[m.MapSelectionIndex]
 			m.AwaitingPruneConfirmation = true
+			targetID := m.PruneTargetID
+			m.ensureViewStack()
+			m.ViewStack.Push(NewPruneConfirmOverlay(m.ViewStack, targetID, func() tea.Cmd {
+				m.AwaitingPruneConfirmation = false
+				m.PruneTargetID = ""
+				if err := m.Manager.PruneBranch(targetID); err != nil {
+					m.Notification = fmt.Sprintf("Prune failed: %v", err)
+				} else {
+					m.Notification = fmt.Sprintf("Branch %s pruned.", targetID)
+					m.syncMapSelection()
+					m.ViewportOverride = m.generateMapString()
+					m.Viewport.SetContent(m.ViewportOverride)
+				}
+				return nil
+			}, func() tea.Cmd {
+				m.AwaitingPruneConfirmation = false
+				m.PruneTargetID = ""
+				m.Notification = "Prune cancelled."
+				return nil
+			}))
 			return m, nil
 		}
 	case "/":

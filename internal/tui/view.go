@@ -91,7 +91,14 @@ func (m Model) View() string {
 
 	s += historyBoxStyle.Render(m.Viewport.View())
 
-	if m.AwaitingPruneConfirmation {
+	if m.ViewStack != nil && m.ViewStack.Top() != nil && m.ViewStack.Top().IsOverlay() {
+		for _, layer := range m.ViewStack.layers {
+			if aware, ok := layer.(interface{ setModel(*Model) }); ok {
+				aware.setModel(&m)
+			}
+		}
+		s += "\n" + m.ViewStack.Top().View(m.Width, m.Height)
+	} else if m.AwaitingPruneConfirmation {
 		s += "\n" + warningStyle.Render("PRUNE BRANCH: This will hide this node and all descendants.") + "\n"
 		s += markStyle.Render("Confirm pruning? (y/n)") + "\n"
 	} else if m.AwaitingCompactConfirmation {
