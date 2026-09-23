@@ -11,7 +11,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/bartkleypas/please/internal/tools"
+	"github.com/bartkleypas/please/internal/domain"
 )
 
 // NormalizeOllamaEndpoint standardizes Ollama URLs, ensuring an HTTP scheme and routing to /api/chat.
@@ -37,12 +37,12 @@ func NormalizeOllamaEndpoint(endpoint string) string {
 type OllamaProvider struct {
 	Endpoint string
 	Model    string
-	Options  *ModelOptions
+	Options  *domain.ModelOptions
 	client   *http.Client
 }
 
 // NewOllamaProvider initializes an OllamaProvider instance with normalized endpoint.
-func NewOllamaProvider(endpoint, model string, options *ModelOptions) *OllamaProvider {
+func NewOllamaProvider(endpoint, model string, options *domain.ModelOptions) *OllamaProvider {
 	return &OllamaProvider{
 		Endpoint: NormalizeOllamaEndpoint(endpoint),
 		Model:    model,
@@ -138,7 +138,7 @@ type ollamaResponse struct {
 }
 
 // GenerateResponse performs a synchronous, non-streaming request against the Ollama API.
-func (o *OllamaProvider) GenerateResponse(ctx context.Context, messages []Message, availableTools []tools.Tool) (*Message, error) {
+func (o *OllamaProvider) GenerateResponse(ctx context.Context, messages []domain.Message, availableTools []domain.ToolSpec) (*domain.Message, error) {
 	var oTools []ollamaTool
 	for _, t := range availableTools {
 		ot := ollamaTool{
@@ -188,9 +188,9 @@ func (o *OllamaProvider) GenerateResponse(ctx context.Context, messages []Messag
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	var tCalls []ToolCall
+	var tCalls []domain.ToolCall
 	for _, tc := range ollamaResp.Message.ToolCalls {
-		tCalls = append(tCalls, ToolCall{
+		tCalls = append(tCalls, domain.ToolCall{
 			ID:   tc.ID,
 			Type: "function",
 			Function: struct {
@@ -203,8 +203,8 @@ func (o *OllamaProvider) GenerateResponse(ctx context.Context, messages []Messag
 		})
 	}
 
-	msg := &Message{
-		Role:      RoleAssistant,
+	msg := &domain.Message{
+		Role:      domain.RoleAssistant,
 		Content:   ollamaResp.Message.Content,
 		ToolCalls: tCalls,
 	}
@@ -219,10 +219,10 @@ func (o *OllamaProvider) GenerateResponse(ctx context.Context, messages []Messag
 }
 
 // GenerateResponseStream performs a streaming request against the Ollama API, streaming content and thoughts.
-func (o *OllamaProvider) GenerateResponseStream(ctx context.Context, messages []Message, availableTools []tools.Tool) (<-chan string, <-chan string, <-chan []ToolCall, <-chan error) {
+func (o *OllamaProvider) GenerateResponseStream(ctx context.Context, messages []domain.Message, availableTools []domain.ToolSpec) (<-chan string, <-chan string, <-chan []domain.ToolCall, <-chan error) {
 	contentChan := make(chan string)
 	thoughtChan := make(chan string)
-	toolCallChan := make(chan []ToolCall, 1)
+	toolCallChan := make(chan []domain.ToolCall, 1)
 	errChan := make(chan error, 1)
 
 	go func() {
@@ -276,7 +276,7 @@ func (o *OllamaProvider) GenerateResponseStream(ctx context.Context, messages []
 		}
 
 		decoder := json.NewDecoder(resp.Body)
-		var collectedToolCalls []ToolCall
+		var collectedToolCalls []domain.ToolCall
 
 		for {
 			var ollamaResp ollamaResponse
@@ -300,7 +300,7 @@ func (o *OllamaProvider) GenerateResponseStream(ctx context.Context, messages []
 
 			if len(ollamaResp.Message.ToolCalls) > 0 {
 				for _, tc := range ollamaResp.Message.ToolCalls {
-					collectedToolCalls = append(collectedToolCalls, ToolCall{
+					collectedToolCalls = append(collectedToolCalls, domain.ToolCall{
 						ID:   tc.ID,
 						Type: "function",
 						Function: struct {
@@ -329,7 +329,7 @@ func (o *OllamaProvider) GenerateResponseStream(ctx context.Context, messages []
 	return contentChan, thoughtChan, toolCallChan, errChan
 }
 
-func mapToOllamaMessages(messages []Message) []ollamaMessage {
+func mapToOllamaMessages(messages []domain.Message) []ollamaMessage {
 	var out []ollamaMessage
 
 	for _, m := range messages {
@@ -359,7 +359,7 @@ func mapToOllamaMessages(messages []Message) []ollamaMessage {
 
 		roleStr := string(m.Role)
 		contentStr := m.Content
-		if m.Role == RoleSummary {
+		if m.Role == domain.RoleSummary {
 			roleStr = "system"
 			contentStr = "[Conversation Milestone & Summary Context]:\n" + m.Content
 		}

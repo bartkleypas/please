@@ -10,14 +10,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bartkleypas/please/internal/tools"
+	"github.com/bartkleypas/please/internal/domain"
 )
 
 func TestMockLLMProvider_Sync(t *testing.T) {
 	mock := &MockLLMProvider{
 		ResponseContent: "Hello from mock!",
 		ResponseThought: "Mock thought",
-		ResponseToolCalls: []ToolCall{
+		ResponseToolCalls: []domain.ToolCall{
 			{
 				ID:   "call_mock",
 				Type: "function",
@@ -25,7 +25,7 @@ func TestMockLLMProvider_Sync(t *testing.T) {
 		},
 	}
 
-	msg, err := mock.GenerateResponse(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil)
+	msg, err := mock.GenerateResponse(context.Background(), []domain.Message{{Role: domain.RoleUser, Content: "hi"}}, nil)
 	if err != nil {
 		t.Fatalf("GenerateResponse failed: %v", err)
 	}
@@ -42,7 +42,7 @@ func TestMockLLMProvider_Sync(t *testing.T) {
 
 func TestMockLLMProvider_Stream(t *testing.T) {
 	mock := &MockLLMProvider{
-		StreamHandler: func(messages []Message, availableTools []tools.Tool) (string, string, []ToolCall, error) {
+		StreamHandler: func(messages []domain.Message, availableTools []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
 			return "Streamed text", "Streamed thought", nil, nil
 		},
 	}
@@ -91,7 +91,7 @@ func TestOllamaProvider_OptionsMapping(t *testing.T) {
 	repeatLastN := 64
 	freqPenalty := 0.2
 
-	opts := &ModelOptions{
+	opts := &domain.ModelOptions{
 		Temperature:      &temp,
 		TopP:             &topP,
 		TopK:             &topK,
@@ -146,7 +146,7 @@ func TestOllamaProvider_OptionsSerialization(t *testing.T) {
 	repeatLastN := 128
 	freqPenalty := 0.15
 
-	options := &ModelOptions{
+	options := &domain.ModelOptions{
 		Temperature:      &temp,
 		TopP:             &topP,
 		TopK:             &topK,
@@ -160,7 +160,7 @@ func TestOllamaProvider_OptionsSerialization(t *testing.T) {
 
 	provider := NewOllamaProvider(server.URL, "test-model", options)
 	ctx := context.Background()
-	messages := []Message{{Role: RoleUser, Content: "hi"}}
+	messages := []domain.Message{{Role: domain.RoleUser, Content: "hi"}}
 	resp, err := provider.GenerateResponse(ctx, messages, nil)
 	if err != nil {
 		t.Fatalf("GenerateResponse failed: %v", err)
@@ -241,7 +241,7 @@ func TestOpenAIProvider_GenerateResponse(t *testing.T) {
 	defer ts.Close()
 
 	provider := NewOpenAIProvider(ts.URL, "gpt-test", "test-key", nil)
-	msg, err := provider.GenerateResponse(context.Background(), []Message{{Role: RoleUser, Content: "test"}}, nil)
+	msg, err := provider.GenerateResponse(context.Background(), []domain.Message{{Role: domain.RoleUser, Content: "test"}}, nil)
 	if err != nil {
 		t.Fatalf("GenerateResponse failed: %v", err)
 	}
@@ -283,7 +283,7 @@ func TestOpenAIProvider_OptionsSerialization(t *testing.T) {
 	maxTokens := 1024
 	freqPenalty := 0.25
 
-	options := &ModelOptions{
+	options := &domain.ModelOptions{
 		Temperature:      &temp,
 		TopP:             &topP,
 		MaxTokens:        &maxTokens,
@@ -292,7 +292,7 @@ func TestOpenAIProvider_OptionsSerialization(t *testing.T) {
 
 	provider := NewOpenAIProvider(server.URL, "gpt-4o", "test-key", options)
 	ctx := context.Background()
-	messages := []Message{{Role: RoleUser, Content: "hi"}}
+	messages := []domain.Message{{Role: domain.RoleUser, Content: "hi"}}
 	resp, err := provider.GenerateResponse(ctx, messages, nil)
 	if err != nil {
 		t.Fatalf("GenerateResponse failed: %v", err)
@@ -345,7 +345,7 @@ func TestOpenAIProvider_ReasoningExtraction(t *testing.T) {
 	defer serverBatch.Close()
 
 	providerBatch := NewOpenAIProvider(serverBatch.URL, "deepseek-r1", "key", nil)
-	msg, err := providerBatch.GenerateResponse(context.Background(), []Message{{Role: RoleUser, Content: "problem"}}, nil)
+	msg, err := providerBatch.GenerateResponse(context.Background(), []domain.Message{{Role: domain.RoleUser, Content: "problem"}}, nil)
 	if err != nil {
 		t.Fatalf("GenerateResponse failed: %v", err)
 	}
@@ -376,7 +376,7 @@ func TestOpenAIProvider_ReasoningExtraction(t *testing.T) {
 	defer serverStream.Close()
 
 	providerStream := NewOpenAIProvider(serverStream.URL, "deepseek-r1", "key", nil)
-	contentChan, thoughtChan, _, errChan := providerStream.GenerateResponseStream(context.Background(), []Message{{Role: RoleUser, Content: "problem"}}, nil)
+	contentChan, thoughtChan, _, errChan := providerStream.GenerateResponseStream(context.Background(), []domain.Message{{Role: domain.RoleUser, Content: "problem"}}, nil)
 
 	var receivedContent string
 	var receivedThought string
@@ -411,9 +411,9 @@ Done:
 }
 
 func TestMapToOpenAIMessages_SummaryRole(t *testing.T) {
-	msgs := []Message{
+	msgs := []domain.Message{
 		{
-			Role:    RoleSummary,
+			Role:    domain.RoleSummary,
 			Content: "Previous discussion on architecture.",
 		},
 	}

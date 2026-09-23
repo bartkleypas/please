@@ -161,3 +161,28 @@ func (r *ToolRegistry) GetToolsForPolicy(policy string) []Tool {
 	}
 	return filtered
 }
+
+// Spec converts a Tool into a lightweight schema specification for LLM function calling.
+func (t Tool) Spec() domain.ToolSpec {
+	return domain.ToolSpec{
+		Name:        t.Name,
+		Category:    t.Category,
+		Description: t.Description,
+		Parameters:  t.Parameters,
+		Interactive: t.Interactive,
+	}
+}
+
+// Specs converts a slice of Tools into a slice of domain.ToolSpec.
+func Specs(tools []Tool) []domain.ToolSpec {
+	specs := make([]domain.ToolSpec, len(tools))
+	for i, t := range tools {
+		specs[i] = t.Spec()
+	}
+	return specs
+}
+
+// GetToolSpecsForPolicy returns tool specifications filtered and ordered according to the active sandbox policy.
+func (r *ToolRegistry) GetToolSpecsForPolicy(policy string) []domain.ToolSpec {
+	return Specs(r.GetToolsForPolicy(policy))
+}

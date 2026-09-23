@@ -4,21 +4,21 @@ import (
 	"context"
 	"time"
 
-	"github.com/bartkleypas/please/internal/tools"
+	"github.com/bartkleypas/please/internal/domain"
 )
 
 // MockLLMProvider allows deterministic control of LLM responses in test suites.
 type MockLLMProvider struct {
 	ResponseContent   string
 	ResponseThought   string
-	ResponseToolCalls []ToolCall
+	ResponseToolCalls []domain.ToolCall
 	ResponseErr       error
 	Delay             time.Duration
-	StreamHandler     func(messages []Message, availableTools []tools.Tool) (string, string, []ToolCall, error)
+	StreamHandler     func(messages []domain.Message, availableTools []domain.ToolSpec) (string, string, []domain.ToolCall, error)
 }
 
 // GenerateResponse implements the Provider interface for testing purposes.
-func (m *MockLLMProvider) GenerateResponse(ctx context.Context, messages []Message, availableTools []tools.Tool) (*Message, error) {
+func (m *MockLLMProvider) GenerateResponse(ctx context.Context, messages []domain.Message, availableTools []domain.ToolSpec) (*domain.Message, error) {
 	if m.Delay > 0 {
 		select {
 		case <-time.After(m.Delay):
@@ -32,8 +32,8 @@ func (m *MockLLMProvider) GenerateResponse(ctx context.Context, messages []Messa
 		if err != nil {
 			return nil, err
 		}
-		return &Message{
-			Role:      RoleAssistant,
+		return &domain.Message{
+			Role:      domain.RoleAssistant,
 			Content:   content,
 			Thought:   thought,
 			ToolCalls: tCalls,
@@ -44,8 +44,8 @@ func (m *MockLLMProvider) GenerateResponse(ctx context.Context, messages []Messa
 		return nil, m.ResponseErr
 	}
 
-	return &Message{
-		Role:      RoleAssistant,
+	return &domain.Message{
+		Role:      domain.RoleAssistant,
 		Content:   m.ResponseContent,
 		Thought:   m.ResponseThought,
 		ToolCalls: m.ResponseToolCalls,
@@ -53,10 +53,10 @@ func (m *MockLLMProvider) GenerateResponse(ctx context.Context, messages []Messa
 }
 
 // GenerateResponseStream implements the Provider interface for testing purposes.
-func (m *MockLLMProvider) GenerateResponseStream(ctx context.Context, messages []Message, availableTools []tools.Tool) (<-chan string, <-chan string, <-chan []ToolCall, <-chan error) {
+func (m *MockLLMProvider) GenerateResponseStream(ctx context.Context, messages []domain.Message, availableTools []domain.ToolSpec) (<-chan string, <-chan string, <-chan []domain.ToolCall, <-chan error) {
 	contentChan := make(chan string)
 	thoughtChan := make(chan string)
-	toolCallChan := make(chan []ToolCall, 1)
+	toolCallChan := make(chan []domain.ToolCall, 1)
 	errChan := make(chan error, 1)
 
 	go func() {

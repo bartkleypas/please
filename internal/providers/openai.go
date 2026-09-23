@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/bartkleypas/please/internal/tools"
+	"github.com/bartkleypas/please/internal/domain"
 )
 
 // NormalizeOpenAIEndpoint standardizes OpenAI-compatible URLs, ensuring a scheme and routing to /chat/completions.
@@ -42,12 +42,12 @@ type OpenAIProvider struct {
 	Endpoint string
 	Model    string
 	APIKey   string
-	Options  *ModelOptions
+	Options  *domain.ModelOptions
 	client   *http.Client
 }
 
 // NewOpenAIProvider initializes an OpenAIProvider instance with normalized endpoint.
-func NewOpenAIProvider(endpoint, model, apiKey string, options *ModelOptions) *OpenAIProvider {
+func NewOpenAIProvider(endpoint, model, apiKey string, options *domain.ModelOptions) *OpenAIProvider {
 	return &OpenAIProvider{
 		Endpoint: NormalizeOpenAIEndpoint(endpoint),
 		Model:    model,
@@ -145,7 +145,7 @@ func (o *OpenAIProvider) doRequest(ctx context.Context, reqBody openAIRequest) (
 }
 
 // GenerateResponse performs a synchronous, non-streaming request against the OpenAI-compatible API.
-func (o *OpenAIProvider) GenerateResponse(ctx context.Context, messages []Message, availableTools []tools.Tool) (*Message, error) {
+func (o *OpenAIProvider) GenerateResponse(ctx context.Context, messages []domain.Message, availableTools []domain.ToolSpec) (*domain.Message, error) {
 	reqBody := openAIRequest{
 		Model:    o.Model,
 		Messages: mapToOpenAIMessages(messages),
@@ -180,9 +180,9 @@ func (o *OpenAIProvider) GenerateResponse(ctx context.Context, messages []Messag
 
 	choice := openAIResp.Choices[0].Message
 
-	var tCalls []ToolCall
+	var tCalls []domain.ToolCall
 	for _, tc := range choice.ToolCalls {
-		tCalls = append(tCalls, ToolCall{
+		tCalls = append(tCalls, domain.ToolCall{
 			ID:   tc.ID,
 			Type: "function",
 			Function: struct {
@@ -196,8 +196,8 @@ func (o *OpenAIProvider) GenerateResponse(ctx context.Context, messages []Messag
 	}
 
 	contentStr, _ := choice.Content.(string)
-	msg := &Message{
-		Role:      RoleAssistant,
+	msg := &domain.Message{
+		Role:      domain.RoleAssistant,
 		Content:   contentStr,
 		ToolCalls: tCalls,
 	}
@@ -212,10 +212,10 @@ func (o *OpenAIProvider) GenerateResponse(ctx context.Context, messages []Messag
 }
 
 // GenerateResponseStream performs a streaming request against the OpenAI-compatible API, emitting tokens and thoughts.
-func (o *OpenAIProvider) GenerateResponseStream(ctx context.Context, messages []Message, availableTools []tools.Tool) (<-chan string, <-chan string, <-chan []ToolCall, <-chan error) {
+func (o *OpenAIProvider) GenerateResponseStream(ctx context.Context, messages []domain.Message, availableTools []domain.ToolSpec) (<-chan string, <-chan string, <-chan []domain.ToolCall, <-chan error) {
 	contentChan := make(chan string)
 	thoughtChan := make(chan string)
-	toolCallChan := make(chan []ToolCall, 1)
+	toolCallChan := make(chan []domain.ToolCall, 1)
 	errChan := make(chan error, 1)
 
 	go func() {
@@ -317,9 +317,9 @@ func (o *OpenAIProvider) GenerateResponseStream(ctx context.Context, messages []
 		}
 
 		if hasToolCalls && len(toolCallsMap) > 0 {
-			var collectedToolCalls []ToolCall
+			var collectedToolCalls []domain.ToolCall
 			for _, builder := range toolCallsMap {
-				collectedToolCalls = append(collectedToolCalls, ToolCall{
+				collectedToolCalls = append(collectedToolCalls, domain.ToolCall{
 					ID:   builder.id,
 					Type: "function",
 					Function: struct {
@@ -338,7 +338,7 @@ func (o *OpenAIProvider) GenerateResponseStream(ctx context.Context, messages []
 	return contentChan, thoughtChan, toolCallChan, errChan
 }
 
-func mapToOpenAIMessages(messages []Message) []openAIMessage {
+func mapToOpenAIMessages(messages []domain.Message) []openAIMessage {
 	var out []openAIMessage
 
 	for _, m := range messages {
@@ -392,7 +392,7 @@ func mapToOpenAIMessages(messages []Message) []openAIMessage {
 		}
 
 		roleStr := string(m.Role)
-		if m.Role == RoleSummary {
+		if m.Role == domain.RoleSummary {
 			roleStr = "system"
 			if strContent, ok := openAIContent.(string); ok {
 				openAIContent = "[Conversation Milestone & Summary Context]:\n" + strContent
@@ -411,7 +411,7 @@ func mapToOpenAIMessages(messages []Message) []openAIMessage {
 	return out
 }
 
-func mapToOpenAITools(availableTools []tools.Tool) []openAITool {
+func mapToOpenAITools(availableTools []domain.ToolSpec) []openAITool {
 	var oTools []openAITool
 	for _, t := range availableTools {
 		ot := openAITool{

@@ -11,12 +11,11 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/google/uuid"
 
-	"github.com/bartkleypas/please/internal/tools"
+	"github.com/bartkleypas/please/internal/domain"
 )
 
 // RemoteDaemonProvider connects to a running Please engine daemon over HTTP/HTTPS and SSE.
@@ -29,32 +28,8 @@ type RemoteDaemonProvider struct {
 }
 
 // ResolveCACert determines the effective CA certificate path with auto-discovery.
-func ResolveCACert(caCertPath string, baseURL string) string {
-	if caCertPath != "" {
-		if strings.HasPrefix(caCertPath, "~/") || caCertPath == "~" {
-			if home, err := os.UserHomeDir(); err == nil {
-				caCertPath = filepath.Join(home, strings.TrimPrefix(caCertPath, "~"))
-			}
-		}
-		return caCertPath
-	}
+var ResolveCACert = domain.ResolveCACert
 
-	// Auto-discovery if connecting via HTTPS
-	if strings.HasPrefix(baseURL, "https://") {
-		if home, err := os.UserHomeDir(); err == nil {
-			candidates := []string{
-				filepath.Join(home, "Library", "Application Support", "please", "certs", "ca.crt"),
-				filepath.Join(home, ".config", "please", "certs", "ca.crt"),
-			}
-			for _, c := range candidates {
-				if _, err := os.Stat(c); err == nil {
-					return c
-				}
-			}
-		}
-	}
-	return ""
-}
 
 // NewRemoteDaemonProvider creates a new provider instance connected to the specified daemon base URL.
 func NewRemoteDaemonProvider(baseURL, authToken, caCertPath string) (*RemoteDaemonProvider, error) {
@@ -95,12 +70,12 @@ func NewRemoteDaemonProvider(baseURL, authToken, caCertPath string) (*RemoteDaem
 }
 
 // GenerateResponse generates a single synchronous message by consuming the daemon stream.
-func (p *RemoteDaemonProvider) GenerateResponse(ctx context.Context, messages []Message, availableTools []tools.Tool) (*Message, error) {
+func (p *RemoteDaemonProvider) GenerateResponse(ctx context.Context, messages []domain.Message, availableTools []domain.ToolSpec) (*domain.Message, error) {
 	contentChan, thoughtChan, toolCallChan, errChan := p.GenerateResponseStream(ctx, messages, availableTools)
 
 	var fullContent strings.Builder
 	var fullThought strings.Builder
-	var toolCalls []ToolCall
+	var toolCalls []domain.ToolCall
 
 	for {
 		select {
@@ -126,8 +101,8 @@ func (p *RemoteDaemonProvider) GenerateResponse(ctx context.Context, messages []
 			if ok && err != nil {
 				return nil, err
 			}
-			return &Message{
-				Role:      RoleAssistant,
+			return &domain.Message{
+				Role:      domain.RoleAssistant,
 				Content:   fullContent.String(),
 				Thought:   fullThought.String(),
 				ToolCalls: toolCalls,
@@ -137,10 +112,10 @@ func (p *RemoteDaemonProvider) GenerateResponse(ctx context.Context, messages []
 }
 
 // GenerateResponseStream initiates a streaming request to /api/v1/chat/stream on the daemon.
-func (p *RemoteDaemonProvider) GenerateResponseStream(ctx context.Context, messages []Message, availableTools []tools.Tool) (<-chan string, <-chan string, <-chan []ToolCall, <-chan error) {
+func (p *RemoteDaemonProvider) GenerateResponseStream(ctx context.Context, messages []domain.Message, availableTools []domain.ToolSpec) (<-chan string, <-chan string, <-chan []domain.ToolCall, <-chan error) {
 	contentChan := make(chan string, 100)
 	thoughtChan := make(chan string, 100)
-	toolCallChan := make(chan []ToolCall, 10)
+	toolCallChan := make(chan []domain.ToolCall, 10)
 	errChan := make(chan error, 1)
 
 	go func() {
@@ -155,7 +130,7 @@ func (p *RemoteDaemonProvider) GenerateResponseStream(ctx context.Context, messa
 		var images []string
 
 		for i := len(messages) - 1; i >= 0; i-- {
-			if messages[i].Role == RoleUser {
+			if messages[i].Role == domain.RoleUser {
 				userNodeID = messages[i].ID
 				lastUserMessage = messages[i].Content
 				images = messages[i].Images
