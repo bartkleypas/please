@@ -92,19 +92,10 @@ func (m *Model) handleKeyEvent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmd, tiCmd)
 }
 
-// handleModalKeys checks if there is any active modal or overlay state that needs
+// handleModalKeys checks if there is any active modal state that needs
 // to intercept key events before they propagate to normal view mode handlers.
 func (m *Model) handleModalKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 	if newM, cmd, handled := m.handlePacingKeys(msg); handled {
-		return newM, cmd, true
-	}
-	if newM, cmd, handled := m.handleCompactionConfirmKeys(msg); handled {
-		return newM, cmd, true
-	}
-	if newM, cmd, handled := m.handlePruneConfirmKeys(msg); handled {
-		return newM, cmd, true
-	}
-	if newM, cmd, handled := m.handleToolConfirmKeys(msg); handled {
 		return newM, cmd, true
 	}
 	return m, nil, false
@@ -116,66 +107,6 @@ func (m *Model) handlePacingKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 		case "esc", "enter", "space":
 			newM, cmd := m.skipPacing()
 			return newM.(*Model), cmd, true
-		}
-	}
-	return m, nil, false
-}
-
-func (m *Model) handleCompactionConfirmKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
-	if m.AwaitingCompactConfirmation {
-		switch msg.String() {
-		case "y", "Y":
-			m.AwaitingCompactConfirmation = false
-			m.IsCompressing = true
-			return m, m.runCompaction(), true
-		case "n", "N", "esc":
-			m.AwaitingCompactConfirmation = false
-			m.CompactTargetIDs = nil
-			return m, nil, true
-		}
-		return m, nil, true
-	}
-	return m, nil, false
-}
-
-func (m *Model) handlePruneConfirmKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
-	if m.AwaitingPruneConfirmation {
-		switch msg.String() {
-		case "y", "Y":
-			m.AwaitingPruneConfirmation = false
-			err := m.Manager.PruneBranch(m.PruneTargetID)
-			if err != nil {
-				m.Notification = fmt.Sprintf("Prune failed: %v", err)
-			} else {
-				m.Notification = "Branch pruned."
-			}
-			m.syncMapSelection()
-			return m, nil, true
-		case "n", "N", "esc":
-			m.AwaitingPruneConfirmation = false
-			m.PruneTargetID = ""
-			return m, nil, true
-		}
-		return m, nil, true
-	}
-	return m, nil, false
-}
-
-func (m *Model) handleToolConfirmKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
-	if m.AwaitingToolConfirmation && m.TextInput.Value() == "" {
-		switch msg.String() {
-		case "y", "Y":
-			m.AwaitingToolConfirmation = false
-			m.IsThinking = true
-			return m, m.executeToolsCmd(), true
-		case "n", "N":
-			m.AwaitingToolConfirmation = false
-			m.IsThinking = true
-			return m, m.cancelToolsCmd(), true
-		case "esc":
-			m.AwaitingToolConfirmation = false
-			m.PendingToolCalls = nil
-			return m, nil, true
 		}
 	}
 	return m, nil, false
@@ -325,14 +256,11 @@ func (m *Model) handleMapKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 			rangeIDs := m.getCompactionRange(targetID)
 			if len(rangeIDs) > 0 {
 				m.CompactTargetIDs = rangeIDs
-				m.AwaitingCompactConfirmation = true
 				m.ensureViewStack()
 				m.ViewStack.Push(NewCompactConfirmOverlay(m.ViewStack, len(rangeIDs), func() tea.Cmd {
-					m.AwaitingCompactConfirmation = false
 					m.IsCompressing = true
 					return m.runCompaction()
 				}, func() tea.Cmd {
-					m.AwaitingCompactConfirmation = false
 					m.CompactTargetIDs = nil
 					m.CompactDirective = ""
 					m.Notification = "Compaction cancelled."
@@ -346,11 +274,9 @@ func (m *Model) handleMapKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 	case "d", "delete":
 		if m.MapSelectionIndex >= 0 && m.MapSelectionIndex < len(m.MapNodeIDs) {
 			m.PruneTargetID = m.MapNodeIDs[m.MapSelectionIndex]
-			m.AwaitingPruneConfirmation = true
 			targetID := m.PruneTargetID
 			m.ensureViewStack()
 			m.ViewStack.Push(NewPruneConfirmOverlay(m.ViewStack, targetID, func() tea.Cmd {
-				m.AwaitingPruneConfirmation = false
 				m.PruneTargetID = ""
 				if err := m.Manager.PruneBranch(targetID); err != nil {
 					m.Notification = fmt.Sprintf("Prune failed: %v", err)
@@ -362,7 +288,6 @@ func (m *Model) handleMapKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 				}
 				return nil
 			}, func() tea.Cmd {
-				m.AwaitingPruneConfirmation = false
 				m.PruneTargetID = ""
 				m.Notification = "Prune cancelled."
 				return nil
@@ -579,13 +504,15 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 
 	// Handle Dialogue Intervention:
 	// If the user submits a message while tool execution is pending,
-	// cancel the pending tools and proceed with the new message.
-	if m.AwaitingToolConfirmation {
+	// cancel the pending tools, pop the confirmation overlay, and proceed with the new message.
+	if m.hasActiveOverlay("confirm_tool") {
+		if m.ViewStack != nil && m.ViewStack.Top().Name() == "confirm_tool" {
+			m.ViewStack.Pop()
+		}
 		for _, call := range m.PendingToolCalls {
 			result := "Error: Tool call cancelled by user."
 			_ = m.Manager.UpdateAssistantObservations(m.InterleavingNodeID, call.ID, result)
 		}
-		m.AwaitingToolConfirmation = false
 		m.PendingToolCalls = nil
 		m.Notification = "Pending tools cancelled."
 	}

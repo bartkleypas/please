@@ -229,19 +229,16 @@ func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, te
 			return m, m.executeToolsCmd()
 		}
 
-		m.AwaitingToolConfirmation = true
 		m.ensureViewStack()
 		m.ViewStack.Push(NewToolConfirmOverlay(m.ViewStack, msg.toolCalls, func() tea.Cmd {
-			m.AwaitingToolConfirmation = false
 			return m.executeToolsCmd()
 		}, func() tea.Cmd {
-			m.AwaitingToolConfirmation = false
 			return m.cancelToolsCmd()
 		}))
 	}
 
 	cmds := []tea.Cmd{tick()}
-	if (len(msg.toolCalls) == 0 || m.AwaitingToolConfirmation) && m.Config.EnableBellOnTurnComplete() {
+	if (len(msg.toolCalls) == 0 || m.hasActiveOverlay("confirm_tool")) && m.Config.EnableBellOnTurnComplete() {
 		cmds = append(cmds, BellCmd())
 	}
 	return m, tea.Batch(cmds...)

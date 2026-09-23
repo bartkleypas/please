@@ -98,35 +98,8 @@ func (m Model) View() string {
 			}
 		}
 		s += "\n" + m.ViewStack.Top().View(m.Width, m.Height)
-	} else if m.AwaitingPruneConfirmation {
-		s += "\n" + warningStyle.Render("PRUNE BRANCH: This will hide this node and all descendants.") + "\n"
-		s += markStyle.Render("Confirm pruning? (y/n)") + "\n"
-	} else if m.AwaitingCompactConfirmation {
-		s += "\n" + warningStyle.Render(fmt.Sprintf("COMPACT BRANCH: Summarize %d nodes into a Supernode?", len(m.CompactTargetIDs))) + "\n"
-		s += markStyle.Render("Confirm compaction? (y/n)") + "\n"
 	} else if m.IsCompressing {
 		s += "\n" + botStyle.Render("Compressing narrative into Supernode...") + "\n"
-	} else if m.AwaitingToolConfirmation {
-		s += "\n" + markStyle.Render("Tool Call Confirmation Required:") + "\n"
-		hasRedirection := false
-		dangerChars := []string{">", "|", "&", "<"}
-
-		for _, call := range m.PendingToolCalls {
-			args := string(call.Function.Arguments)
-			for _, char := range dangerChars {
-				if strings.Contains(args, char) {
-					hasRedirection = true
-					break
-				}
-			}
-			s += fmt.Sprintf(" - %s(%s)\n", call.Function.Name, args)
-		}
-
-		if hasRedirection {
-			s += "\n" + warningStyle.Render("CAUTION: Shell redirection, piping, or chaining detected!") + "\n"
-		}
-
-		s += "\n" + markStyle.Render("Execute these tools? (y/n)") + "\n"
 	} else if m.IsThinking {
 		spinner := spinnerFrames[m.SpinnerFrame%len(spinnerFrames)]
 		msg := "Thinking..."
@@ -146,7 +119,7 @@ func (m Model) View() string {
 	case ModeMap:
 		if m.Searching {
 			s += "\n\n" + inputBoxStyle.Render(m.SearchInput.View())
-		} else if !m.AwaitingPruneConfirmation && !m.AwaitingCompactConfirmation && !m.IsCompressing {
+		} else if (m.ViewStack == nil || !m.ViewStack.Top().IsOverlay()) && !m.IsCompressing {
 			s += "\n\n" + m.renderFooterHelp("h/l: fold/unfold • j/k: move • g/G: top/end • /: search • c: compact • d: prune • esc: chat")
 		}
 	case ModeMemories:
@@ -164,7 +137,7 @@ func (m Model) View() string {
 			s += "\n" + markStyle.Render(fmt.Sprintf("🖼️  Pending attachments: %s", strings.Join(filenames, ", "))) + "\n"
 		}
 		s += "\n\n" + inputBoxStyle.Render(m.TextInput.View())
-		if m.AwaitingToolConfirmation {
+		if m.hasActiveOverlay("confirm_tool") {
 			s += "\n\n" + m.renderFooterHelp("(Press y/n to confirm/deny, or type a message to bypass)")
 		} else if m.ViewportOverride != "" {
 			s += "\n\n" + m.renderFooterHelp("(ESC: return to chat • ↑/↓ or PgUp/PgDn to scroll • /q to exit)")

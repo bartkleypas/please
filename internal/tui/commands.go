@@ -1065,14 +1065,11 @@ func (c *VersionCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 type ConfirmToolCommand struct{}
 
 func (c *ConfirmToolCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
-	if !m.AwaitingToolConfirmation {
+	if !m.hasActiveOverlay("confirm_tool") {
 		m.Notification = "No tool execution is pending confirmation."
 		return m, nil
 	}
-	m.AwaitingToolConfirmation = false
-	if m.ViewStack != nil && m.ViewStack.Top() != nil && m.ViewStack.Top().Name() == "confirm_tool" {
-		m.ViewStack.Pop()
-	}
+	m.ViewStack.Pop()
 	m.IsThinking = true
 	return m, m.executeToolsCmd()
 }
@@ -1080,14 +1077,11 @@ func (c *ConfirmToolCommand) Execute(m *Model, args []string) (tea.Model, tea.Cm
 type CancelToolCommand struct{}
 
 func (c *CancelToolCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
-	if !m.AwaitingToolConfirmation {
+	if !m.hasActiveOverlay("confirm_tool") {
 		m.Notification = "No tool execution is pending confirmation."
 		return m, nil
 	}
-	m.AwaitingToolConfirmation = false
-	if m.ViewStack != nil && m.ViewStack.Top() != nil && m.ViewStack.Top().Name() == "confirm_tool" {
-		m.ViewStack.Pop()
-	}
+	m.ViewStack.Pop()
 	m.IsThinking = true
 	return m, m.cancelToolsCmd()
 }

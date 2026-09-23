@@ -77,18 +77,15 @@ type Model struct {
 	CollapsedNodes    map[string]bool
 
 	// Deletion state
-	AwaitingPruneConfirmation bool
 	PruneTargetID             string
 
 	// Compaction state
-	AwaitingCompactConfirmation bool
 	CompactTargetIDs            []string
 	CompactDirective            string
 	IsCompressing               bool
 
 	// Tool handling fields
 	PendingToolCalls         []domain.ToolCall
-	AwaitingToolConfirmation bool
 
 	// Animation state
 	LastActivity time.Time
@@ -197,6 +194,11 @@ func (m *Model) ensureViewStack() {
 	if m.ViewStack == nil {
 		m.ViewStack = NewViewStack(newChatLayer(m))
 	}
+}
+
+// hasActiveOverlay returns true if the current top layer on ViewStack is an overlay matching the given name.
+func (m *Model) hasActiveOverlay(name string) bool {
+	return m.ViewStack != nil && m.ViewStack.Top() != nil && m.ViewStack.Top().Name() == name
 }
 
 // ContextStats calculates the estimated active context size and returns the token count, limit, percentage, and theme color
