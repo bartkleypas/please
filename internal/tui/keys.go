@@ -14,11 +14,15 @@ import (
 // dimensions and refreshing the wrapped chat history.
 func (m *Model) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.Width = msg.Width
+	m.Height = msg.Height
 	m.Viewport.Width = msg.Width - 4    // Account for borders (2) and padding(2)
 	m.Viewport.Height = msg.Height - 14 // Increased offset for textarea height
 	m.TextInput.SetWidth(msg.Width - 4)
 	m.TextInput.SetHeight(3) // Multi-line input
 	m.updateViewportContent()
+	if m.ViewStack != nil {
+		m.ViewStack.Update(msg)
+	}
 	return m, nil
 }
 

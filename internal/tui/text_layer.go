@@ -26,13 +26,27 @@ func NewTextViewLayer(m *Model, name, title, content, helpText string) *TextView
 		m.Viewport.GotoTop()
 	}
 
-	vp := viewport.New(m.Width, m.Height-4)
-	if m.Height > 4 {
-		vp.Height = m.Height - 4
+	w := 80
+	h := 24
+	if m != nil {
+		if m.Width > 0 {
+			w = m.Width
+		}
+		if m.Height > 0 {
+			h = m.Height
+		}
 	}
-	if m.Width > 0 {
-		vp.Width = m.Width
+
+	vpWidth := w - 4
+	if vpWidth < 10 {
+		vpWidth = 10
 	}
+	vpHeight := h - 8
+	if vpHeight < 5 {
+		vpHeight = 5
+	}
+
+	vp := viewport.New(vpWidth, vpHeight)
 	vp.SetContent(content)
 	vp.GotoTop()
 
@@ -53,10 +67,12 @@ func NewTextViewLayer(m *Model, name, title, content, helpText string) *TextView
 
 func (l *TextViewLayer) setModel(m *Model) {
 	l.m = m
-	if l.viewport.Width != m.Width || l.viewport.Height != m.Height-4 {
-		l.viewport.Width = m.Width
-		if m.Height > 4 {
-			l.viewport.Height = m.Height - 4
+	if m != nil {
+		if m.Width > 4 {
+			l.viewport.Width = m.Width - 4
+		}
+		if m.Height > 8 {
+			l.viewport.Height = m.Height - 8
 		}
 	}
 }
@@ -73,6 +89,22 @@ func (l *TextViewLayer) IsOverlay() bool {
 }
 
 func (l *TextViewLayer) View(width, height int) string {
+	// Dynamically ensure viewport dimensions are synced with target display size
+	if width <= 0 && l.m != nil && l.m.Width > 0 {
+		width = l.m.Width
+	}
+	if height <= 0 && l.m != nil && l.m.Height > 0 {
+		height = l.m.Height
+	}
+	if width > 4 {
+		l.viewport.Width = width - 4
+	}
+	if height > 8 {
+		l.viewport.Height = height - 8
+	} else if l.viewport.Height <= 0 {
+		l.viewport.Height = 15
+	}
+
 	var s string
 	if l.title != "" {
 		s += titleStyle.Render(fmt.Sprintf(" PLEASE - %s ", l.title)) + "\n\n"
@@ -92,9 +124,11 @@ func (l *TextViewLayer) View(width, height int) string {
 func (l *TextViewLayer) Update(msg tea.Msg) (tea.Cmd, bool) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		l.viewport.Width = msg.Width
-		if msg.Height > 4 {
-			l.viewport.Height = msg.Height - 4
+		if msg.Width > 4 {
+			l.viewport.Width = msg.Width - 4
+		}
+		if msg.Height > 8 {
+			l.viewport.Height = msg.Height - 8
 		}
 		return nil, true
 

@@ -1,8 +1,13 @@
 package tui
 
 import (
+	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/bartkleypas/please/internal/graph"
+	"github.com/bartkleypas/please/internal/providers"
+	"github.com/bartkleypas/please/internal/storage"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -73,5 +78,48 @@ func TestTextViewLayer_QuitKey(t *testing.T) {
 	}
 	if stack.Len() != 1 {
 		t.Errorf("expected 'q' to pop layer, got len %d", stack.Len())
+	}
+}
+
+func TestTextViewLayer_RenderContainsContent(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	store, _ := storage.NewSQLiteStorage(dbPath, "")
+	g := graph.NewGraph()
+	mockProvider := &providers.MockLLMProvider{}
+	m := NewModel(nil, g, store, mockProvider, "")
+	m, _ = updateModel(m, tea.WindowSizeMsg{Width: 100, Height: 40})
+	if m.Height != 40 {
+		t.Fatalf("expected m.Height to be 40 after WindowSizeMsg, got %d", m.Height)
+	}
+
+	content := "--- 🦉 Please Help ---\nInteractive Commands:\n  /help Show this help message"
+	layer := NewTextViewLayer(&m, "help", "Help", content, "")
+
+	rendered := layer.View(100, 40)
+	if !strings.Contains(rendered, "Please Help") {
+		t.Fatalf("expected rendered view to contain 'Please Help', got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "Interactive Commands") {
+		t.Fatalf("expected rendered view to contain 'Interactive Commands', got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "PLEASE - Help") {
+		t.Fatalf("expected rendered view to contain title header, got:\n%s", rendered)
+	}
+
+	// Exit setup mode and execute /help via TextInput
+	m.TextInput.SetValue("sys")
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	m.TextInput.SetValue("/help")
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	fullView := m.View()
+	if !strings.Contains(fullView, "Please Help") {
+		t.Fatalf("expected m.View() to render help content, got:\n%s", fullView)
+	}
+	if !strings.Contains(fullView, "Interactive Commands") {
+		t.Fatalf("expected m.View() to render interactive commands, got:\n%s", fullView)
 	}
 }
