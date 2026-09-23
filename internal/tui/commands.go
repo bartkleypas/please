@@ -6,7 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/bartkleypas/please/internal/config"
+	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/engine"
+	"github.com/bartkleypas/please/internal/providers"
 	"github.com/bartkleypas/please/internal/storage"
 	"github.com/bartkleypas/please/internal/worktree"
 	tea "github.com/charmbracelet/bubbletea"
@@ -89,7 +92,7 @@ type PacingCommand struct{}
 
 func (c *PacingCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	if m.Config.Client == nil {
-		m.Config.Client = &engine.ClientConfig{}
+		m.Config.Client = &config.ClientConfig{}
 	}
 	if len(args) == 0 {
 		pacing := !m.Config.EnableNaturalPacing()
@@ -127,7 +130,7 @@ type BellCommand struct{}
 
 func (c *BellCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	if m.Config.Client == nil {
-		m.Config.Client = &engine.ClientConfig{}
+		m.Config.Client = &config.ClientConfig{}
 	}
 	if len(args) == 0 {
 		bell := !m.Config.EnableBellOnTurnComplete()
@@ -299,9 +302,9 @@ func (m *Model) syncProviderOptions() {
 	if m.Config.Server == nil {
 		return
 	}
-	if op, ok := m.Provider.(*engine.OllamaProvider); ok {
+	if op, ok := m.Provider.(*providers.OllamaProvider); ok {
 		op.Options = m.Config.Server.Options
-	} else if op, ok := m.Provider.(*engine.OpenAIProvider); ok {
+	} else if op, ok := m.Provider.(*providers.OpenAIProvider); ok {
 		op.Options = m.Config.Server.Options
 	}
 }
@@ -312,11 +315,11 @@ func (m *Model) renderConfigString() string {
 
 	srv := m.Config.Server
 	if srv == nil {
-		srv = &engine.ServerConfig{}
+		srv = &config.ServerConfig{}
 	}
 	cli := m.Config.Client
 	if cli == nil {
-		cli = &engine.ClientConfig{}
+		cli = &config.ClientConfig{}
 	}
 
 	// Active Session & Scope
@@ -329,13 +332,13 @@ func (m *Model) renderConfigString() string {
 		wsFile := filepath.Join(m.Config.WorkspaceRoot, ".please", "config.json")
 		fmt.Fprintf(&s, "  • Active Scope:    Workspace (%s)\n", m.Config.WorkspaceRoot)
 		fmt.Fprintf(&s, "  • Workspace File:  %s\n", wsFile)
-		if gDir, err := engine.GetGlobalPleaseDir(); err == nil {
+		if gDir, err := config.GetGlobalPleaseDir(); err == nil {
 			fmt.Fprintf(&s, "  • Global File:     %s\n\n", filepath.Join(gDir, "config.json"))
 		} else {
 			s.WriteString("\n")
 		}
 	} else {
-		if gDir, err := engine.GetGlobalPleaseDir(); err == nil {
+		if gDir, err := config.GetGlobalPleaseDir(); err == nil {
 			fmt.Fprintf(&s, "  • Active Scope:    Global Anchor (~/.please)\n")
 			fmt.Fprintf(&s, "  • Global File:     %s\n\n", filepath.Join(gDir, "config.json"))
 		}
@@ -498,10 +501,10 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	}
 
 	if m.Config.Server == nil {
-		m.Config.Server = &engine.ServerConfig{}
+		m.Config.Server = &config.ServerConfig{}
 	}
 	if m.Config.Client == nil {
-		m.Config.Client = &engine.ClientConfig{}
+		m.Config.Client = &config.ClientConfig{}
 	}
 
 	key := strings.ToLower(strings.TrimSpace(args[0]))
@@ -510,18 +513,18 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "model":
 		m.Config.Server.Model = value
-		if op, ok := m.Provider.(*engine.OllamaProvider); ok {
+		if op, ok := m.Provider.(*providers.OllamaProvider); ok {
 			op.Model = value
-		} else if op, ok := m.Provider.(*engine.OpenAIProvider); ok {
+		} else if op, ok := m.Provider.(*providers.OpenAIProvider); ok {
 			op.Model = value
 		}
 		m.Notification = "Model updated to " + value
 	case "endpoint":
-		if op, ok := m.Provider.(*engine.OllamaProvider); ok {
-			value = engine.NormalizeOllamaEndpoint(value)
+		if op, ok := m.Provider.(*providers.OllamaProvider); ok {
+			value = providers.NormalizeOllamaEndpoint(value)
 			op.Endpoint = value
-		} else if op, ok := m.Provider.(*engine.OpenAIProvider); ok {
-			value = engine.NormalizeOpenAIEndpoint(value)
+		} else if op, ok := m.Provider.(*providers.OpenAIProvider); ok {
+			value = providers.NormalizeOpenAIEndpoint(value)
 			op.Endpoint = value
 		}
 		m.Config.Server.Endpoint = value
@@ -597,7 +600,7 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		}
 	case "temp", "temperature":
 		if m.Config.Server.Options == nil {
-			m.Config.Server.Options = &engine.ModelOptions{}
+			m.Config.Server.Options = &domain.ModelOptions{}
 		}
 		if strings.ToLower(value) == "default" || strings.ToLower(value) == "reset" || strings.ToLower(value) == "none" {
 			m.Config.Server.Options.Temperature = nil
@@ -614,7 +617,7 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		m.syncProviderOptions()
 	case "top_p", "topp":
 		if m.Config.Server.Options == nil {
-			m.Config.Server.Options = &engine.ModelOptions{}
+			m.Config.Server.Options = &domain.ModelOptions{}
 		}
 		if strings.ToLower(value) == "default" || strings.ToLower(value) == "reset" || strings.ToLower(value) == "none" {
 			m.Config.Server.Options.TopP = nil
@@ -631,7 +634,7 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		m.syncProviderOptions()
 	case "top_k", "topk":
 		if m.Config.Server.Options == nil {
-			m.Config.Server.Options = &engine.ModelOptions{}
+			m.Config.Server.Options = &domain.ModelOptions{}
 		}
 		if strings.ToLower(value) == "default" || strings.ToLower(value) == "reset" || strings.ToLower(value) == "none" {
 			m.Config.Server.Options.TopK = nil
@@ -648,7 +651,7 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		m.syncProviderOptions()
 	case "min_p", "minp":
 		if m.Config.Server.Options == nil {
-			m.Config.Server.Options = &engine.ModelOptions{}
+			m.Config.Server.Options = &domain.ModelOptions{}
 		}
 		if strings.ToLower(value) == "default" || strings.ToLower(value) == "reset" || strings.ToLower(value) == "none" {
 			m.Config.Server.Options.MinP = nil
@@ -665,7 +668,7 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		m.syncProviderOptions()
 	case "ctx", "num_ctx", "context", "context_size":
 		if m.Config.Server.Options == nil {
-			m.Config.Server.Options = &engine.ModelOptions{}
+			m.Config.Server.Options = &domain.ModelOptions{}
 		}
 		if strings.ToLower(value) == "default" || strings.ToLower(value) == "reset" || strings.ToLower(value) == "none" {
 			m.Config.Server.Options.NumCtx = nil
@@ -682,7 +685,7 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		m.syncProviderOptions()
 	case "max_tokens", "num_predict", "tokens":
 		if m.Config.Server.Options == nil {
-			m.Config.Server.Options = &engine.ModelOptions{}
+			m.Config.Server.Options = &domain.ModelOptions{}
 		}
 		if strings.ToLower(value) == "default" || strings.ToLower(value) == "reset" || strings.ToLower(value) == "none" {
 			m.Config.Server.Options.MaxTokens = nil
@@ -699,7 +702,7 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		m.syncProviderOptions()
 	case "penalty", "repeat_penalty", "repeatpenalty":
 		if m.Config.Server.Options == nil {
-			m.Config.Server.Options = &engine.ModelOptions{}
+			m.Config.Server.Options = &domain.ModelOptions{}
 		}
 		if strings.ToLower(value) == "default" || strings.ToLower(value) == "reset" || strings.ToLower(value) == "none" {
 			m.Config.Server.Options.RepeatPenalty = nil
@@ -716,7 +719,7 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		m.syncProviderOptions()
 	case "last_n", "repeat_last_n", "repeatlastn":
 		if m.Config.Server.Options == nil {
-			m.Config.Server.Options = &engine.ModelOptions{}
+			m.Config.Server.Options = &domain.ModelOptions{}
 		}
 		if strings.ToLower(value) == "default" || strings.ToLower(value) == "reset" || strings.ToLower(value) == "none" {
 			m.Config.Server.Options.RepeatLastN = nil
@@ -733,7 +736,7 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		m.syncProviderOptions()
 	case "freq", "freq_penalty", "frequency_penalty", "freqpenalty":
 		if m.Config.Server.Options == nil {
-			m.Config.Server.Options = &engine.ModelOptions{}
+			m.Config.Server.Options = &domain.ModelOptions{}
 		}
 		if strings.ToLower(value) == "default" || strings.ToLower(value) == "reset" || strings.ToLower(value) == "none" {
 			m.Config.Server.Options.FrequencyPenalty = nil
@@ -754,7 +757,7 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		case "default", "reset":
 			m.Config.Server.SandboxPolicy = ""
 			m.Notification = "Sandbox policy reset to standard default"
-		case engine.SandboxPolicyStrict, engine.SandboxPolicyStandard, engine.SandboxPolicyPermissive:
+		case string(domain.SandboxPolicyStrict), string(domain.SandboxPolicyStandard), string(domain.SandboxPolicyPermissive):
 			m.Config.Server.SandboxPolicy = pol
 			m.Notification = fmt.Sprintf("Sandbox policy set to '%s'", pol)
 		default:
@@ -954,33 +957,33 @@ type SandboxCommand struct{}
 
 func (c *SandboxCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	if m.Config == nil {
-		m.Config = engine.NewDefaultConfig()
+		m.Config = config.NewDefaultConfig()
 	}
 	if m.Config.Server == nil {
-		m.Config.Server = &engine.ServerConfig{}
+		m.Config.Server = &config.ServerConfig{}
 	}
 
 	if len(args) == 0 {
 		var s strings.Builder
 		curPolicy := m.Config.GetSandboxPolicy()
 		if curPolicy == "" {
-			curPolicy = engine.SandboxPolicyStandard
+			curPolicy = string(domain.SandboxPolicyStandard)
 		}
 
 		s.WriteString("--- 🛡️ Please Sandbox Security Perimeter ---\n\n")
 		s.WriteString(fmt.Sprintf("Active Sandbox Policy: %s\n\n", strings.ToUpper(curPolicy)))
 
 		switch curPolicy {
-		case engine.SandboxPolicyStrict:
+		case string(domain.SandboxPolicyStrict):
 			s.WriteString("Tier: STRICT [🔒]\n")
 			s.WriteString("  • Complete read-only safety; zero workspace mutations or shell execution permitted.\n")
 			s.WriteString("  • Active categories: Sensory (read-only discovery tools).\n\n")
-		case engine.SandboxPolicyPermissive:
+		case string(domain.SandboxPolicyPermissive):
 			s.WriteString("Tier: PERMISSIVE [⚠️]\n")
 			s.WriteString("  • Full compute capability with interactive consent gates.\n")
 			s.WriteString("  • Raw shell execution enabled; every execution requires operator confirmation.\n")
 			s.WriteString("  • Active categories: Sensory, Mutate, and Execute.\n\n")
-		case engine.SandboxPolicyStandard:
+		case string(domain.SandboxPolicyStandard):
 			fallthrough
 		default:
 			s.WriteString("Tier: STANDARD [🛡️] (Default)\n")
@@ -1013,7 +1016,7 @@ func (c *SandboxCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 
 	targetPolicy := strings.ToLower(strings.TrimSpace(args[0]))
 	switch targetPolicy {
-	case engine.SandboxPolicyStrict, engine.SandboxPolicyStandard, engine.SandboxPolicyPermissive:
+	case string(domain.SandboxPolicyStrict), string(domain.SandboxPolicyStandard), string(domain.SandboxPolicyPermissive):
 		m.Config.Server.SandboxPolicy = targetPolicy
 		m.Notification = fmt.Sprintf("Sandbox policy switched to %s", strings.ToUpper(targetPolicy))
 		m.Config.RecordOrigin("server.sandbox_policy", true)
@@ -1108,7 +1111,7 @@ func (c *FoldCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		hasExpanded := false
 		if path, err := m.Manager.GetPath(m.CurrentID); err == nil {
 			for _, node := range path {
-				if node.Role == engine.RoleAssistant && m.isThoughtExpanded(node.ID) {
+				if node.Role == domain.RoleAssistant && m.isThoughtExpanded(node.ID) {
 					hasExpanded = true
 					break
 				}
@@ -1117,7 +1120,7 @@ func (c *FoldCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		newState := !hasExpanded
 		if path, err := m.Manager.GetPath(m.CurrentID); err == nil {
 			for _, node := range path {
-				if node.Role == engine.RoleAssistant {
+				if node.Role == domain.RoleAssistant {
 					m.ExpandedThoughts[node.ID] = newState
 				}
 			}
@@ -1135,7 +1138,7 @@ func (c *FoldCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	targetID := m.CurrentID
 	if path, err := m.Manager.GetPath(m.CurrentID); err == nil && len(path) > 0 {
 		for i := len(path) - 1; i >= 0; i-- {
-			if path[i].Role == engine.RoleAssistant && (path[i].Thought != "" || (path[i].Metadata != nil && path[i].Metadata["segments"] != "")) {
+			if path[i].Role == domain.RoleAssistant && (path[i].Thought != "" || (path[i].Metadata != nil && path[i].Metadata["segments"] != "")) {
 				targetID = path[i].ID
 				break
 			}
@@ -1212,13 +1215,13 @@ func (c *SessionCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		}
 
 		m.SessionID = targetSession
-		if rdp, ok := m.Provider.(*engine.RemoteDaemonProvider); ok {
+		if rdp, ok := m.Provider.(*providers.RemoteDaemonProvider); ok {
 			rdp.SessionID = targetSession
 		}
 		if lhp, ok := m.Provider.(*engine.LocalHarnessProvider); ok {
 			lhp.SetSessionID(targetSession)
 		}
-		if rds, ok := m.Manager.Storage.(*engine.RemoteDaemonStorage); ok {
+		if rds, ok := m.Manager.Storage.(*storage.RemoteDaemonStorage); ok {
 			rds.SessionID = targetSession
 		}
 
@@ -1243,13 +1246,13 @@ func (c *SessionCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		// Shortcut: `/session <name>` behaves like `/session switch <name>`
 		targetSession := args[0]
 		m.SessionID = targetSession
-		if rdp, ok := m.Provider.(*engine.RemoteDaemonProvider); ok {
+		if rdp, ok := m.Provider.(*providers.RemoteDaemonProvider); ok {
 			rdp.SessionID = targetSession
 		}
 		if lhp, ok := m.Provider.(*engine.LocalHarnessProvider); ok {
 			lhp.SetSessionID(targetSession)
 		}
-		if rds, ok := m.Manager.Storage.(*engine.RemoteDaemonStorage); ok {
+		if rds, ok := m.Manager.Storage.(*storage.RemoteDaemonStorage); ok {
 			rds.SessionID = targetSession
 		}
 
@@ -1275,7 +1278,7 @@ func (c *SessionCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 type WorktreeCommand struct{}
 
 func (c *WorktreeCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
-	cfgDir, _ := engine.GetConfigDir()
+	cfgDir, _ := config.GetConfigDir()
 	wsDir := m.Config.GetWorkspaceDir()
 	wtMgr := worktree.NewManager(cfgDir, wsDir)
 

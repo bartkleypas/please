@@ -10,7 +10,10 @@ import (
 	"time"
 
 	"github.com/bartkleypas/please/internal/config"
+	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/engine"
+	"github.com/bartkleypas/please/internal/graph"
+	"github.com/bartkleypas/please/internal/storage"
 )
 
 func setupDiagnosticsManager(vaultPath, configPath string) (*engine.Manager, *config.Config, error) {
@@ -34,24 +37,24 @@ func setupDiagnosticsManager(vaultPath, configPath string) (*engine.Manager, *co
 		finalVaultPath = vaultPath
 	}
 
-	var storage engine.Storage
+	var strg storage.Storage
 	ext := filepath.Ext(finalVaultPath)
 	if ext == ".db" || ext == ".sqlite" {
-		sqliteStorage, err := engine.NewSQLiteStorage(finalVaultPath, cfg.Server.EncryptionKey)
+		sqliteStorage, err := storage.NewSQLiteStorage(finalVaultPath, cfg.Server.EncryptionKey)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to initialize sqlite storage at %q: %w", finalVaultPath, err)
 		}
-		storage = sqliteStorage
+		strg = sqliteStorage
 	} else {
-		storage = engine.NewJSONLStorage(finalVaultPath, cfg.Server.EncryptionKey)
+		strg = storage.NewJSONLStorage(finalVaultPath, cfg.Server.EncryptionKey)
 	}
 
-	graph, _, err := storage.LoadGraph()
+	graph, _, err := strg.LoadGraph()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load graph from %q: %w", finalVaultPath, err)
 	}
 
-	mgr := engine.NewManager(graph, storage)
+	mgr := engine.NewManager(graph, strg)
 	mgr.SignatSteering = cfg.EnableSignatSteering()
 	mgr.AmbientTelemetry = cfg.EnableAmbientTelemetry()
 	if cfg.Server != nil && cfg.Server.Options != nil && cfg.Server.Options.NumCtx != nil {
@@ -60,7 +63,7 @@ func setupDiagnosticsManager(vaultPath, configPath string) (*engine.Manager, *co
 	return mgr, cfg, nil
 }
 
-func resolveDiagnosticNode(mgr *engine.Manager, nodeQuery string) (*engine.Node, error) {
+func resolveDiagnosticNode(mgr *engine.Manager, nodeQuery string) (*graph.Node, error) {
 	if nodeQuery == "" {
 		if head, err := mgr.Storage.GetSessionHead("main"); err == nil && head != "" {
 			if n, err := mgr.GetNode(head); err == nil {
@@ -72,7 +75,7 @@ func resolveDiagnosticNode(mgr *engine.Manager, nodeQuery string) (*engine.Node,
 		if len(allNodes) == 0 {
 			return nil, fmt.Errorf("conversation graph is empty")
 		}
-		var latest *engine.Node
+		var latest *graph.Node
 		for _, n := range allNodes {
 			if len(mgr.Graph.GetChildren(n.ID)) == 0 {
 				if latest == nil || n.Timestamp.After(latest.Timestamp) {
@@ -178,11 +181,11 @@ func runInspect(args []string) {
 
 	if *jsonOutput {
 		type NodeInspectJSON struct {
-			TargetNode      *engine.Node `json:"target_node"`
-			EstimatedTokens int          `json:"estimated_tokens"`
-			NumCtx          int          `json:"num_ctx"`
-			FillRatio       float64      `json:"fill_ratio"`
-			PathLength      int          `json:"path_length"`
+			TargetNode      *graph.Node `json:"target_node"`
+			EstimatedTokens int         `json:"estimated_tokens"`
+			NumCtx          int         `json:"num_ctx"`
+			FillRatio       float64     `json:"fill_ratio"`
+			PathLength      int         `json:"path_length"`
 		}
 		data, _ := json.MarshalIndent(NodeInspectJSON{
 			TargetNode:      targetNode,
@@ -255,7 +258,7 @@ func runInspect(args []string) {
 			}
 			fmt.Printf("    [%d] %s(%s) [ID: %s]\n", i+1, tc.Function.Name, argsPreview, tc.ID)
 
-			var matchedObs *engine.ToolObservation
+			var matchedObs *domain.ToolObservation
 			for _, obs := range targetNode.Observations {
 				if obs.ToolCallID == tc.ID {
 					matchedObs = &obs
@@ -318,7 +321,7 @@ func runInspect(args []string) {
 		}
 
 		scoreStr := fmt.Sprintf("%.2f", score)
-		if n.Role == engine.RoleSystem || score > 900.0 {
+		if n.Role == domain.RoleSystem || score > 900.0 {
 			scoreStr = "PINNED"
 			tier = "Full Fidelity"
 		}

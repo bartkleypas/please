@@ -9,39 +9,35 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/bartkleypas/please/internal/providers"
-	"github.com/bartkleypas/please/internal/tools"
+	"github.com/bartkleypas/please/internal/domain"
 )
 
 // CurrentConfigVersion is the current schema version for config.json
 const CurrentConfigVersion = 2
 
-// ModelOptions holds model inference and sampling parameters (aliased from internal/providers)
-type ModelOptions = providers.ModelOptions
-
 // ServerConfig holds settings for running the engine daemon / standalone backend
 type ServerConfig struct {
-	Host              string        `json:"host,omitempty"`
-	Port              int           `json:"port,omitempty"`
-	Provider          string        `json:"provider,omitempty"`
-	APIKey            string        `json:"api_key,omitempty"`
-	Model             string        `json:"model,omitempty"`
-	Endpoint          string        `json:"endpoint,omitempty"`
-	VaultPath         string        `json:"vault_path,omitempty"`
-	Vault             string        `json:"vault,omitempty"`
-	StorageType       string        `json:"storage_type,omitempty"` // "jsonl" or "sqlite"
-	EncryptionKey     string        `json:"encryption_key,omitempty"`
-	WorkspaceDir      string        `json:"workspace_dir,omitempty"`
-	Workspace         string        `json:"workspace,omitempty"`
-	AuthToken         string        `json:"auth_token,omitempty"`
-	TLSCertFile       string        `json:"tls_cert_file,omitempty"`
-	TLSKeyFile        string        `json:"tls_key_file,omitempty"`
-	SandboxPolicy     string        `json:"sandbox_policy,omitempty"` // "strict", "standard", "permissive"
-	MaxToolDepth      *int          `json:"max_tool_depth,omitempty"`
-	SignatSteering    *bool         `json:"signat_steering,omitempty"`
-	AmbientTelemetry  *bool         `json:"ambient_telemetry,omitempty"`
-	WorktreeIsolation *bool         `json:"worktree_isolation,omitempty"`
-	Options           *ModelOptions `json:"options,omitempty"`
+	Host              string               `json:"host,omitempty"`
+	Port              int                  `json:"port,omitempty"`
+	Provider          string               `json:"provider,omitempty"`
+	APIKey            string               `json:"api_key,omitempty"`
+	Model             string               `json:"model,omitempty"`
+	Endpoint          string               `json:"endpoint,omitempty"`
+	VaultPath         string               `json:"vault_path,omitempty"`
+	Vault             string               `json:"vault,omitempty"`
+	StorageType       string               `json:"storage_type,omitempty"` // "jsonl" or "sqlite"
+	EncryptionKey     string               `json:"encryption_key,omitempty"`
+	WorkspaceDir      string               `json:"workspace_dir,omitempty"`
+	Workspace         string               `json:"workspace,omitempty"`
+	AuthToken         string               `json:"auth_token,omitempty"`
+	TLSCertFile       string               `json:"tls_cert_file,omitempty"`
+	TLSKeyFile        string               `json:"tls_key_file,omitempty"`
+	SandboxPolicy     string               `json:"sandbox_policy,omitempty"` // "strict", "standard", "permissive"
+	MaxToolDepth      *int                 `json:"max_tool_depth,omitempty"`
+	SignatSteering    *bool                `json:"signat_steering,omitempty"`
+	AmbientTelemetry  *bool                `json:"ambient_telemetry,omitempty"`
+	WorktreeIsolation *bool                `json:"worktree_isolation,omitempty"`
+	Options           *domain.ModelOptions `json:"options,omitempty"`
 }
 
 // ClientConfig holds settings for connecting the TUI to a remote daemon
@@ -68,26 +64,26 @@ type Config struct {
 
 // legacyV1Config mirrors the flat v1 schema for migration
 type legacyV1Config struct {
-	Provider           string        `json:"provider"`
-	APIKey             string        `json:"api_key"`
-	Model              string        `json:"model"`
-	Endpoint           string        `json:"endpoint"`
-	VaultPath          string        `json:"vault_path"`
-	Vault              string        `json:"vault"`
-	StorageType        string        `json:"storage_type"`
-	EncryptionKey      string        `json:"encryption_key"`
-	NaturalPacing      *bool         `json:"natural_pacing"`
-	Options            *ModelOptions `json:"options"`
-	WorkspaceDir       string        `json:"workspace_dir"`
-	Workspace          string        `json:"workspace"`
-	AuthToken          string        `json:"auth_token"`
-	TLSCertFile        string        `json:"tls_cert_file"`
-	TLSKeyFile         string        `json:"tls_key_file"`
-	SandboxPolicy      string        `json:"sandbox_policy"`
-	SignatSteering     *bool         `json:"signat_steering"`
-	AmbientTelemetry   *bool         `json:"ambient_telemetry"`
-	BellOnTurnComplete *bool         `json:"bell_on_turn_complete"`
-	Bell               *bool         `json:"bell"`
+	Provider           string               `json:"provider"`
+	APIKey             string               `json:"api_key"`
+	Model              string               `json:"model"`
+	Endpoint           string               `json:"endpoint"`
+	VaultPath          string               `json:"vault_path"`
+	Vault              string               `json:"vault"`
+	StorageType        string               `json:"storage_type"`
+	EncryptionKey      string               `json:"encryption_key"`
+	NaturalPacing      *bool                `json:"natural_pacing"`
+	Options            *domain.ModelOptions `json:"options"`
+	WorkspaceDir       string               `json:"workspace_dir"`
+	Workspace          string               `json:"workspace"`
+	AuthToken          string               `json:"auth_token"`
+	TLSCertFile        string               `json:"tls_cert_file"`
+	TLSKeyFile         string               `json:"tls_key_file"`
+	SandboxPolicy      string               `json:"sandbox_policy"`
+	SignatSteering     *bool                `json:"signat_steering"`
+	AmbientTelemetry   *bool                `json:"ambient_telemetry"`
+	BellOnTurnComplete *bool                `json:"bell_on_turn_complete"`
+	Bell               *bool                `json:"bell"`
 }
 
 // GetWorkspaceDir returns the resolved absolute workspace directory from ServerConfig.
@@ -365,7 +361,7 @@ func (c *Config) GetMaxToolDepth() int {
 // Defaults to SandboxPolicyStandard if not configured.
 func (s *ServerConfig) GetSandboxPolicy() string {
 	if s == nil || s.SandboxPolicy == "" {
-		return tools.SandboxPolicyStandard
+		return string(domain.SandboxPolicyStandard)
 	}
 	return s.SandboxPolicy
 }
@@ -375,7 +371,7 @@ func (c *Config) GetSandboxPolicy() string {
 	if c != nil && c.Server != nil {
 		return c.Server.GetSandboxPolicy()
 	}
-	return tools.SandboxPolicyStandard
+	return string(domain.SandboxPolicyStandard)
 }
 
 // EnableSignatSteering returns whether turn signature (signat) emoji steering is enabled.

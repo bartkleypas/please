@@ -6,6 +6,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/bartkleypas/please/internal/config"
+	"github.com/bartkleypas/please/internal/domain"
+	"github.com/bartkleypas/please/internal/graph"
+	"github.com/bartkleypas/please/internal/providers"
 	"github.com/bartkleypas/please/internal/tools"
 )
 
@@ -38,7 +42,7 @@ type HarnessEvent struct {
 	ToolError  string
 
 	// For node_complete
-	Node *Node
+	Node *graph.Node
 
 	// For error
 	Err error
@@ -63,21 +67,21 @@ type TurnRequest struct {
 // PermissionGate is invoked prior to executing an interactive or gated tool call.
 // It returns true if the operator approves execution, or false if denied.
 // An error indicates cancellation or an unrecoverable gate failure.
-type PermissionGate func(ctx context.Context, sessionID string, call ToolCall) (bool, error)
+type PermissionGate func(ctx context.Context, sessionID string, call domain.ToolCall) (bool, error)
 
 // SessionHarness orchestrates the sequential multi-turn agent lifecycle:
 // context assembly, LLM streaming, tool execution, observation recording,
 // and DAG state persistence.
 type SessionHarness struct {
 	Manager        *Manager
-	Provider       Provider
-	Config         *Config
-	OnNodeSaved    func(node *Node)
+	Provider       providers.Provider
+	Config         *config.Config
+	OnNodeSaved    func(node *graph.Node)
 	PermissionGate PermissionGate
 }
 
 // NewSessionHarness creates an initialized SessionHarness instance.
-func NewSessionHarness(mgr *Manager, provider Provider, cfg *Config) *SessionHarness {
+func NewSessionHarness(mgr *Manager, provider providers.Provider, cfg *config.Config) *SessionHarness {
 	return &SessionHarness{
 		Manager:  mgr,
 		Provider: provider,
@@ -87,7 +91,7 @@ func NewSessionHarness(mgr *Manager, provider Provider, cfg *Config) *SessionHar
 
 // ExecuteTurn executes a full multi-turn conversational cycle for a single session.
 // It emits events to eventCh (if provided) and returns the final assistant Node upon completion.
-func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, eventCh chan<- HarnessEvent) (*Node, error) {
+func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, eventCh chan<- HarnessEvent) (*graph.Node, error) {
 	emit := func(ev HarnessEvent) {
 		if eventCh != nil {
 			select {
@@ -122,7 +126,7 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 	}
 
 	// 1. Resolve existing user node if specified (e.g. pre-created by client)
-	var userNode *Node
+	var userNode *graph.Node
 	if req.UserNodeID != "" {
 		if existing, err := h.Manager.GetNode(req.UserNodeID); err == nil && existing != nil {
 			userNode = existing
@@ -172,9 +176,9 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 
 	// 3. Create User Node if not already existing
 	if userNode == nil {
-		role := RoleUser
+		role := domain.RoleUser
 		if req.Role != "" {
-			role = Role(req.Role)
+			role = domain.Role(req.Role)
 		}
 
 		var err error
@@ -212,7 +216,7 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 		maxDepth = 15
 	}
 
-	var asstNode *Node
+	var asstNode *graph.Node
 	var segments []AssistantSegment
 	var lastToolKey string
 	repeatCount := 0
@@ -245,13 +249,13 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 			return asstNode, err
 		}
 
-		var availableTools []Tool
+		var toolSpecs []domain.ToolSpec
 		if h.Manager.Registry != nil {
 			policy := ""
 			if h.Config != nil {
 				policy = h.Config.GetSandboxPolicy()
 			}
-			availableTools = h.Manager.Registry.GetToolsForPolicy(policy)
+			toolSpecs = h.Manager.Registry.GetToolSpecsForPolicy(policy)
 		}
 
 		// Circuit Breaker 1: Runway Wrap-Up
@@ -259,7 +263,7 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 		// This forces the model to synthesize a final natural language response rather
 		// than initiating a tool call that would be truncated abruptly without execution.
 		if depth >= maxDepth-1 {
-			availableTools = nil
+			toolSpecs = nil
 		}
 
 		// Circuit Breaker 2: Context Budget Exhaustion
@@ -267,15 +271,15 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 		// suppress tools to force a natural language summary before context overflow errors occur.
 		if depth > 0 && h.Manager != nil {
 			if fillRatio, _, err := h.Manager.EstimateContextFill(contextNodeID); err == nil && fillRatio >= 0.85 {
-				availableTools = nil
+				toolSpecs = nil
 			}
 		}
 
-		contentChan, thoughtChan, toolCallsChan, errChan := h.Provider.GenerateResponseStream(ctx, messages, availableTools)
+		contentChan, thoughtChan, toolCallsChan, errChan := h.Provider.GenerateResponseStream(ctx, messages, toolSpecs)
 
 		var fullContent strings.Builder
 		var fullThought strings.Builder
-		var accumulatedToolCalls []ToolCall
+		var accumulatedToolCalls []domain.ToolCall
 
 		for contentChan != nil || thoughtChan != nil || toolCallsChan != nil || errChan != nil {
 			select {
@@ -458,7 +462,7 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 				requiresGate := false
 				if h.Manager != nil && h.Manager.Registry != nil {
 					if t, ok := h.Manager.Registry.Tools[call.Function.Name]; ok {
-						if t.Interactive || t.Category == CategoryExecute {
+						if t.Interactive || t.Category == domain.CategoryExecute {
 							requiresGate = true
 						}
 					} else {

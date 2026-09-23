@@ -13,6 +13,9 @@ import (
 
 	"path/filepath"
 
+	"github.com/bartkleypas/please/internal/domain"
+	"github.com/bartkleypas/please/internal/graph"
+	"github.com/bartkleypas/please/internal/providers"
 	"github.com/bartkleypas/please/internal/storage"
 	"github.com/bartkleypas/please/internal/tools"
 	"github.com/google/uuid"
@@ -46,9 +49,9 @@ const MemorySteeringContract = "You have access to a persistent cybernetic memor
 // a high-level API that combines graph operations (traversal, branching)
 // with storage persistence, ensuring that all narrative changes are saved.
 type Manager struct {
-	Graph            *Graph
-	Storage          Storage
-	Registry         *ToolRegistry
+	Graph            *graph.Graph
+	Storage          storage.Storage
+	Registry         *tools.ToolRegistry
 	WorkspaceDir     string
 	NumCtx           int
 	SignatSteering   bool
@@ -57,11 +60,11 @@ type Manager struct {
 }
 
 // NewManager creates a new Manager instance
-func NewManager(g *Graph, s Storage) *Manager {
+func NewManager(g *graph.Graph, s storage.Storage) *Manager {
 	return &Manager{
 		Graph:        g,
 		Storage:      s,
-		Registry:     NewToolRegistry(),
+		Registry:     tools.NewToolRegistry(),
 		WorkspaceDir: ".",
 		NumCtx:       32768,
 	}
@@ -74,7 +77,7 @@ func (m *Manager) CloneWithWorkspace(workspaceDir string, primaryWorkspace ...st
 	cloned := &Manager{
 		Graph:            m.Graph,
 		Storage:          m.Storage,
-		Registry:         NewToolRegistry(),
+		Registry:         tools.NewToolRegistry(),
 		WorkspaceDir:     workspaceDir,
 		NumCtx:           m.NumCtx,
 		SignatSteering:   m.SignatSteering,
@@ -104,11 +107,11 @@ func (m *Manager) GetClientContext() map[string]string {
 
 // CreateNode handles the full lifecycle of creating a new node:
 // ID generation, graph insertion, and persistence.
-func (m *Manager) CreateNode(parentID string, role Role, content string, internal bool) (*Node, error) {
+func (m *Manager) CreateNode(parentID string, role domain.Role, content string, internal bool) (*graph.Node, error) {
 	id, _ := uuid.NewV7()
 	cleanContent, signat := ExtractSignat(content)
 
-	node := &Node{
+	node := &graph.Node{
 		ID:        id.String(),
 		ParentID:  parentID,
 		Role:      role,
@@ -118,12 +121,12 @@ func (m *Manager) CreateNode(parentID string, role Role, content string, interna
 		Metadata:  make(map[string]string),
 	}
 
-	if signat != "" && (role == RoleSystem || role == RoleSummary) {
+	if signat != "" && (role == domain.RoleSystem || role == domain.RoleSummary) {
 		node.Metadata["signat"] = signat
 		node.Content = cleanContent
 	}
 
-	if role == RoleTool && node.ToolCallID == "" {
+	if role == domain.RoleTool && node.ToolCallID == "" {
 		node.ToolCallID = "cli_" + id.String()[:8]
 	}
 
@@ -140,14 +143,14 @@ func (m *Manager) CreateNode(parentID string, role Role, content string, interna
 }
 
 // CreateAssistantNode creates a node for the assistant, potentially containing tool calls and reasoning
-func (m *Manager) CreateAssistantNode(parentID string, content string, thought string, toolCalls []ToolCall, internal bool) (*Node, error) {
+func (m *Manager) CreateAssistantNode(parentID string, content string, thought string, toolCalls []domain.ToolCall, internal bool) (*graph.Node, error) {
 	id, _ := uuid.NewV7()
 	cleanContent, signat := ExtractSignat(content)
 
-	node := &Node{
+	node := &graph.Node{
 		ID:        id.String(),
 		ParentID:  parentID,
-		Role:      RoleAssistant,
+		Role:      domain.RoleAssistant,
 		Content:   cleanContent,
 		Thought:   thought,
 		Timestamp: time.Now(),
@@ -189,7 +192,7 @@ func (m *Manager) CreateAssistantNode(parentID string, content string, thought s
 // deriveSilentSignat infers an ambient signat emoji from physical tool categories or internal thought.
 // Used when signat_steering is disabled or the model omitted an explicit signat, ensuring
 // the TUI /map and companion client graphs maintain 100% visual color coverage with zero prompt tax.
-func (m *Manager) deriveSilentSignat(toolCalls []ToolCall, thought string) string {
+func (m *Manager) deriveSilentSignat(toolCalls []domain.ToolCall, thought string) string {
 	if m.Registry != nil && len(toolCalls) > 0 {
 		hasExecute := false
 		hasMutate := false
@@ -197,11 +200,11 @@ func (m *Manager) deriveSilentSignat(toolCalls []ToolCall, thought string) strin
 		for _, tc := range toolCalls {
 			if tool, ok := m.Registry.Tools[tc.Function.Name]; ok {
 				switch tool.Category {
-				case CategoryExecute:
+				case domain.CategoryExecute:
 					hasExecute = true
-				case CategoryMutate:
+				case domain.CategoryMutate:
 					hasMutate = true
-				case CategorySensory:
+				case domain.CategorySensory:
 					hasSensory = true
 				}
 			}
@@ -223,12 +226,12 @@ func (m *Manager) deriveSilentSignat(toolCalls []ToolCall, thought string) strin
 }
 
 // CreateToolNode creates a node containing the result of a tool execution
-func (m *Manager) CreateToolNode(parentID string, toolCallID string, content string, internal bool) (*Node, error) {
+func (m *Manager) CreateToolNode(parentID string, toolCallID string, content string, internal bool) (*graph.Node, error) {
 	id, _ := uuid.NewV7()
-	node := &Node{
+	node := &graph.Node{
 		ID:         id.String(),
 		ParentID:   parentID,
-		Role:       RoleTool,
+		Role:       domain.RoleTool,
 		Content:    content,
 		Timestamp:  time.Now(),
 		ToolCallID: toolCallID,
@@ -254,11 +257,11 @@ func (m *Manager) UpdateAssistantObservations(nodeID string, callID string, resu
 		return err
 	}
 
-	if node.Role != RoleAssistant {
+	if node.Role != domain.RoleAssistant {
 		return fmt.Errorf("observations can only be added to assistant nodes")
 	}
 
-	node.Observations = append(node.Observations, ToolObservation{
+	node.Observations = append(node.Observations, domain.ToolObservation{
 		ToolCallID: callID,
 		Result:     result,
 	})
@@ -266,17 +269,17 @@ func (m *Manager) UpdateAssistantObservations(nodeID string, callID string, resu
 	return m.Storage.UpdateNodeObservations(nodeID, node.Observations)
 }
 
-func (m *Manager) validateNode(node *Node) error {
+func (m *Manager) validateNode(node *graph.Node) error {
 	if node.ID == "" {
 		return fmt.Errorf("node ID cannot be empty")
 	}
 	if node.ID == node.ParentID {
 		return fmt.Errorf("node cannot be its own parent (cycle detected)")
 	}
-	if node.Role == RoleUser && strings.TrimSpace(node.Content) == "" {
+	if node.Role == domain.RoleUser && strings.TrimSpace(node.Content) == "" {
 		return fmt.Errorf("user message content cannot be empty")
 	}
-	if node.Role == RoleTool {
+	if node.Role == domain.RoleTool {
 		if node.ToolCallID == "" {
 			return fmt.Errorf("tool node must have a ToolCallID")
 		}
@@ -288,7 +291,7 @@ func (m *Manager) validateNode(node *Node) error {
 }
 
 // ExecuteToolCall runs the function associated with a tool call
-func (m *Manager) ExecuteToolCall(ctx context.Context, call ToolCall) (string, error) {
+func (m *Manager) ExecuteToolCall(ctx context.Context, call domain.ToolCall) (string, error) {
 	if m.Registry == nil {
 		return "", fmt.Errorf("tool registry is nil")
 	}
@@ -297,13 +300,13 @@ func (m *Manager) ExecuteToolCall(ctx context.Context, call ToolCall) (string, e
 
 // Sync reloads the graph from storage, effectively synchronizing the in-memory state
 // with any external changes (e.g., from other 'please' sessions).
-func (m *Manager) Sync() (*Graph, string, error) {
-	graph, lastID, err := m.Storage.LoadGraph()
+func (m *Manager) Sync() (*graph.Graph, string, error) {
+	g, lastID, err := m.Storage.LoadGraph()
 	if err != nil {
 		return nil, "", err
 	}
-	m.Graph = graph
-	return graph, lastID, nil
+	m.Graph = g
+	return g, lastID, nil
 }
 
 // SetBookmark updates the bookmark status of a node in its metadata
@@ -327,8 +330,8 @@ func (m *Manager) SetBookmark(nodeID string, bookmarked bool) error {
 }
 
 // calculateResonanceScore determines the context value of a node based on topological weight, compute cost, conversational distance, and temporal decay.
-func (m *Manager) calculateResonanceScore(node *Node, distance int, fillRatio float64, totalPathLen int) float64 {
-	if node.Role == RoleSystem || node.Role == RoleSummary {
+func (m *Manager) calculateResonanceScore(node *graph.Node, distance int, fillRatio float64, totalPathLen int) float64 {
+	if node.Role == domain.RoleSystem || node.Role == domain.RoleSummary {
 		return math.MaxFloat64
 	}
 
@@ -339,9 +342,9 @@ func (m *Manager) calculateResonanceScore(node *Node, distance int, fillRatio fl
 
 	weight := 0.7
 	switch node.Role {
-	case RoleUser:
+	case domain.RoleUser:
 		weight = 1.0
-	case RoleTool:
+	case domain.RoleTool:
 		weight = 0.5
 	}
 
@@ -395,7 +398,7 @@ func (m *Manager) calculateResonanceScore(node *Node, distance int, fillRatio fl
 }
 
 // CalculateResonanceScore computes the Context Resonance Score for a node given its distance and context metrics.
-func (m *Manager) CalculateResonanceScore(node *Node, distance int, fillRatio float64, totalPathLen int) float64 {
+func (m *Manager) CalculateResonanceScore(node *graph.Node, distance int, fillRatio float64, totalPathLen int) float64 {
 	return m.calculateResonanceScore(node, distance, fillRatio, totalPathLen)
 }
 
@@ -417,7 +420,7 @@ func formatCompactedToolObservation(toolName string, rawResult string) string {
 }
 
 // BuildLLMContext constructs the message history for the LLM, applying Priority Pruning based on the Context Resonance Score.
-func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message, error) {
+func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]domain.Message, error) {
 	path, err := m.GetPath(leafID)
 	if err != nil {
 		return nil, err
@@ -450,7 +453,7 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 	}
 	fillRatio := float64(estimatedTokens) / float64(limit)
 
-	var messages []Message
+	var messages []domain.Message
 	for i, node := range path {
 		distance := len(path) - 1 - i
 		v := m.calculateResonanceScore(node, distance, fillRatio, len(path))
@@ -464,13 +467,13 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 			continue // Drop low fidelity internal nodes entirely
 		}
 
-		if node.Role == RoleAssistant {
+		if node.Role == domain.RoleAssistant {
 			var segments []AssistantSegment
 			if node.Metadata != nil && node.Metadata["segments"] != "" {
 				_ = json.Unmarshal([]byte(node.Metadata["segments"]), &segments)
 			}
 
-			obsMap := make(map[string]ToolObservation, len(node.Observations))
+			obsMap := make(map[string]domain.ToolObservation, len(node.Observations))
 			for _, obs := range node.Observations {
 				obsMap[obs.ToolCallID] = obs
 			}
@@ -502,9 +505,9 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 
 			if len(segments) > 0 {
 				for j, seg := range segments {
-					var tCalls []ToolCall
+					var tCalls []domain.ToolCall
 					if j < len(node.ToolCalls) {
-						tCalls = []ToolCall{node.ToolCalls[j]}
+						tCalls = []domain.ToolCall{node.ToolCalls[j]}
 					}
 
 					content := seg.Content
@@ -512,8 +515,8 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 						content = content + " " + node.Metadata["signat"]
 					}
 
-					msg := Message{
-						Role:     RoleAssistant,
+					msg := domain.Message{
+						Role:     domain.RoleAssistant,
 						Content:  content,
 						Internal: node.Internal,
 					}
@@ -524,15 +527,15 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 					for _, tc := range tCalls {
 						toolName := tc.Function.Name
 						if obs, ok := obsMap[tc.ID]; ok {
-							messages = append(messages, Message{
-								Role:       RoleTool,
+							messages = append(messages, domain.Message{
+								Role:       domain.RoleTool,
 								Content:    formatObs(toolName, obs.Result, j),
 								ToolCallID: tc.ID,
 								Internal:   node.Internal,
 							})
 						} else {
-							messages = append(messages, Message{
-								Role:       RoleTool,
+							messages = append(messages, domain.Message{
+								Role:       domain.RoleTool,
 								Content:    fmt.Sprintf("[Tool '%s' execution completed.]", toolName),
 								ToolCallID: tc.ID,
 								Internal:   node.Internal,
@@ -546,23 +549,23 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 				for j := len(segments); j < len(node.ToolCalls); j++ {
 					tc := node.ToolCalls[j]
 					toolName := tc.Function.Name
-					messages = append(messages, Message{
-						Role:      RoleAssistant,
+					messages = append(messages, domain.Message{
+						Role:      domain.RoleAssistant,
 						Content:   "",
 						Internal:  node.Internal,
-						ToolCalls: []ToolCall{tc},
+						ToolCalls: []domain.ToolCall{tc},
 					})
 
 					if obs, ok := obsMap[tc.ID]; ok {
-						messages = append(messages, Message{
-							Role:       RoleTool,
+						messages = append(messages, domain.Message{
+							Role:       domain.RoleTool,
 							Content:    formatObs(toolName, obs.Result, j),
 							ToolCallID: tc.ID,
 							Internal:   node.Internal,
 						})
 					} else {
-						messages = append(messages, Message{
-							Role:       RoleTool,
+						messages = append(messages, domain.Message{
+							Role:       domain.RoleTool,
 							Content:    fmt.Sprintf("[Tool '%s' execution completed.]", toolName),
 							ToolCallID: tc.ID,
 							Internal:   node.Internal,
@@ -590,7 +593,7 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 		}
 
 		signatSuffix := ""
-		if m.SignatSteering && len(node.ToolCalls) == 0 && node.Metadata != nil && node.Metadata["signat"] != "" && (node.Role == RoleAssistant || node.Role == RoleSystem) {
+		if m.SignatSteering && len(node.ToolCalls) == 0 && node.Metadata != nil && node.Metadata["signat"] != "" && (node.Role == domain.RoleAssistant || node.Role == domain.RoleSystem) {
 			signatSuffix = " " + node.Metadata["signat"]
 		}
 
@@ -598,7 +601,7 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 		// Layered Genesis Prompt for Ambient Telemetry (ADR 003 Synthesis):
 		// Dynamically layer the attentional de-weighting contract onto the root node (messages[0])
 		// if ambient_telemetry is enabled, keeping SQLite storage 100% pure persona.
-		if m.AmbientTelemetry && (node.Role == RoleSystem || (i == 0 && node.Role != RoleUser)) {
+		if m.AmbientTelemetry && (node.Role == domain.RoleSystem || (i == 0 && node.Role != domain.RoleUser)) {
 			if !strings.Contains(content, "ADDITIONAL_METADATA") && !strings.Contains(content, "peripheral environmental telemetry") {
 				content += "\n\n" + AmbientTelemetryContract
 			}
@@ -607,7 +610,7 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 		// Layered Genesis Prompt for Signat Steering (ADR 003 refined):
 		// Dynamically layer the signat formatting contract onto the root node (messages[0])
 		// if signat_steering is enabled, keeping SQLite storage 100% pure persona.
-		if m.SignatSteering && (node.Role == RoleSystem || (i == 0 && node.Role != RoleUser)) {
+		if m.SignatSteering && (node.Role == domain.RoleSystem || (i == 0 && node.Role != domain.RoleUser)) {
 			if !strings.Contains(content, "signat") && !strings.Contains(content, "emoji signature") {
 				content += "\n\n" + SignatSteeringContract
 			}
@@ -616,7 +619,7 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 		// Layered Genesis Prompt for Persistent Memory (ADR 014):
 		// Dynamically layer active workspace constraints into the root node prefix (<RECALLED_MEMORIES>)
 		// to guarantee 100% KV-cache hit rates while protecting the reasoning token budget.
-		if node.Role == RoleSystem || (i == 0 && node.Role != RoleUser) {
+		if node.Role == domain.RoleSystem || (i == 0 && node.Role != domain.RoleUser) {
 			if memStore, ok := m.Storage.(storage.MemoryStore); ok && memStore != nil {
 				if !strings.Contains(content, "RECALLED_MEMORIES") {
 					recalledBlock := m.deriveRecalledMemoriesPrefix(memStore)
@@ -630,12 +633,12 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 		// Ephemeral Leaf Telemetry Envelope (ADR 003 Synthesis):
 		// Wrap only the active user turn (distance == 0 && RoleUser) in <USER_REQUEST> and <ADDITIONAL_METADATA>.
 		// Historical user turns (distance > 0) remain 100% clean, un-bumpered user text.
-		if m.AmbientTelemetry && distance == 0 && node.Role == RoleUser {
+		if m.AmbientTelemetry && distance == 0 && node.Role == domain.RoleUser {
 			telem := DeriveAmbientTelemetry(m.WorkspaceDir, m.clientContext)
 			content = FormatTelemetryEnvelope(content, telem)
 		}
 
-		msg := Message{
+		msg := domain.Message{
 			ID:         node.ID,
 			ParentID:   node.ParentID,
 			Role:       node.Role,
@@ -648,7 +651,7 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 		if distance >= 1 && len(node.Observations) > 0 {
 			// Older turns (distance >= 1): compact large tool observations (ephemeral scratchpad)
 			msg.ToolCalls = node.ToolCalls
-			msg.Observations = make([]ToolObservation, len(node.Observations))
+			msg.Observations = make([]domain.ToolObservation, len(node.Observations))
 			for j, obs := range node.Observations {
 				toolName := "unknown_tool"
 				for _, tc := range node.ToolCalls {
@@ -661,7 +664,7 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 				if len(truncatedResult) > 1000 {
 					truncatedResult = formatCompactedToolObservation(toolName, obs.Result)
 				}
-				msg.Observations[j] = ToolObservation{
+				msg.Observations[j] = domain.ToolObservation{
 					ToolCallID: obs.ToolCallID,
 					Result:     truncatedResult,
 				}
@@ -669,7 +672,7 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 		} else if v > 5.0 {
 			// Keep full fidelity observations, but apply intra-turn rolling compaction for distance == 0
 			msg.ToolCalls = node.ToolCalls
-			msg.Observations = make([]ToolObservation, len(node.Observations))
+			msg.Observations = make([]domain.ToolObservation, len(node.Observations))
 			totalObs := len(node.Observations)
 			for j, obs := range node.Observations {
 				toolName := "unknown_tool"
@@ -685,7 +688,7 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 				} else if fillRatio >= 0.60 && len(truncatedResult) > 8000 {
 					truncatedResult = truncatedResult[:8000] + "... [truncated]"
 				}
-				msg.Observations[j] = ToolObservation{
+				msg.Observations[j] = domain.ToolObservation{
 					ToolCallID: obs.ToolCallID,
 					Result:     truncatedResult,
 				}
@@ -693,13 +696,13 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 		} else if v > 0.5 {
 			// Medium fidelity: strip thought, truncate observations to 2000 chars
 			msg.ToolCalls = node.ToolCalls
-			msg.Observations = make([]ToolObservation, len(node.Observations))
+			msg.Observations = make([]domain.ToolObservation, len(node.Observations))
 			for j, obs := range node.Observations {
 				truncatedResult := obs.Result
 				if len(truncatedResult) > 2000 {
 					truncatedResult = truncatedResult[:2000] + "... [truncated]"
 				}
-				msg.Observations[j] = ToolObservation{
+				msg.Observations[j] = domain.ToolObservation{
 					ToolCallID: obs.ToolCallID,
 					Result:     truncatedResult,
 				}
@@ -707,7 +710,7 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 		} else {
 			// Low fidelity: keep core dialogue, but crush observations with banner retention
 			msg.ToolCalls = node.ToolCalls
-			msg.Observations = make([]ToolObservation, len(node.Observations))
+			msg.Observations = make([]domain.ToolObservation, len(node.Observations))
 			for j, obs := range node.Observations {
 				// Search node.ToolCalls to find tool metadata
 				toolName := "unknown_tool"
@@ -717,7 +720,7 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 						break
 					}
 				}
-				msg.Observations[j] = ToolObservation{
+				msg.Observations[j] = domain.ToolObservation{
 					ToolCallID: obs.ToolCallID,
 					Result:     formatCompactedToolObservation(toolName, obs.Result),
 				}
@@ -727,10 +730,10 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 		messages = append(messages, msg)
 
 		// Unpack assistant observations as subsequent RoleTool messages for standard provider compliance
-		if node.Role == RoleAssistant {
+		if node.Role == domain.RoleAssistant {
 			for _, obs := range msg.Observations {
-				messages = append(messages, Message{
-					Role:       RoleTool,
+				messages = append(messages, domain.Message{
+					Role:       domain.RoleTool,
 					Content:    obs.Result,
 					ToolCallID: obs.ToolCallID,
 					Internal:   node.Internal,
@@ -744,23 +747,23 @@ func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]Message
 
 // Delegation methods to encapsulated Graph operations
 
-func (m *Manager) GetNode(id string) (*Node, error) {
+func (m *Manager) GetNode(id string) (*graph.Node, error) {
 	return m.Graph.GetNode(id)
 }
 
-func (m *Manager) FindNodeByShortID(shortID string) (*Node, error) {
+func (m *Manager) FindNodeByShortID(shortID string) (*graph.Node, error) {
 	return m.Graph.FindNodeByShortID(shortID)
 }
 
-func (m *Manager) GetPath(nodeID string) ([]*Node, error) {
+func (m *Manager) GetPath(nodeID string) ([]*graph.Node, error) {
 	return m.Graph.GetPath(nodeID)
 }
 
-func (m *Manager) GetChildren(parentID string) []*Node {
+func (m *Manager) GetChildren(parentID string) []*graph.Node {
 	return m.Graph.GetChildren(parentID)
 }
 
-func (m *Manager) GetRoots() []*Node {
+func (m *Manager) GetRoots() []*graph.Node {
 	return m.Graph.GetRoots()
 }
 
@@ -779,7 +782,7 @@ func (m *Manager) PruneBranch(nodeID string) error {
 	}
 
 	// Guard against pruning system root node
-	if node.ParentID == "" && node.Role == RoleSystem {
+	if node.ParentID == "" && node.Role == domain.RoleSystem {
 		return fmt.Errorf("cannot prune system root node %s", nodeID)
 	}
 
@@ -807,8 +810,8 @@ func (m *Manager) PruneBranch(nodeID string) error {
 	}
 
 	// Recursive helper to flag and persist
-	var flagDeleted func(n *Node) error
-	flagDeleted = func(n *Node) error {
+	var flagDeleted func(n *graph.Node) error
+	flagDeleted = func(n *graph.Node) error {
 		n.Deleted = true
 		if err := m.Storage.UpdateNodeMetadata(n); err != nil {
 			return err
@@ -844,12 +847,12 @@ func (m *Manager) GarbageCollect() (int64, error) {
 }
 
 // CompactRange summarizes a set of nodes and grafts them into the graph as a Supernode
-func (m *Manager) CompactRange(ctx context.Context, provider LLMProvider, nodeIDs []string) (*Node, error) {
+func (m *Manager) CompactRange(ctx context.Context, provider providers.Provider, nodeIDs []string) (*graph.Node, error) {
 	return m.CompactRangeWithDirective(ctx, provider, nodeIDs, "")
 }
 
 // CompactRangeWithDirective summarizes a set of nodes with an optional user steering directive and grafts them into the graph as a Supernode
-func (m *Manager) CompactRangeWithDirective(ctx context.Context, provider LLMProvider, nodeIDs []string, directive string) (*Node, error) {
+func (m *Manager) CompactRangeWithDirective(ctx context.Context, provider providers.Provider, nodeIDs []string, directive string) (*graph.Node, error) {
 	if len(nodeIDs) == 0 {
 		return nil, fmt.Errorf("no nodes provided for compaction")
 	}
@@ -910,9 +913,9 @@ none`
 		summaryPrompt += fmt.Sprintf("\n\nUser Steering Directive: Focus particularly on: %s", directive)
 	}
 
-	messages := []Message{
-		{Role: RoleSystem, Content: summaryPrompt},
-		{Role: RoleUser, Content: contentToSummarize.String()},
+	messages := []domain.Message{
+		{Role: domain.RoleSystem, Content: summaryPrompt},
+		{Role: domain.RoleUser, Content: contentToSummarize.String()},
 	}
 
 	resp, err := provider.GenerateResponse(ctx, messages, nil)
@@ -973,15 +976,15 @@ none`
 	return superNode, err
 }
 
-func (m *Manager) createSupernode(parentID string, content string, baseTime time.Time, metadata map[string]string) (*Node, error) {
+func (m *Manager) createSupernode(parentID string, content string, baseTime time.Time, metadata map[string]string) (*graph.Node, error) {
 	id, err := newV7FromTime(baseTime)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate v7 uuid from time: %w", err)
 	}
-	node := &Node{
+	node := &graph.Node{
 		ID:        id.String(),
 		ParentID:  parentID,
-		Role:      RoleSummary,
+		Role:      domain.RoleSummary,
 		Content:   content,
 		Timestamp: baseTime,
 		Metadata:  metadata,
@@ -1203,7 +1206,7 @@ func newV7FromTime(t time.Time) (uuid.UUID, error) {
 	return id, nil
 }
 
-func (m *Manager) GetSystemRoot() (*Node, error) {
+func (m *Manager) GetSystemRoot() (*graph.Node, error) {
 	return m.Graph.GetSystemRoot()
 }
 
@@ -1215,7 +1218,7 @@ func (m *Manager) GetAllNodeIDs() []string {
 	return ids
 }
 
-func (m *Manager) AttachImages(node *Node, images []string) {
+func (m *Manager) AttachImages(node *graph.Node, images []string) {
 	node.Images = images
 }
 

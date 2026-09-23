@@ -7,8 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bartkleypas/please/internal/providers"
-	"github.com/bartkleypas/please/internal/tools"
+	"github.com/bartkleypas/please/internal/domain"
 )
 
 func TestMain(m *testing.M) {
@@ -136,26 +135,26 @@ func TestConfig_GetSandboxPolicy(t *testing.T) {
 	cfg := &Config{
 		Server: &ServerConfig{},
 	}
-	if cfg.GetSandboxPolicy() != tools.SandboxPolicyStandard {
+	if cfg.GetSandboxPolicy() != string(domain.SandboxPolicyStandard) {
 		t.Errorf("expected default standard policy, got %s", cfg.GetSandboxPolicy())
 	}
-	if cfg.Server.GetSandboxPolicy() != tools.SandboxPolicyStandard {
+	if cfg.Server.GetSandboxPolicy() != string(domain.SandboxPolicyStandard) {
 		t.Errorf("expected server standard policy, got %s", cfg.Server.GetSandboxPolicy())
 	}
 
 	// 2. Explicit strict policy
-	cfg.Server.SandboxPolicy = tools.SandboxPolicyStrict
-	if cfg.GetSandboxPolicy() != tools.SandboxPolicyStrict {
+	cfg.Server.SandboxPolicy = string(domain.SandboxPolicyStrict)
+	if cfg.GetSandboxPolicy() != string(domain.SandboxPolicyStrict) {
 		t.Errorf("expected strict policy, got %s", cfg.GetSandboxPolicy())
 	}
 
 	// 3. Nil receiver safety
 	var nilConfig *Config
-	if nilConfig.GetSandboxPolicy() != tools.SandboxPolicyStandard {
+	if nilConfig.GetSandboxPolicy() != string(domain.SandboxPolicyStandard) {
 		t.Errorf("expected nil config to return standard policy, got %s", nilConfig.GetSandboxPolicy())
 	}
 	var nilServer *ServerConfig
-	if nilServer.GetSandboxPolicy() != tools.SandboxPolicyStandard {
+	if nilServer.GetSandboxPolicy() != string(domain.SandboxPolicyStandard) {
 		t.Errorf("expected nil server to return standard policy, got %s", nilServer.GetSandboxPolicy())
 	}
 }
@@ -535,7 +534,7 @@ func TestConfig_OptionsSerialization(t *testing.T) {
 			Endpoint:    "http://localhost:11434/api/chat",
 			VaultPath:   "vault.db",
 			StorageType: "sqlite",
-			Options: &providers.ModelOptions{
+			Options: &domain.ModelOptions{
 				Temperature: &temp,
 				NumCtx:      &ctxVal,
 			},
@@ -578,7 +577,7 @@ func TestConfig_SaveAndLoad_Isolation(t *testing.T) {
 			Endpoint:    "https://api.openai.com/v1/chat/completions",
 			VaultPath:   filepath.Join(tmpDir, "vault.db"),
 			StorageType: "sqlite",
-			Options: &providers.ModelOptions{
+			Options: &domain.ModelOptions{
 				Temperature: &temp,
 			},
 		},

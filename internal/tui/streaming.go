@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/engine"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -326,9 +327,9 @@ func (m *Model) resumeStreamCmd(ctx context.Context, activeNodeID string) tea.Cm
 			return llmStreamFinishedMsg{err: err, activeNodeID: activeNodeID}
 		}
 
-		var tools []engine.Tool
+		var tools []domain.ToolSpec
 		if m.Manager.Registry != nil {
-			tools = m.Manager.Registry.GetToolsForPolicy(m.Config.GetSandboxPolicy())
+			tools = m.Manager.Registry.GetToolSpecsForPolicy(m.Config.GetSandboxPolicy())
 		}
 
 		contentChan, thoughtChan, toolCallChan, errChan := m.Provider.GenerateResponseStream(ctx, messages, tools)

@@ -10,7 +10,10 @@ import (
 	"syscall"
 
 	"github.com/bartkleypas/please/internal/acp"
+	"github.com/bartkleypas/please/internal/config"
 	"github.com/bartkleypas/please/internal/engine"
+	"github.com/bartkleypas/please/internal/providers"
+	"github.com/bartkleypas/please/internal/storage"
 )
 
 func runACP(args []string) {
@@ -37,16 +40,16 @@ func runACP(args []string) {
 	}
 
 	// Load configuration
-	var cfg *engine.Config
+	var cfg *config.Config
 	var err error
 	if *configPath != "" {
-		cfg, err = engine.LoadConfigFile(*configPath)
+		cfg, err = config.LoadConfigFile(*configPath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
 			os.Exit(1)
 		}
 	} else {
-		cfg, err = engine.LoadConfig()
+		cfg, err = config.LoadConfig()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error loading default config: %v\n", err)
 			os.Exit(1)
@@ -54,7 +57,7 @@ func runACP(args []string) {
 	}
 
 	if cfg.Server == nil {
-		cfg.Server = &engine.ServerConfig{}
+		cfg.Server = &config.ServerConfig{}
 	}
 
 	if *workspacePath != "" {
@@ -73,31 +76,31 @@ func runACP(args []string) {
 		storageType = "jsonl"
 	}
 
-	var storage engine.Storage
+	var strg storage.Storage
 	if storageType == "sqlite" {
-		storage, err = engine.NewSQLiteStorage(finalVaultPath, cfg.Server.EncryptionKey)
+		strg, err = storage.NewSQLiteStorage(finalVaultPath, cfg.Server.EncryptionKey)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error initializing sqlite storage: %v\n", err)
 			os.Exit(1)
 		}
 	} else {
-		storage = engine.NewJSONLStorage(finalVaultPath, cfg.Server.EncryptionKey)
+		strg = storage.NewJSONLStorage(finalVaultPath, cfg.Server.EncryptionKey)
 	}
 
-	graph, _, err := storage.LoadGraph()
+	graph, _, err := strg.LoadGraph()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading graph: %v\n", err)
 		os.Exit(1)
 	}
 
-	var provider engine.LLMProvider
+	var provider providers.Provider
 	if cfg.Server.Provider == "openai" {
-		provider = engine.NewOpenAIProvider(cfg.Server.Endpoint, cfg.Server.Model, cfg.Server.APIKey, cfg.Server.Options)
+		provider = providers.NewOpenAIProvider(cfg.Server.Endpoint, cfg.Server.Model, cfg.Server.APIKey, cfg.Server.Options)
 	} else {
-		provider = engine.NewOllamaProvider(cfg.Server.Endpoint, cfg.Server.Model, cfg.Server.Options)
+		provider = providers.NewOllamaProvider(cfg.Server.Endpoint, cfg.Server.Model, cfg.Server.Options)
 	}
 
-	mgr := engine.NewManager(graph, storage)
+	mgr := engine.NewManager(graph, strg)
 	mgr.SignatSteering = cfg.EnableSignatSteering()
 	mgr.AmbientTelemetry = cfg.EnableAmbientTelemetry()
 	mgr.RegisterDefaultTools(cfg.GetWorkspaceDir())

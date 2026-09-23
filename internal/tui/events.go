@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bartkleypas/please/internal/engine"
+	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/server"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -37,7 +37,7 @@ func listenRemoteEventsCmd(remoteURL, authToken, caCertPath, sessionID string) t
 			baseURL = "http://" + baseURL
 		}
 
-		caCertPath = engine.ResolveCACert(caCertPath, baseURL)
+		caCertPath = domain.ResolveCACert(caCertPath, baseURL)
 
 		transport := http.DefaultTransport.(*http.Transport).Clone()
 		if caCertPath != "" {

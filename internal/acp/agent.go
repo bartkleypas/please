@@ -8,8 +8,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bartkleypas/please/internal/config"
+	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/engine"
-	"github.com/bartkleypas/please/internal/tools"
+	"github.com/bartkleypas/please/internal/providers"
 	acpsdk "github.com/coder/acp-go-sdk"
 	"github.com/google/uuid"
 )
@@ -18,8 +20,8 @@ import (
 // DAG storage, and tool registry to the Agent Client Protocol.
 type Agent struct {
 	mgr          *engine.Manager
-	provider     engine.Provider
-	cfg          *engine.Config
+	provider     providers.Provider
+	cfg          *config.Config
 	workspaceDir string
 
 	connMu sync.RWMutex
@@ -34,7 +36,7 @@ type Agent struct {
 }
 
 // NewAgent constructs an initialized Agent adapter.
-func NewAgent(mgr *engine.Manager, provider engine.Provider, cfg *engine.Config, workspaceDir string) *Agent {
+func NewAgent(mgr *engine.Manager, provider providers.Provider, cfg *config.Config, workspaceDir string) *Agent {
 	if workspaceDir == "" && cfg != nil {
 		workspaceDir = cfg.GetWorkspaceDir()
 	}
@@ -93,17 +95,17 @@ func (a *Agent) availableModes(current string) *acpsdk.SessionModeState {
 
 	modes := []acpsdk.SessionMode{
 		{
-			Id:          acpsdk.SessionModeId(tools.SandboxPolicyStrict),
+			Id:          acpsdk.SessionModeId(domain.SandboxPolicyStrict),
 			Name:        "Strict (Read-Only)",
 			Description: &strictDesc,
 		},
 		{
-			Id:          acpsdk.SessionModeId(tools.SandboxPolicyStandard),
+			Id:          acpsdk.SessionModeId(domain.SandboxPolicyStandard),
 			Name:        "Standard (Safe Workspace Edits)",
 			Description: &standardDesc,
 		},
 		{
-			Id:          acpsdk.SessionModeId(tools.SandboxPolicyPermissive),
+			Id:          acpsdk.SessionModeId(domain.SandboxPolicyPermissive),
 			Name:        "Permissive (Gated Shell Execution)",
 			Description: &permissiveDesc,
 		},
@@ -111,7 +113,7 @@ func (a *Agent) availableModes(current string) *acpsdk.SessionModeState {
 
 	cur := acpsdk.SessionModeId(current)
 	if cur == "" {
-		cur = acpsdk.SessionModeId(tools.SandboxPolicyStandard)
+		cur = acpsdk.SessionModeId(domain.SandboxPolicyStandard)
 	}
 
 	return &acpsdk.SessionModeState{
@@ -162,7 +164,7 @@ func (a *Agent) NewSession(ctx context.Context, params acpsdk.NewSessionRequest)
 	}
 	a.sessionCwd.Store(sessID, cwd)
 
-	defaultMode := tools.SandboxPolicyStandard
+	defaultMode := string(domain.SandboxPolicyStandard)
 	if a.cfg != nil {
 		if pol := a.cfg.GetSandboxPolicy(); pol != "" {
 			defaultMode = pol
@@ -234,7 +236,7 @@ func (a *Agent) ResumeSession(ctx context.Context, params acpsdk.ResumeSessionRe
 		a.sessionCwd.Store(params.SessionId, params.Cwd)
 	}
 
-	currentMode := tools.SandboxPolicyStandard
+	currentMode := string(domain.SandboxPolicyStandard)
 	if val, ok := a.sessionModes.Load(params.SessionId); ok {
 		if s, ok := val.(string); ok && s != "" {
 			currentMode = s
@@ -254,7 +256,7 @@ func (a *Agent) ResumeSession(ctx context.Context, params acpsdk.ResumeSessionRe
 func (a *Agent) SetSessionMode(ctx context.Context, params acpsdk.SetSessionModeRequest) (acpsdk.SetSessionModeResponse, error) {
 	mode := strings.ToLower(string(params.ModeId))
 	switch mode {
-	case tools.SandboxPolicyStrict, tools.SandboxPolicyStandard, tools.SandboxPolicyPermissive:
+	case string(domain.SandboxPolicyStrict), string(domain.SandboxPolicyStandard), string(domain.SandboxPolicyPermissive):
 		a.sessionModes.Store(params.SessionId, mode)
 		if conn := a.getConnection(); conn != nil {
 			_ = conn.SessionUpdate(ctx, acpsdk.SessionNotification{
@@ -323,7 +325,7 @@ func (a *Agent) Prompt(ctx context.Context, params acpsdk.PromptRequest) (acpsdk
 	defer a.sessionCancels.Delete(params.SessionId)
 
 	// Determine active sandbox policy for this session
-	mode := tools.SandboxPolicyStandard
+	mode := string(domain.SandboxPolicyStandard)
 	if val, ok := a.sessionModes.Load(params.SessionId); ok {
 		if s, ok := val.(string); ok && s != "" {
 			mode = s
@@ -335,7 +337,7 @@ func (a *Agent) Prompt(ctx context.Context, params acpsdk.PromptRequest) (acpsdk
 	}
 
 	// Clone config with session policy override
-	turnCfg := engine.NewDefaultConfig()
+	turnCfg := config.NewDefaultConfig()
 	if a.cfg != nil {
 		*turnCfg = *a.cfg
 		if a.cfg.Server != nil {
@@ -360,7 +362,7 @@ func (a *Agent) Prompt(ctx context.Context, params acpsdk.PromptRequest) (acpsdk
 
 	// Configure interactive permission gate
 
-	harness.PermissionGate = func(pCtx context.Context, sessionID string, call engine.ToolCall) (bool, error) {
+	harness.PermissionGate = func(pCtx context.Context, sessionID string, call domain.ToolCall) (bool, error) {
 		if a.isToolAllowedAlways(sessionID, call.Function.Name) {
 			return true, nil
 		}

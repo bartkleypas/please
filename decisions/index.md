@@ -32,4 +32,5 @@ This index tracks key architectural decisions and engineering conventions throug
 *   [014-persistent-agent-memory-and-cybernetic-recall](014-persistent-agent-memory-and-cybernetic-recall.md) - Persistent SQLite agent memory store, cybernetic memory_* tool suite (store, recall, delete, diagnose), and diagnostic inspection telemetry.
 *   [015-living-scenarios-and-test-subsystem-decomposition](015-living-scenarios-and-test-subsystem-decomposition.md) - End-to-End (E2E) living scenarios, seeded database fixtures, and test subsystem repatriation (retiring 'livefire' jargon).
 *   [016-workspace-dot-directory-hermeticity-and-init-ceremony](016-workspace-dot-directory-hermeticity-and-init-ceremony.md) - Workspace dot-directory hermeticity (.please/), universal global anchor (~/.please/), and the 'please init' setup ceremony.
+*   [018-package-stratification-and-domain-decoupling](018-package-stratification-and-domain-decoupling.md) - Strict four-tier architectural layering, zero-dependency core domain extraction (internal/domain), and elimination of inverted leaf dependencies and engine facade sprawl.
 

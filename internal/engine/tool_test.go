@@ -4,11 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+
+	"github.com/bartkleypas/please/internal/domain"
+	"github.com/bartkleypas/please/internal/graph"
+	"github.com/bartkleypas/please/internal/tools"
 )
 
 func TestToolRegistry(t *testing.T) {
-	registry := NewToolRegistry()
-	tool := Tool{
+	registry := tools.NewToolRegistry()
+	tool := tools.Tool{
 		Name:        "test_tool",
 		Description: "A test tool",
 		Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
@@ -22,22 +26,22 @@ func TestToolRegistry(t *testing.T) {
 		t.Errorf("expected test_tool to be registered")
 	}
 
-	tools := registry.GetTools()
-	if len(tools) != 1 {
-		t.Errorf("expected 1 tool, got %d", len(tools))
+	registryTools := registry.GetTools()
+	if len(registryTools) != 1 {
+		t.Errorf("expected 1 tool, got %d", len(registryTools))
 	}
 }
 
 func TestExecuteToolCall(t *testing.T) {
-	mgr := NewManager(NewGraph(), nil)
-	mgr.Registry.Register(Tool{
+	mgr := NewManager(graph.NewGraph(), nil)
+	mgr.Registry.Register(tools.Tool{
 		Name: "echo",
 		Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			return args["msg"].(string), nil
 		},
 	})
 
-	call := ToolCall{
+	call := domain.ToolCall{
 		ID: "123",
 		Function: struct {
 			Name      string          `json:"name"`
@@ -60,7 +64,7 @@ func TestExecuteToolCall(t *testing.T) {
 
 func TestManager_RegisterDefaultTools(t *testing.T) {
 	tmpDir := t.TempDir()
-	mgr := NewManager(NewGraph(), nil)
+	mgr := NewManager(graph.NewGraph(), nil)
 	mgr.RegisterDefaultTools(tmpDir)
 
 	tools := mgr.Registry.GetTools()

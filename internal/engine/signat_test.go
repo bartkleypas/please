@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/bartkleypas/please/internal/domain"
+	"github.com/bartkleypas/please/internal/graph"
 )
 
 func TestExtractSignat(t *testing.T) {
@@ -77,10 +80,10 @@ func TestExtractSignat(t *testing.T) {
 }
 
 func TestBuildLLMContext_SignatRetention(t *testing.T) {
-	mgr := NewManager(NewGraph(), &MockStorage{})
+	mgr := NewManager(graph.NewGraph(), &MockStorage{})
 
-	root, _ := mgr.CreateNode("", RoleSystem, "You are George 🦉📚", false)
-	user, _ := mgr.CreateNode(root.ID, RoleUser, "Hello George!", false)
+	root, _ := mgr.CreateNode("", domain.RoleSystem, "You are George 🦉📚", false)
+	user, _ := mgr.CreateNode(root.ID, domain.RoleUser, "Hello George!", false)
 	asst, _ := mgr.CreateAssistantNode(user.ID, "Greetings! 🦉📜", "Thinking...", nil, false)
 
 	// Mode 1: Default Clean Mode (SignatSteering = false)
@@ -122,14 +125,14 @@ func TestBuildLLMContext_SignatRetention(t *testing.T) {
 
 func TestSignatSteering_IntermediateToolCallNotPolluted(t *testing.T) {
 	storage := &MockStorage{}
-	graph := NewGraph()
-	mgr := NewManager(graph, storage)
+	g := graph.NewGraph()
+	mgr := NewManager(g, storage)
 	mgr.SignatSteering = true
 
-	root, _ := mgr.CreateNode("", RoleSystem, "You are George 🦉📚", false)
-	user, _ := mgr.CreateNode(root.ID, RoleUser, "List files", false)
+	root, _ := mgr.CreateNode("", domain.RoleSystem, "You are George 🦉📚", false)
+	user, _ := mgr.CreateNode(root.ID, domain.RoleUser, "List files", false)
 
-	tCall := ToolCall{
+	tCall := domain.ToolCall{
 		ID:   "call_1",
 		Type: "function",
 		Function: struct {
@@ -141,7 +144,7 @@ func TestSignatSteering_IntermediateToolCallNotPolluted(t *testing.T) {
 		},
 	}
 
-	asst, err := mgr.CreateAssistantNode(user.ID, "", "Checking tui directory...", []ToolCall{tCall}, false)
+	asst, err := mgr.CreateAssistantNode(user.ID, "", "Checking tui directory...", []domain.ToolCall{tCall}, false)
 	if err != nil {
 		t.Fatalf("failed to create assistant node: %v", err)
 	}
@@ -158,7 +161,7 @@ func TestSignatSteering_IntermediateToolCallNotPolluted(t *testing.T) {
 	}
 
 	for _, msg := range msgs {
-		if msg.Role == RoleAssistant && len(msg.ToolCalls) > 0 {
+		if msg.Role == domain.RoleAssistant && len(msg.ToolCalls) > 0 {
 			if strings.Contains(msg.Content, "🔍") || strings.Contains(msg.Content, "📜") {
 				t.Errorf("intermediate tool-calling assistant message should NOT contain signat, got: %q", msg.Content)
 			}

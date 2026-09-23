@@ -7,12 +7,6 @@ import (
 	"strings"
 )
 
-const (
-	SandboxPolicyStrict     = "strict"
-	SandboxPolicyStandard   = "standard"
-	SandboxPolicyPermissive = "permissive"
-)
-
 // SensitivePathPatterns defines segments and prefixes quarantined from tool access.
 var SensitivePathPatterns = []string{
 	".secrets",

@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/bartkleypas/please/internal/domain"
 )
 
 type memoryContextKey string
@@ -118,7 +120,7 @@ func MemoryTools(store MemoryStore, defaultScope ...string) []Tool {
 func MemoryStoreTool(store MemoryStore, defaultScope string) Tool {
 	return Tool{
 		Name:     "memory_store",
-		Category: CategoryMutate,
+		Category: domain.CategoryMutate,
 		Description: "Stores or updates an atomic, persistent unit of knowledge (constraint, architectural decision, environment fact, or workflow recipe) in the project memory vault. " +
 			"Overwrites existing entries with matching (scope, key). Do not store conversation transcripts; the DAG already preserves turn history.",
 		Parameters: map[string]interface{}{
@@ -231,7 +233,7 @@ func MemoryStoreTool(store MemoryStore, defaultScope string) Tool {
 func MemoryRecallTool(store MemoryStore, defaultScope string) Tool {
 	return Tool{
 		Name:     "memory_recall",
-		Category: CategorySensory,
+		Category: domain.CategorySensory,
 		Description: "Queries the project memory vault for stored guidelines, constraints, architectural facts, or workflows. " +
 			"Supports full-text search, exact key matches, category filters, and tags.",
 		Parameters: map[string]interface{}{
@@ -339,7 +341,7 @@ func MemoryRecallTool(store MemoryStore, defaultScope string) Tool {
 func MemoryDeleteTool(store MemoryStore, defaultScope string) Tool {
 	return Tool{
 		Name:        "memory_delete",
-		Category:    CategoryMutate,
+		Category:    domain.CategoryMutate,
 		Description: "Deletes or forgets an obsolete, contradicted, or superseded memory by key and scope.",
 		Parameters: map[string]interface{}{
 			"type": "object",
@@ -391,7 +393,7 @@ func MemoryDeleteTool(store MemoryStore, defaultScope string) Tool {
 func MemoryDiagnoseTool(store MemoryStore) Tool {
 	return Tool{
 		Name:        "memory_diagnose",
-		Category:    CategorySensory,
+		Category:    domain.CategorySensory,
 		Description: "Provides comprehensive diagnostic telemetry over the project memory vault, including volume, category distributions, storage footprints, and stale memories.",
 		Parameters: map[string]interface{}{
 			"type": "object",

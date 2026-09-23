@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/bartkleypas/please/internal/domain"
 )
 
 // MutateTools returns the standard suite of workspace state-modifying tools.
@@ -26,7 +28,7 @@ func WriteFileTool(workspaceDir ...string) Tool {
 
 	return Tool{
 		Name:        "write_file",
-		Category:    CategoryMutate,
+		Category:    domain.CategoryMutate,
 		Description: "Create a new file with content, or optionally overwrite an existing file when overwrite=true.",
 		Interactive: true,
 		Parameters: map[string]interface{}{
@@ -93,7 +95,7 @@ func AppendFileTool(workspaceDir ...string) Tool {
 
 	return Tool{
 		Name:        "append_file",
-		Category:    CategoryMutate,
+		Category:    domain.CategoryMutate,
 		Description: "Append content to the end of a file on the local filesystem. Creates the file and parent directories if they do not exist. Automatically handles line boundary separation without creating redundant blank lines.",
 		Interactive: true,
 		Parameters: map[string]interface{}{
@@ -245,7 +247,7 @@ func EditFileTool(workspaceDir ...string) Tool {
 
 	return Tool{
 		Name:        "edit_file",
-		Category:    CategoryMutate,
+		Category:    domain.CategoryMutate,
 		Description: "Surgical in-place text editing tool supporting search & replace (default), regex, line replacement, and insertions",
 		Interactive: true,
 		Parameters: map[string]interface{}{
@@ -370,7 +372,7 @@ func DeleteFileTool(workspaceDir ...string) Tool {
 
 	return Tool{
 		Name:        "delete_file",
-		Category:    CategoryMutate,
+		Category:    domain.CategoryMutate,
 		Description: "Delete a file from the workspace. Path must be inside workspace and not match quarantined patterns.",
 		Interactive: true,
 		Parameters: map[string]interface{}{

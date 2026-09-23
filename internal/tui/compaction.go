@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/engine"
+	"github.com/bartkleypas/please/internal/storage"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -57,7 +59,7 @@ func (m *Model) getCompactionRange(leafID string) []string {
 	for i := len(path) - 1; i >= 0; i-- {
 		n := path[i]
 		// Stop if we hit a system prompt or a previous summary
-		if n.Role == engine.RoleSystem || n.Role == engine.RoleSummary {
+		if n.Role == domain.RoleSystem || n.Role == domain.RoleSummary {
 			break
 		}
 		rangeIDs = append([]string{n.ID}, rangeIDs...)
@@ -73,7 +75,7 @@ func (m *Model) runCompaction() tea.Cmd {
 		ctx := context.Background()
 
 		// If connected to remote daemon, route through dedicated POST /api/v1/supernodes endpoint
-		if remoteStorage, ok := m.Manager.Storage.(*engine.RemoteDaemonStorage); ok {
+		if remoteStorage, ok := m.Manager.Storage.(*storage.RemoteDaemonStorage); ok {
 			node, err := remoteStorage.CreateSupernode(ctx, targetIDs, directive)
 			if err != nil {
 				return compactionFinishedMsg{node: nil, err: err}

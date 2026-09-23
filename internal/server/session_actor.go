@@ -5,12 +5,15 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/bartkleypas/please/internal/config"
 	"github.com/bartkleypas/please/internal/engine"
+	"github.com/bartkleypas/please/internal/graph"
+	"github.com/bartkleypas/please/internal/providers"
 	"github.com/bartkleypas/please/internal/worktree"
 )
 
 type turnResult struct {
-	node *engine.Node
+	node *graph.Node
 	err  error
 }
 
@@ -32,12 +35,12 @@ type SessionActor struct {
 	cancel    context.CancelFunc
 }
 
-func newSessionActor(sessionID string, mgr *engine.Manager, provider engine.Provider, cfg *engine.Config, onNodeSaved func(string, *engine.Node)) *SessionActor {
+func newSessionActor(sessionID string, mgr *engine.Manager, provider providers.Provider, cfg *config.Config, onNodeSaved func(string, *graph.Node)) *SessionActor {
 	ctx, cancel := context.WithCancel(context.Background())
 	sessionMgr := mgr
 
 	if cfg != nil && cfg.EnableWorktreeIsolation() && sessionID != "" && sessionID != "main" {
-		configDir, _ := engine.GetConfigDir()
+		configDir, _ := config.GetConfigDir()
 		wtMgr := worktree.NewManager(configDir, mgr.WorkspaceDir)
 		if wtMgr.IsGitAvailable() && wtMgr.IsGitRepo() {
 			if wtDir, _, err := wtMgr.EnsureWorktree(sessionID); err == nil && wtDir != "" {
@@ -48,7 +51,7 @@ func newSessionActor(sessionID string, mgr *engine.Manager, provider engine.Prov
 
 	harness := engine.NewSessionHarness(sessionMgr, provider, cfg)
 	if onNodeSaved != nil {
-		harness.OnNodeSaved = func(node *engine.Node) {
+		harness.OnNodeSaved = func(node *graph.Node) {
 			onNodeSaved(sessionID, node)
 		}
 	}
@@ -120,13 +123,13 @@ type SessionActorRegistry struct {
 	mu          sync.RWMutex
 	actors      map[string]*SessionActor
 	manager     *engine.Manager
-	provider    engine.Provider
-	config      *engine.Config
-	onNodeSaved func(string, *engine.Node)
+	provider    providers.Provider
+	config      *config.Config
+	onNodeSaved func(string, *graph.Node)
 }
 
 // NewSessionActorRegistry initializes a registry for session actors.
-func NewSessionActorRegistry(mgr *engine.Manager, provider engine.Provider, cfg *engine.Config, onNodeSaved func(string, *engine.Node)) *SessionActorRegistry {
+func NewSessionActorRegistry(mgr *engine.Manager, provider providers.Provider, cfg *config.Config, onNodeSaved func(string, *graph.Node)) *SessionActorRegistry {
 	return &SessionActorRegistry{
 		actors:      make(map[string]*SessionActor),
 		manager:     mgr,
@@ -155,7 +158,7 @@ func (r *SessionActorRegistry) GetOrCreate(sessionID string) *SessionActor {
 }
 
 // SetProvider updates the underlying LLM provider across all session harnesses.
-func (r *SessionActorRegistry) SetProvider(provider engine.Provider) {
+func (r *SessionActorRegistry) SetProvider(provider providers.Provider) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.provider = provider
@@ -165,7 +168,7 @@ func (r *SessionActorRegistry) SetProvider(provider engine.Provider) {
 }
 
 // SetConfig updates the config across all session harnesses.
-func (r *SessionActorRegistry) SetConfig(cfg *engine.Config) {
+func (r *SessionActorRegistry) SetConfig(cfg *config.Config) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.config = cfg

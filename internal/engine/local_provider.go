@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/bartkleypas/please/internal/tools"
+	"github.com/bartkleypas/please/internal/config"
+	"github.com/bartkleypas/please/internal/domain"
+	"github.com/bartkleypas/please/internal/providers"
 	"github.com/bartkleypas/please/internal/worktree"
 )
 
@@ -55,7 +57,7 @@ func (p *LocalHarnessProvider) updateHarnessWorkspace(sessionID string) {
 		return
 	}
 
-	configDir, _ := GetConfigDir()
+	configDir, _ := config.GetConfigDir()
 	wtMgr := worktree.NewManager(configDir, p.PrimaryManager.WorkspaceDir)
 	if wtMgr.IsGitAvailable() && wtMgr.IsGitRepo() {
 		if wtDir, _, err := wtMgr.EnsureWorktree(sessionID); err == nil && wtDir != "" {
@@ -73,10 +75,10 @@ func (p *LocalHarnessProvider) GetSessionID() string {
 
 // GenerateResponseStream executes the turn via SessionHarness and transforms
 // harness events into content, thought, and error channel streams.
-func (p *LocalHarnessProvider) GenerateResponseStream(ctx context.Context, messages []Message, availableTools []tools.Tool) (<-chan string, <-chan string, <-chan []ToolCall, <-chan error) {
+func (p *LocalHarnessProvider) GenerateResponseStream(ctx context.Context, messages []domain.Message, availableTools []domain.ToolSpec) (<-chan string, <-chan string, <-chan []domain.ToolCall, <-chan error) {
 	contentChan := make(chan string, 100)
 	thoughtChan := make(chan string, 100)
-	toolCallChan := make(chan []ToolCall) // Closed with zero items as harness executes tools internally
+	toolCallChan := make(chan []domain.ToolCall) // Closed with zero items as harness executes tools internally
 	errChan := make(chan error, 1)
 
 	go func() {
@@ -91,7 +93,7 @@ func (p *LocalHarnessProvider) GenerateResponseStream(ctx context.Context, messa
 		var images []string
 
 		for i := len(messages) - 1; i >= 0; i-- {
-			if messages[i].Role == RoleUser {
+			if messages[i].Role == domain.RoleUser {
 				userNodeID = messages[i].ID
 				lastUserMessage = messages[i].Content
 				images = messages[i].Images
@@ -106,7 +108,7 @@ func (p *LocalHarnessProvider) GenerateResponseStream(ctx context.Context, messa
 			UserNodeID: userNodeID,
 			ParentID:   parentID,
 			Message:    lastUserMessage,
-			Role:       string(RoleUser),
+			Role:       string(domain.RoleUser),
 			Images:     images,
 		}
 
@@ -172,7 +174,7 @@ func (p *LocalHarnessProvider) GenerateResponseStream(ctx context.Context, messa
 }
 
 // RawProvider returns the underlying stateless LLM client.
-func (p *LocalHarnessProvider) RawProvider() Provider {
+func (p *LocalHarnessProvider) RawProvider() providers.Provider {
 	if p.Harness != nil {
 		return p.Harness.Provider
 	}
@@ -181,9 +183,14 @@ func (p *LocalHarnessProvider) RawProvider() Provider {
 
 // GenerateResponse delegates directly to the underlying stateless LLM client
 // for one-shot completions (e.g. summaries), avoiding harness state mutation or node creation.
-func (p *LocalHarnessProvider) GenerateResponse(ctx context.Context, messages []Message, availableTools []tools.Tool) (*Message, error) {
+func (p *LocalHarnessProvider) GenerateResponse(ctx context.Context, messages []domain.Message, availableTools []domain.ToolSpec) (*domain.Message, error) {
 	if p.Harness != nil && p.Harness.Provider != nil {
 		return p.Harness.Provider.GenerateResponse(ctx, messages, availableTools)
 	}
 	return nil, fmt.Errorf("underlying LLM provider not available")
+}
+
+// SupportsStreaming returns true as LocalHarnessProvider supports streaming.
+func (p *LocalHarnessProvider) SupportsStreaming() bool {
+	return true
 }

@@ -10,9 +10,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bartkleypas/please/internal/config"
+	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/engine"
+	"github.com/bartkleypas/please/internal/graph"
+	"github.com/bartkleypas/please/internal/providers"
 	"github.com/bartkleypas/please/internal/server"
 	"github.com/bartkleypas/please/internal/storage"
+	"github.com/bartkleypas/please/internal/tools"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -38,15 +43,15 @@ func TestUpdateStateTransitions(t *testing.T) {
 	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
 	dbPath := filepath.Join(tmpDir, "vault.jsonl")
 
-	storage := engine.NewJSONLStorage(dbPath, "")
-	graph := engine.NewGraph()
-	mockProvider := &engine.MockLLMProvider{
+	storage := storage.NewJSONLStorage(dbPath, "")
+	graph := graph.NewGraph()
+	mockProvider := &providers.MockLLMProvider{
 		ResponseContent: "Hello world",
 	}
 
 	// 2. Initialize Model
 	pacing := false
-	cfg := &engine.Config{Client: &engine.ClientConfig{NaturalPacing: &pacing}}
+	cfg := &config.Config{Client: &config.ClientConfig{NaturalPacing: &pacing}}
 	m := NewModel(cfg, graph, storage, mockProvider, "")
 
 	// Ensure we start in SetupMode if graph is empty
@@ -100,11 +105,11 @@ func TestThoughtStreaming(t *testing.T) {
 	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
 	dbPath := filepath.Join(tmpDir, "vault.db")
 
-	storage, _ := engine.NewSQLiteStorage(dbPath, "")
-	graph := engine.NewGraph()
-	mockProvider := &engine.MockLLMProvider{}
+	storage, _ := storage.NewSQLiteStorage(dbPath, "")
+	graph := graph.NewGraph()
+	mockProvider := &providers.MockLLMProvider{}
 	pacing := false
-	cfg := &engine.Config{Client: &engine.ClientConfig{NaturalPacing: &pacing}}
+	cfg := &config.Config{Client: &config.ClientConfig{NaturalPacing: &pacing}}
 	m := NewModel(cfg, graph, storage, mockProvider, "")
 
 	// 1. Setup - Create root node
@@ -147,11 +152,11 @@ func TestThoughtStreaming(t *testing.T) {
 func TestHandleCommand(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
-	storage := engine.NewJSONLStorage(":memory:", "")
-	graph := engine.NewGraph()
-	mockProvider := &engine.MockLLMProvider{}
+	storage := storage.NewJSONLStorage(":memory:", "")
+	graph := graph.NewGraph()
+	mockProvider := &providers.MockLLMProvider{}
 	pacing := false
-	cfg := &engine.Config{Client: &engine.ClientConfig{NaturalPacing: &pacing}}
+	cfg := &config.Config{Client: &config.ClientConfig{NaturalPacing: &pacing}}
 	m := NewModel(cfg, graph, storage, mockProvider, "")
 
 	tests := []struct {
@@ -199,11 +204,11 @@ func TestNaturalPacing(t *testing.T) {
 	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
 	dbPath := filepath.Join(tmpDir, "vault.db")
 
-	storage, _ := engine.NewSQLiteStorage(dbPath, "")
-	graph := engine.NewGraph()
-	mockProvider := &engine.MockLLMProvider{}
+	storage, _ := storage.NewSQLiteStorage(dbPath, "")
+	graph := graph.NewGraph()
+	mockProvider := &providers.MockLLMProvider{}
 	pacing := true
-	cfg := &engine.Config{Client: &engine.ClientConfig{NaturalPacing: &pacing}}
+	cfg := &config.Config{Client: &config.ClientConfig{NaturalPacing: &pacing}}
 	m := NewModel(cfg, graph, storage, mockProvider, "")
 
 	// 1. Exit setup mode
@@ -260,19 +265,19 @@ func TestToolExecutionErrorRetention(t *testing.T) {
 	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
 	dbPath := filepath.Join(tmpDir, "vault.db")
 
-	storage, err := engine.NewSQLiteStorage(dbPath, "")
+	storage, err := storage.NewSQLiteStorage(dbPath, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	graph := engine.NewGraph()
-	mockProvider := &engine.MockLLMProvider{}
+	graph := graph.NewGraph()
+	mockProvider := &providers.MockLLMProvider{}
 
 	pacing := false
-	cfg := &engine.Config{Client: &engine.ClientConfig{NaturalPacing: &pacing}}
+	cfg := &config.Config{Client: &config.ClientConfig{NaturalPacing: &pacing}}
 	m := NewModel(cfg, graph, storage, mockProvider, "")
 
 	// Register a tool that fails
-	m.Manager.Registry.Register(engine.Tool{
+	m.Manager.Registry.Register(tools.Tool{
 		Name:        "fail_tool",
 		Description: "A tool that returns an error and some output",
 		Parameters:  nil,
@@ -282,7 +287,7 @@ func TestToolExecutionErrorRetention(t *testing.T) {
 	})
 
 	// Create an assistant node with pending tool call
-	assistantNode, err := m.Manager.CreateAssistantNode("", "calling tool", "", []engine.ToolCall{
+	assistantNode, err := m.Manager.CreateAssistantNode("", "calling tool", "", []domain.ToolCall{
 		{
 			ID:   "call_123",
 			Type: "function",
@@ -341,11 +346,11 @@ func TestConfigCommand_RunnerOptions(t *testing.T) {
 	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
 	dbPath := filepath.Join(tmpDir, "vault.db")
 
-	storage, _ := engine.NewSQLiteStorage(dbPath, "")
-	graph := engine.NewGraph()
+	storage, _ := storage.NewSQLiteStorage(dbPath, "")
+	graph := graph.NewGraph()
 	pacing := false
-	cfg := &engine.Config{Client: &engine.ClientConfig{NaturalPacing: &pacing}}
-	ollamaProvider := engine.NewOllamaProvider("http://localhost:11434/api/chat", "gemma", nil)
+	cfg := &config.Config{Client: &config.ClientConfig{NaturalPacing: &pacing}}
+	ollamaProvider := providers.NewOllamaProvider("http://localhost:11434/api/chat", "gemma", nil)
 	m := NewModel(cfg, graph, storage, ollamaProvider, "")
 
 	// 1. Set Temperature
@@ -401,7 +406,7 @@ func TestConfigCommand_RunnerOptions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected config.json to be saved in tmpDir: %v", err)
 	}
-	var loaded engine.Config
+	var loaded config.Config
 	if err := json.Unmarshal(savedData, &loaded); err != nil {
 		t.Fatalf("failed to unmarshal saved config: %v", err)
 	}
@@ -416,11 +421,11 @@ func TestViewportOverrideTextInputAndLiveUpdate(t *testing.T) {
 	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
 	dbPath := filepath.Join(tmpDir, "vault.db")
 
-	storage, _ := engine.NewSQLiteStorage(dbPath, "")
-	graph := engine.NewGraph()
-	mockProvider := &engine.MockLLMProvider{ResponseContent: "Response"}
+	storage, _ := storage.NewSQLiteStorage(dbPath, "")
+	graph := graph.NewGraph()
+	mockProvider := &providers.MockLLMProvider{ResponseContent: "Response"}
 	pacing := false
-	cfg := &engine.Config{Client: &engine.ClientConfig{NaturalPacing: &pacing}}
+	cfg := &config.Config{Client: &config.ClientConfig{NaturalPacing: &pacing}}
 	m := NewModel(cfg, graph, storage, mockProvider, "")
 
 	// 1. Initial setup
@@ -542,11 +547,11 @@ func TestConfigCommand_Workspace(t *testing.T) {
 	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
 	dbPath := filepath.Join(tmpDir, "vault.db")
 
-	storage, _ := engine.NewSQLiteStorage(dbPath, "")
-	graph := engine.NewGraph()
-	mockProvider := &engine.MockLLMProvider{}
+	storage, _ := storage.NewSQLiteStorage(dbPath, "")
+	graph := graph.NewGraph()
+	mockProvider := &providers.MockLLMProvider{}
 	pacing := false
-	cfg := &engine.Config{Client: &engine.ClientConfig{NaturalPacing: &pacing}}
+	cfg := &config.Config{Client: &config.ClientConfig{NaturalPacing: &pacing}}
 	m := NewModel(cfg, graph, storage, mockProvider, "")
 
 	// 1. Initial workspace display
@@ -582,11 +587,11 @@ func TestConfigCommand_EncryptionKey(t *testing.T) {
 	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
 	dbPath := filepath.Join(tmpDir, "vault.db")
 
-	storage, _ := engine.NewSQLiteStorage(dbPath, "")
-	graph := engine.NewGraph()
-	mockProvider := &engine.MockLLMProvider{}
+	storage, _ := storage.NewSQLiteStorage(dbPath, "")
+	graph := graph.NewGraph()
+	mockProvider := &providers.MockLLMProvider{}
 	pacing := false
-	cfg := &engine.Config{Client: &engine.ClientConfig{NaturalPacing: &pacing}}
+	cfg := &config.Config{Client: &config.ClientConfig{NaturalPacing: &pacing}}
 	m := NewModel(cfg, graph, storage, mockProvider, "")
 
 	// 1. Initial display shows disabled
@@ -625,25 +630,25 @@ func TestNavigateToNode_AssistantAndUserTurns(t *testing.T) {
 	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
 	dbPath := filepath.Join(tmpDir, "vault.db")
 
-	storage, _ := engine.NewSQLiteStorage(dbPath, "")
-	graph := engine.NewGraph()
-	mockProvider := &engine.MockLLMProvider{
+	storage, _ := storage.NewSQLiteStorage(dbPath, "")
+	graph := graph.NewGraph()
+	mockProvider := &providers.MockLLMProvider{
 		ResponseContent: "Mock assistant reply",
 	}
 	pacing := false
-	cfg := &engine.Config{Client: &engine.ClientConfig{NaturalPacing: &pacing}}
+	cfg := &config.Config{Client: &config.ClientConfig{NaturalPacing: &pacing}}
 	m := NewModel(cfg, graph, storage, mockProvider, "")
 
 	// 1. Build conversation: Root System -> User1 -> Assistant1 -> User2 -> Assistant2
-	sysNode, _ := m.Manager.CreateNode("", engine.RoleSystem, "System prompt", false)
+	sysNode, _ := m.Manager.CreateNode("", domain.RoleSystem, "System prompt", false)
 	m.CurrentID = sysNode.ID
 
-	user1, _ := m.Manager.CreateNode(sysNode.ID, engine.RoleUser, "First question from user", false)
-	asst1, _ := m.Manager.CreateNode(user1.ID, engine.RoleAssistant, "First answer from assistant", false)
-	user2, _ := m.Manager.CreateNode(asst1.ID, engine.RoleUser, "Second question from user with detail", false)
+	user1, _ := m.Manager.CreateNode(sysNode.ID, domain.RoleUser, "First question from user", false)
+	asst1, _ := m.Manager.CreateNode(user1.ID, domain.RoleAssistant, "First answer from assistant", false)
+	user2, _ := m.Manager.CreateNode(asst1.ID, domain.RoleUser, "Second question from user with detail", false)
 	user2.Images = []string{"/tmp/test.png"}
 	_ = m.Manager.Storage.SaveNode(user2)
-	asst2, _ := m.Manager.CreateNode(user2.ID, engine.RoleAssistant, "Second answer from assistant", false)
+	asst2, _ := m.Manager.CreateNode(user2.ID, domain.RoleAssistant, "Second answer from assistant", false)
 	m.CurrentID = asst2.ID
 	m.SetupMode = false
 	m.updateViewportContent()
@@ -737,15 +742,15 @@ func TestContextStats_DynamicColoring(t *testing.T) {
 	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
 	dbPath := filepath.Join(tmpDir, "vault.db")
 
-	storage, _ := engine.NewSQLiteStorage(dbPath, "")
-	graph := engine.NewGraph()
-	mockProvider := &engine.MockLLMProvider{}
+	storage, _ := storage.NewSQLiteStorage(dbPath, "")
+	graph := graph.NewGraph()
+	mockProvider := &providers.MockLLMProvider{}
 	pacing := false
 	numCtx := 1000 // Small context limit for testing thresholds
-	cfg := &engine.Config{
-		Client: &engine.ClientConfig{NaturalPacing: &pacing},
-		Server: &engine.ServerConfig{
-			Options: &engine.ModelOptions{NumCtx: &numCtx},
+	cfg := &config.Config{
+		Client: &config.ClientConfig{NaturalPacing: &pacing},
+		Server: &config.ServerConfig{
+			Options: &domain.ModelOptions{NumCtx: &numCtx},
 		},
 	}
 	m := NewModel(cfg, graph, storage, mockProvider, "")
@@ -786,17 +791,17 @@ func TestContextStats_DynamicColoring(t *testing.T) {
 func TestRemoteDaemonEvents_LiveSync_EmptyCurrentID(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "vault.db")
-	storage, _ := engine.NewSQLiteStorage(dbPath, "")
-	graph := engine.NewGraph()
+	storage, _ := storage.NewSQLiteStorage(dbPath, "")
+	graph := graph.NewGraph()
 	mgr := engine.NewManager(graph, storage)
 
 	// Create root node in storage
-	rootNode, err := mgr.CreateNode("", engine.RoleSystem, "You are a helpful assistant.", false)
+	rootNode, err := mgr.CreateNode("", domain.RoleSystem, "You are a helpful assistant.", false)
 	if err != nil {
 		t.Fatalf("failed to create root node: %v", err)
 	}
 
-	cfg := engine.NewDefaultConfig()
+	cfg := config.NewDefaultConfig()
 	m := NewModel(cfg, graph, storage, nil, "")
 	m.RemoteURL = "http://127.0.0.1:8443"
 
@@ -823,21 +828,21 @@ func TestRemoteDaemonEvents_LiveSync_EmptyCurrentID(t *testing.T) {
 func TestRemoteDaemonEvents_CameraNotHijacked(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "vault.db")
-	storage, _ := engine.NewSQLiteStorage(dbPath, "")
-	graph := engine.NewGraph()
+	storage, _ := storage.NewSQLiteStorage(dbPath, "")
+	graph := graph.NewGraph()
 	mgr := engine.NewManager(graph, storage)
 
-	rootNode, err := mgr.CreateNode("", engine.RoleSystem, "You are a helpful assistant.", false)
+	rootNode, err := mgr.CreateNode("", domain.RoleSystem, "You are a helpful assistant.", false)
 	if err != nil {
 		t.Fatalf("failed to create root node: %v", err)
 	}
 
-	cfg := engine.NewDefaultConfig()
+	cfg := config.NewDefaultConfig()
 	m := NewModel(cfg, graph, storage, nil, rootNode.ID)
 	m.RemoteURL = "http://127.0.0.1:8443"
 
 	// Simulate receiving a remote node_saved event from another connected terminal
-	newNode, err := mgr.CreateNode(rootNode.ID, engine.RoleUser, "Message from Terminal 2", false)
+	newNode, err := mgr.CreateNode(rootNode.ID, domain.RoleUser, "Message from Terminal 2", false)
 	if err != nil {
 		t.Fatalf("failed to create new node: %v", err)
 	}
@@ -870,15 +875,15 @@ func TestRemoteDaemonEvents_CameraNotHijacked(t *testing.T) {
 func TestThoughtFolding_TabAndShiftTab(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "vault.db")
-	storage, _ := engine.NewSQLiteStorage(dbPath, "")
-	graph := engine.NewGraph()
+	storage, _ := storage.NewSQLiteStorage(dbPath, "")
+	graph := graph.NewGraph()
 	mgr := engine.NewManager(graph, storage)
 
-	rootNode, _ := mgr.CreateNode("", engine.RoleSystem, "System prompt", false)
-	userNode, _ := mgr.CreateNode(rootNode.ID, engine.RoleUser, "User prompt", false)
+	rootNode, _ := mgr.CreateNode("", domain.RoleSystem, "System prompt", false)
+	userNode, _ := mgr.CreateNode(rootNode.ID, domain.RoleUser, "User prompt", false)
 	asstNode, _ := mgr.CreateAssistantNode(userNode.ID, "Assistant response", "This is an internal reasoning thought process.", nil, false)
 
-	cfg := engine.NewDefaultConfig()
+	cfg := config.NewDefaultConfig()
 	m := NewModel(cfg, graph, storage, nil, asstNode.ID)
 	m.Width = 80
 
@@ -934,15 +939,15 @@ func TestThoughtFolding_TabAndShiftTab(t *testing.T) {
 func TestMapMode_LiveSync_SelectionPreserved(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "vault.db")
-	storage, _ := engine.NewSQLiteStorage(dbPath, "")
-	graph := engine.NewGraph()
+	storage, _ := storage.NewSQLiteStorage(dbPath, "")
+	graph := graph.NewGraph()
 	mgr := engine.NewManager(graph, storage)
 
-	rootNode, _ := mgr.CreateNode("", engine.RoleSystem, "System prompt", false)
-	user1, _ := mgr.CreateNode(rootNode.ID, engine.RoleUser, "Turn 1", false)
-	_, _ = mgr.CreateNode(rootNode.ID, engine.RoleUser, "Turn 2", false)
+	rootNode, _ := mgr.CreateNode("", domain.RoleSystem, "System prompt", false)
+	user1, _ := mgr.CreateNode(rootNode.ID, domain.RoleUser, "Turn 1", false)
+	_, _ = mgr.CreateNode(rootNode.ID, domain.RoleUser, "Turn 2", false)
 
-	cfg := engine.NewDefaultConfig()
+	cfg := config.NewDefaultConfig()
 	m := NewModel(cfg, graph, storage, nil, rootNode.ID)
 	m.ViewMode = ModeMap
 	m.syncMapSelection()
@@ -961,7 +966,7 @@ func TestMapMode_LiveSync_SelectionPreserved(t *testing.T) {
 	m.MapSelectionIndex = user1Index
 
 	// Simulate receiving EventNodeSaved from remote daemon for a new turn under root
-	newNode, _ := mgr.CreateNode(rootNode.ID, engine.RoleUser, "Turn 3 (New)", false)
+	newNode, _ := mgr.CreateNode(rootNode.ID, domain.RoleUser, "Turn 3 (New)", false)
 	eventMsg := remoteDaemonEventMsg{
 		Event: server.DaemonEvent{
 			Type: server.EventNodeSaved,
@@ -986,14 +991,14 @@ func TestMapMode_LiveSync_SelectionPreserved(t *testing.T) {
 func TestMapMode_LiveSync_PrunedSelectionFallback(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "vault.db")
-	storage, _ := engine.NewSQLiteStorage(dbPath, "")
-	graph := engine.NewGraph()
+	storage, _ := storage.NewSQLiteStorage(dbPath, "")
+	graph := graph.NewGraph()
 	mgr := engine.NewManager(graph, storage)
 
-	rootNode, _ := mgr.CreateNode("", engine.RoleSystem, "System prompt", false)
-	userNode, _ := mgr.CreateNode(rootNode.ID, engine.RoleUser, "To be pruned", false)
+	rootNode, _ := mgr.CreateNode("", domain.RoleSystem, "System prompt", false)
+	userNode, _ := mgr.CreateNode(rootNode.ID, domain.RoleUser, "To be pruned", false)
 
-	cfg := engine.NewDefaultConfig()
+	cfg := config.NewDefaultConfig()
 	m := NewModel(cfg, graph, storage, nil, userNode.ID)
 	m.ViewMode = ModeMap
 	m.syncMapSelection()
@@ -1034,15 +1039,15 @@ func TestMapMode_LiveSync_PrunedSelectionFallback(t *testing.T) {
 func TestSignat_MapAndChatRendering(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "vault.db")
-	storage, _ := engine.NewSQLiteStorage(dbPath, "")
-	graph := engine.NewGraph()
+	storage, _ := storage.NewSQLiteStorage(dbPath, "")
+	graph := graph.NewGraph()
 	mgr := engine.NewManager(graph, storage)
 
-	rootNode, _ := mgr.CreateNode("", engine.RoleSystem, "You are a code assistant 🤖💻", false)
-	userNode, _ := mgr.CreateNode(rootNode.ID, engine.RoleUser, "Write a sorting function", false)
+	rootNode, _ := mgr.CreateNode("", domain.RoleSystem, "You are a code assistant 🤖💻", false)
+	userNode, _ := mgr.CreateNode(rootNode.ID, domain.RoleUser, "Write a sorting function", false)
 	asstNode, _ := mgr.CreateAssistantNode(userNode.ID, "Here is the quicksort implementation:\n```go\nfunc sort() {}\n```\n\n🛠️⚡", "", nil, false)
 
-	cfg := engine.NewDefaultConfig()
+	cfg := config.NewDefaultConfig()
 	m := NewModel(cfg, graph, storage, nil, asstNode.ID)
 	m.Width = 80
 
@@ -1073,19 +1078,19 @@ func TestSignat_MapAndChatRendering(t *testing.T) {
 func TestCompactCommand_AndNavigation(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "vault.db")
-	storage, _ := engine.NewSQLiteStorage(dbPath, "")
-	graph := engine.NewGraph()
+	storage, _ := storage.NewSQLiteStorage(dbPath, "")
+	graph := graph.NewGraph()
 	mgr := engine.NewManager(graph, storage)
 
-	rootNode, _ := mgr.CreateNode("", engine.RoleSystem, "You are George 🦉📚", false)
-	userNode, _ := mgr.CreateNode(rootNode.ID, engine.RoleUser, "Write tests", false)
+	rootNode, _ := mgr.CreateNode("", domain.RoleSystem, "You are George 🦉📚", false)
+	userNode, _ := mgr.CreateNode(rootNode.ID, domain.RoleUser, "Write tests", false)
 	asstNode, _ := mgr.CreateAssistantNode(userNode.ID, "Tests written 🛠️💻", "", nil, false)
 
-	mockProvider := &engine.MockLLMProvider{
+	mockProvider := &providers.MockLLMProvider{
 		ResponseContent: "Milestone: All tests written successfully.",
 	}
 
-	cfg := engine.NewDefaultConfig()
+	cfg := config.NewDefaultConfig()
 	m := NewModel(cfg, graph, storage, mockProvider, asstNode.ID)
 	m.Width = 80
 
@@ -1114,7 +1119,7 @@ func TestCompactCommand_AndNavigation(t *testing.T) {
 		t.Fatalf("failed to find supernode %s: %v", m2.CurrentID, err)
 	}
 
-	if superNode.Role != engine.RoleSummary {
+	if superNode.Role != domain.RoleSummary {
 		t.Errorf("expected new CurrentID node to have RoleSummary, got %s", superNode.Role)
 	}
 
@@ -1134,9 +1139,9 @@ func TestAttachCommand_SpacesAndQuotes(t *testing.T) {
 		t.Fatalf("failed to write test image: %v", err)
 	}
 
-	graph := engine.NewGraph()
-	storage := engine.NewJSONLStorage(filepath.Join(tmpDir, "vault.jsonl"), "")
-	m := NewModel(&engine.Config{}, graph, storage, &engine.MockLLMProvider{}, "")
+	graph := graph.NewGraph()
+	storage := storage.NewJSONLStorage(filepath.Join(tmpDir, "vault.jsonl"), "")
+	m := NewModel(&config.Config{}, graph, storage, &providers.MockLLMProvider{}, "")
 
 	// 1. Unquoted path with spaces
 	m.HandleCommand("/attach " + imgPath)
@@ -1157,9 +1162,9 @@ func TestAttachCommand_SpacesAndQuotes(t *testing.T) {
 func TestConfigCommand_Telemetry(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
-	graph := engine.NewGraph()
-	storage := engine.NewJSONLStorage(filepath.Join(tmpDir, "vault.jsonl"), "")
-	m := NewModel(&engine.Config{}, graph, storage, &engine.MockLLMProvider{}, "")
+	graph := graph.NewGraph()
+	storage := storage.NewJSONLStorage(filepath.Join(tmpDir, "vault.jsonl"), "")
+	m := NewModel(&config.Config{}, graph, storage, &providers.MockLLMProvider{}, "")
 
 	// 1. Check default: disabled
 	if m.Config.EnableAmbientTelemetry() {
@@ -1200,20 +1205,20 @@ func TestConfigCommand_Telemetry(t *testing.T) {
 func TestSessionCommand(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "vault.db")
-	storage, err := engine.NewSQLiteStorage(dbPath, "")
+	storage, err := storage.NewSQLiteStorage(dbPath, "")
 	if err != nil {
 		t.Fatalf("failed to init storage: %v", err)
 	}
-	graph := engine.NewGraph()
+	graph := graph.NewGraph()
 	mgr := engine.NewManager(graph, storage)
 
-	rootNode, _ := mgr.CreateNode("", engine.RoleSystem, "System root", false)
-	user1, _ := mgr.CreateNode(rootNode.ID, engine.RoleUser, "Main user message", false)
+	rootNode, _ := mgr.CreateNode("", domain.RoleSystem, "System root", false)
+	user1, _ := mgr.CreateNode(rootNode.ID, domain.RoleUser, "Main user message", false)
 	mainAsst, _ := mgr.CreateAssistantNode(user1.ID, "Main response", "", nil, false)
 	_ = storage.SaveSessionHead("main", mainAsst.ID)
 
-	cfg := engine.NewDefaultConfig()
-	m := NewModel(cfg, graph, storage, &engine.MockLLMProvider{}, mainAsst.ID)
+	cfg := config.NewDefaultConfig()
+	m := NewModel(cfg, graph, storage, &providers.MockLLMProvider{}, mainAsst.ID)
 	m.SessionID = "main"
 
 	// 1. Test /session status
@@ -1229,7 +1234,7 @@ func TestSessionCommand(t *testing.T) {
 	}
 
 	// 3. Test /session switch experiment
-	user2, _ := mgr.CreateNode(rootNode.ID, engine.RoleUser, "Experiment user message", false)
+	user2, _ := mgr.CreateNode(rootNode.ID, domain.RoleUser, "Experiment user message", false)
 	expAsst, _ := mgr.CreateAssistantNode(user2.ID, "Experiment response", "", nil, false)
 	_ = storage.SaveSessionHead("experiment", expAsst.ID)
 
@@ -1254,17 +1259,17 @@ func TestSessionCommand(t *testing.T) {
 func TestLocalHarnessProvider_TUIIntegration(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "vault.db")
-	storage, _ := engine.NewSQLiteStorage(dbPath, "")
-	graph := engine.NewGraph()
+	storage, _ := storage.NewSQLiteStorage(dbPath, "")
+	graph := graph.NewGraph()
 	mgr := engine.NewManager(graph, storage)
 
-	mockProvider := &engine.MockLLMProvider{
-		StreamHandler: func(messages []engine.Message, tools []engine.Tool) (string, string, []engine.ToolCall, error) {
+	mockProvider := &providers.MockLLMProvider{
+		StreamHandler: func(messages []domain.Message, tools []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
 			return "Hello from LocalHarnessProvider! 🦉☕", "Thinking...", nil, nil
 		},
 	}
 
-	cfg := engine.NewDefaultConfig()
+	cfg := config.NewDefaultConfig()
 	pacing := false
 	cfg.Client.NaturalPacing = &pacing
 	harness := engine.NewSessionHarness(mgr, mockProvider, cfg)
@@ -1274,13 +1279,13 @@ func TestLocalHarnessProvider_TUIIntegration(t *testing.T) {
 	m.SessionID = "main"
 
 	// Simulate user typing a message
-	userNode, _ := mgr.CreateNode("", engine.RoleUser, "Hi", false)
+	userNode, _ := mgr.CreateNode("", domain.RoleUser, "Hi", false)
 	m.CurrentID = userNode.ID
 
 	// Trigger stream via LocalHarnessProvider
 	contentChan, _, _, _ := localProvider.GenerateResponseStream(
 		context.Background(),
-		[]engine.Message{{Role: engine.RoleUser, Content: "Hi", ID: userNode.ID}},
+		[]domain.Message{{Role: domain.RoleUser, Content: "Hi", ID: userNode.ID}},
 		nil,
 	)
 
@@ -1303,7 +1308,7 @@ func TestLocalHarnessProvider_TUIIntegration(t *testing.T) {
 	if err != nil || asstNode == nil {
 		t.Fatalf("failed to retrieve current node: %v", err)
 	}
-	if asstNode.Role != engine.RoleAssistant {
+	if asstNode.Role != domain.RoleAssistant {
 		t.Errorf("expected RoleAssistant, got: %s", asstNode.Role)
 	}
 	if !strings.Contains(asstNode.Content, "Hello from LocalHarnessProvider") {
@@ -1315,10 +1320,10 @@ func TestConfigCommand_Worktree(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
 	dbPath := filepath.Join(tmpDir, "vault.db")
-	storage, _ := engine.NewSQLiteStorage(dbPath, "")
-	graph := engine.NewGraph()
-	mockProvider := &engine.MockLLMProvider{}
-	cfg := engine.NewDefaultConfig()
+	storage, _ := storage.NewSQLiteStorage(dbPath, "")
+	graph := graph.NewGraph()
+	mockProvider := &providers.MockLLMProvider{}
+	cfg := config.NewDefaultConfig()
 
 	m := NewModel(cfg, graph, storage, mockProvider, "")
 
@@ -1344,10 +1349,10 @@ func TestWorktreeCommand(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
 	dbPath := filepath.Join(tmpDir, "vault.db")
-	storage, _ := engine.NewSQLiteStorage(dbPath, "")
-	graph := engine.NewGraph()
-	mockProvider := &engine.MockLLMProvider{}
-	cfg := engine.NewDefaultConfig()
+	storage, _ := storage.NewSQLiteStorage(dbPath, "")
+	graph := graph.NewGraph()
+	mockProvider := &providers.MockLLMProvider{}
+	cfg := config.NewDefaultConfig()
 
 	m := NewModel(cfg, graph, storage, mockProvider, "")
 	m.SessionID = "experiment"
@@ -1369,10 +1374,10 @@ func TestConfigCommand_ReadOnlyMode(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
 	dbPath := filepath.Join(tmpDir, "vault.db")
-	storage, _ := engine.NewSQLiteStorage(dbPath, "")
-	graph := engine.NewGraph()
-	mockProvider := &engine.MockLLMProvider{}
-	cfg := engine.NewDefaultConfig()
+	storage, _ := storage.NewSQLiteStorage(dbPath, "")
+	graph := graph.NewGraph()
+	mockProvider := &providers.MockLLMProvider{}
+	cfg := config.NewDefaultConfig()
 	cfg.ReadOnly = true // External config passed via -c
 
 	m := NewModel(cfg, graph, storage, mockProvider, "")
@@ -1397,10 +1402,10 @@ func TestSandboxCommand_AndFooterBadge(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
 	dbPath := filepath.Join(tmpDir, "vault.db")
-	storage, _ := engine.NewSQLiteStorage(dbPath, "")
-	graph := engine.NewGraph()
-	mockProvider := &engine.MockLLMProvider{}
-	cfg := engine.NewDefaultConfig()
+	storage, _ := storage.NewSQLiteStorage(dbPath, "")
+	graph := graph.NewGraph()
+	mockProvider := &providers.MockLLMProvider{}
+	cfg := config.NewDefaultConfig()
 
 	m := NewModel(cfg, graph, storage, mockProvider, "")
 
@@ -1463,10 +1468,10 @@ func TestBellCommand_AndPhonicStaging(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
 	dbPath := filepath.Join(tmpDir, "vault.db")
-	storage, _ := engine.NewSQLiteStorage(dbPath, "")
-	graph := engine.NewGraph()
-	mockProvider := &engine.MockLLMProvider{}
-	cfg := engine.NewDefaultConfig()
+	storage, _ := storage.NewSQLiteStorage(dbPath, "")
+	graph := graph.NewGraph()
+	mockProvider := &providers.MockLLMProvider{}
+	cfg := config.NewDefaultConfig()
 
 	m := NewModel(cfg, graph, storage, mockProvider, "")
 
@@ -1559,7 +1564,7 @@ func TestMemoriesCommand(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
 	dbPath := filepath.Join(tmpDir, "vault.db")
-	store, err := engine.NewSQLiteStorage(dbPath, "")
+	store, err := storage.NewSQLiteStorage(dbPath, "")
 	if err != nil {
 		t.Fatalf("failed to create sqlite storage: %v", err)
 	}
@@ -1571,9 +1576,9 @@ func TestMemoriesCommand(t *testing.T) {
 		Scope:    storage.ScopeWorkspace,
 	})
 
-	graph := engine.NewGraph()
-	mockProvider := &engine.MockLLMProvider{}
-	cfg := engine.NewDefaultConfig()
+	graph := graph.NewGraph()
+	mockProvider := &providers.MockLLMProvider{}
+	cfg := config.NewDefaultConfig()
 
 	m := NewModel(cfg, graph, store, mockProvider, "")
 
@@ -1630,7 +1635,7 @@ func TestMemoriesDeckNavigation_AndPrune(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("PLEASE_CONFIG_DIR", tmpDir)
 	dbPath := filepath.Join(tmpDir, "vault.db")
-	store, err := engine.NewSQLiteStorage(dbPath, "")
+	store, err := storage.NewSQLiteStorage(dbPath, "")
 	if err != nil {
 		t.Fatalf("failed to create sqlite storage: %v", err)
 	}
@@ -1644,9 +1649,9 @@ func TestMemoriesDeckNavigation_AndPrune(t *testing.T) {
 		})
 	}
 
-	graph := engine.NewGraph()
-	mockProvider := &engine.MockLLMProvider{}
-	cfg := engine.NewDefaultConfig()
+	graph := graph.NewGraph()
+	mockProvider := &providers.MockLLMProvider{}
+	cfg := config.NewDefaultConfig()
 
 	m := NewModel(cfg, graph, store, mockProvider, "")
 
@@ -1735,19 +1740,19 @@ func TestTUI_ConfigOriginBadgesAndScopedSaving(t *testing.T) {
 		t.Fatalf("failed to create sqlite store: %v", err)
 	}
 
-	g := engine.NewGraph()
-	mockProvider := &engine.MockLLMProvider{}
+	g := graph.NewGraph()
+	mockProvider := &providers.MockLLMProvider{}
 
-	cfg := &engine.Config{
-		Version:       engine.CurrentConfigVersion,
+	cfg := &config.Config{
+		Version:       config.CurrentConfigVersion,
 		WorkspaceRoot: wsDir,
-		Server: &engine.ServerConfig{
+		Server: &config.ServerConfig{
 			Provider:  "ollama",
 			Model:     "test-model",
 			Endpoint:  "http://localhost:11434/api/chat",
 			VaultPath: dbPath,
 		},
-		Client: &engine.ClientConfig{},
+		Client: &config.ClientConfig{},
 		Origins: map[string]string{
 			"server.model":      "workspace",
 			"server.endpoint":   "global",
@@ -1851,9 +1856,9 @@ func TestMemoryCardWrapping(t *testing.T) {
 		Scope:    storage.ScopeWorkspace,
 	})
 
-	g := engine.NewGraph()
-	mockProvider := &engine.MockLLMProvider{}
-	cfg := &engine.Config{}
+	g := graph.NewGraph()
+	mockProvider := &providers.MockLLMProvider{}
+	cfg := &config.Config{}
 	m := NewModel(cfg, g, store, mockProvider, "")
 	m.Width = 80
 	m.Viewport.Width = 76
@@ -1875,15 +1880,15 @@ func TestMemoryCardWrapping(t *testing.T) {
 
 func TestCompactionFinished_NotificationWithMemories(t *testing.T) {
 	tmpDir := t.TempDir()
-	store, _ := engine.NewSQLiteStorage(filepath.Join(tmpDir, "vault.db"), "")
-	graph := engine.NewGraph()
-	cfg := engine.NewDefaultConfig()
-	m := NewModel(cfg, graph, store, &engine.MockLLMProvider{}, "")
+	store, _ := storage.NewSQLiteStorage(filepath.Join(tmpDir, "vault.db"), "")
+	g := graph.NewGraph()
+	cfg := config.NewDefaultConfig()
+	m := NewModel(cfg, g, store, &providers.MockLLMProvider{}, "")
 
 	// Case 1: Multiple memories harvested
-	node2 := &engine.Node{
+	node2 := &graph.Node{
 		ID:       "super-1",
-		Role:     engine.RoleSummary,
+		Role:     domain.RoleSummary,
 		Metadata: map[string]string{"memories_harvested": "2"},
 	}
 	resModel, _ := m.handleCompactionFinished(compactionFinishedMsg{node: node2})
@@ -1894,9 +1899,9 @@ func TestCompactionFinished_NotificationWithMemories(t *testing.T) {
 	}
 
 	// Case 2: Exactly 1 memory harvested (singular)
-	node1 := &engine.Node{
+	node1 := &graph.Node{
 		ID:       "super-2",
-		Role:     engine.RoleSummary,
+		Role:     domain.RoleSummary,
 		Metadata: map[string]string{"memories_harvested": "1"},
 	}
 	resModel, _ = m.handleCompactionFinished(compactionFinishedMsg{node: node1})
@@ -1907,9 +1912,9 @@ func TestCompactionFinished_NotificationWithMemories(t *testing.T) {
 	}
 
 	// Case 3: Zero memories harvested
-	node0 := &engine.Node{
+	node0 := &graph.Node{
 		ID:       "super-3",
-		Role:     engine.RoleSummary,
+		Role:     domain.RoleSummary,
 		Metadata: map[string]string{"memories_harvested": "0"},
 	}
 	resModel, _ = m.handleCompactionFinished(compactionFinishedMsg{node: node0})
@@ -1920,9 +1925,9 @@ func TestCompactionFinished_NotificationWithMemories(t *testing.T) {
 	}
 
 	// Case 4: Nil metadata
-	nodeNil := &engine.Node{
+	nodeNil := &graph.Node{
 		ID:   "super-4",
-		Role: engine.RoleSummary,
+		Role: domain.RoleSummary,
 	}
 	resModel, _ = m.handleCompactionFinished(compactionFinishedMsg{node: nodeNil})
 	res = resModel.(*Model)
@@ -1930,4 +1935,3 @@ func TestCompactionFinished_NotificationWithMemories(t *testing.T) {
 		t.Errorf("expected notification %q, got %q", expected0, res.Notification)
 	}
 }
-

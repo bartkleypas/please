@@ -6,7 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bartkleypas/please/internal/engine"
+	"github.com/bartkleypas/please/internal/domain"
+	"github.com/bartkleypas/please/internal/graph"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -30,7 +31,7 @@ func (m *Model) generateMapString() string {
 		activityCache := make(map[string]int64)
 
 		// Sort roots by latest activity in their subtree (descending)
-		sortedRoots := make([]*engine.Node, len(roots))
+		sortedRoots := make([]*graph.Node, len(roots))
 		copy(sortedRoots, roots)
 		importSort(sortedRoots, activityCache, m)
 
@@ -47,7 +48,7 @@ func (m *Model) generateMapString() string {
 	return s.String()
 }
 
-func importSort(nodes []*engine.Node, cache map[string]int64, m *Model) {
+func importSort(nodes []*graph.Node, cache map[string]int64, m *Model) {
 	sort.Slice(nodes, func(i, j int) bool {
 		return m.getLatestActivity(nodes[i].ID, cache) > m.getLatestActivity(nodes[j].ID, cache)
 	})
@@ -127,7 +128,7 @@ func (m *Model) renderMap(s *strings.Builder, nodeID string, indent string, isLa
 		toolIndicator := ""
 		if len(node.ToolCalls) > 0 {
 			toolIndicator = markStyle.Render("🛠️")
-		} else if node.Role == engine.RoleTool {
+		} else if node.Role == domain.RoleTool {
 			toolIndicator = markStyle.Render("⚙️")
 		}
 
@@ -193,7 +194,7 @@ func (m *Model) renderMap(s *strings.Builder, nodeID string, indent string, isLa
 
 	children := m.Manager.GetChildren(node.ID)
 	// Sort children by latest activity in their subtree (descending)
-	sortedChildren := make([]*engine.Node, len(children))
+	sortedChildren := make([]*graph.Node, len(children))
 	copy(sortedChildren, children)
 	importSort(sortedChildren, activityCache, m)
 

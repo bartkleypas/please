@@ -3,8 +3,8 @@ package storage
 import (
 	"time"
 
+	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/graph"
-	"github.com/bartkleypas/please/internal/providers"
 )
 
 // Storage defines the interface for persisting the conversation graph
@@ -14,7 +14,7 @@ type Storage interface {
 	GarbageCollect() (int64, error)
 	UpdateNodeMetadata(node *graph.Node) error
 	UpdateNodeParentID(nodeID, newParentID string) error
-	UpdateNodeObservations(nodeID string, obs []providers.ToolObservation) error
+	UpdateNodeObservations(nodeID string, obs []domain.ToolObservation) error
 	SaveSessionHead(sessionID, nodeID string) error
 	GetSessionHead(sessionID string) (string, error)
 	ListSessions() (map[string]string, error)

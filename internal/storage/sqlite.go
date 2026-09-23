@@ -13,8 +13,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/graph"
-	"github.com/bartkleypas/please/internal/providers"
 )
 
 // SQLiteStorage implements Storage using an SQLite database in WAL mode
@@ -314,7 +314,7 @@ func (s *SQLiteStorage) UpdateNodeParentID(nodeID, newParentID string) error {
 }
 
 // UpdateNodeObservations updates the observations of an existing node in the database
-func (s *SQLiteStorage) UpdateNodeObservations(nodeID string, obs []providers.ToolObservation) error {
+func (s *SQLiteStorage) UpdateNodeObservations(nodeID string, obs []domain.ToolObservation) error {
 	obsJSON, err := json.Marshal(obs)
 	if err != nil {
 		return fmt.Errorf("failed to marshal observations: %w", err)

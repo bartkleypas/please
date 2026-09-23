@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/bartkleypas/please/internal/config"
+	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/engine"
 	"github.com/bartkleypas/please/internal/providers"
 	"github.com/bartkleypas/please/internal/storage"
@@ -60,7 +61,7 @@ func setupE2E(t *testing.T) (*engine.Manager, providers.Provider, *config.Config
 	endpoint := "http://localhost:11434/api/chat"
 	model := "gemma4:e4b"
 	apiKey := ""
-	var options *providers.ModelOptions
+	var options *domain.ModelOptions
 
 	if activeCfg.Server != nil {
 		mgr.SignatSteering = activeCfg.EnableSignatSteering()

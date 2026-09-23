@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/bartkleypas/please/internal/domain"
 )
 
 // ExecTools returns the host execution tools.
@@ -139,7 +141,7 @@ func ExecuteCommandTool(workspaceDir string, allowedList ...[]string) Tool {
 
 	return Tool{
 		Name:        "execute_command",
-		Category:    CategoryExecute,
+		Category:    domain.CategoryExecute,
 		Description: "Execute a shell command and return the combined output",
 		Interactive: true,
 		Parameters: map[string]interface{}{

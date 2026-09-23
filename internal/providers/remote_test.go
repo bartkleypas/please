@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/bartkleypas/please/internal/domain"
 )
 
 func TestRemoteDaemonProvider_Stream(t *testing.T) {
@@ -53,14 +55,14 @@ func TestRemoteDaemonProvider_Stream(t *testing.T) {
 	}
 
 	// 2. Consume stream
-	messages := []Message{
-		{Role: RoleUser, Content: "Say hello!"},
+	messages := []domain.Message{
+		{Role: domain.RoleUser, Content: "Say hello!"},
 	}
 	contentChan, thoughtChan, toolCallChan, errChan := provider.GenerateResponseStream(context.Background(), messages, nil)
 
 	var thoughtReceived string
 	var contentReceived string
-	var toolCallsReceived []ToolCall
+	var toolCallsReceived []domain.ToolCall
 
 	for contentChan != nil || thoughtChan != nil || toolCallChan != nil || errChan != nil {
 		select {
@@ -134,7 +136,7 @@ func TestRemoteDaemonProvider_SessionIDHeader(t *testing.T) {
 		t.Error("expected NewRemoteDaemonProvider to generate non-empty SessionID")
 	}
 
-	messages := []Message{{Role: RoleUser, Content: "ping"}}
+	messages := []domain.Message{{Role: domain.RoleUser, Content: "ping"}}
 	contentChan, _, _, errChan := provider.GenerateResponseStream(context.Background(), messages, nil)
 	for contentChan != nil || errChan != nil {
 		select {

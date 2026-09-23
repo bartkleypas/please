@@ -4,12 +4,14 @@ import (
 	"context"
 	"time"
 
+	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/engine"
+	"github.com/bartkleypas/please/internal/providers"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func streamResponse(ctx context.Context, provider engine.LLMProvider, messages []engine.Message, tools []engine.Tool, parentID string, activeNodeID string) tea.Cmd {
+func streamResponse(ctx context.Context, provider providers.Provider, messages []domain.Message, tools []domain.ToolSpec, parentID string, activeNodeID string) tea.Cmd {
 	return func() tea.Msg {
 		contentChan, thoughtChan, toolCallChan, errChan := provider.GenerateResponseStream(ctx, messages, tools)
 		return streamResponseMsg{
@@ -23,7 +25,7 @@ func streamResponse(ctx context.Context, provider engine.LLMProvider, messages [
 	}
 }
 
-func waitForStream(contentChan <-chan string, thoughtChan <-chan string, toolCallChan <-chan []engine.ToolCall, errChan <-chan error, parentID string, activeNodeID string) tea.Cmd {
+func waitForStream(contentChan <-chan string, thoughtChan <-chan string, toolCallChan <-chan []domain.ToolCall, errChan <-chan error, parentID string, activeNodeID string) tea.Cmd {
 	return func() tea.Msg {
 		select {
 		case content, ok := <-contentChan:
@@ -86,8 +88,8 @@ func waitForStream(contentChan <-chan string, thoughtChan <-chan string, toolCal
 	}
 }
 
-func checkRemainingChannels(toolCallChan <-chan []engine.ToolCall, errChan <-chan error, parentID string, activeNodeID string) tea.Msg {
-	var toolCalls []engine.ToolCall
+func checkRemainingChannels(toolCallChan <-chan []domain.ToolCall, errChan <-chan error, parentID string, activeNodeID string) tea.Msg {
+	var toolCalls []domain.ToolCall
 	var streamErr error
 
 	if tc, ok := <-toolCallChan; ok {

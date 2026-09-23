@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/graph"
-	"github.com/bartkleypas/please/internal/providers"
 )
 
 func TestJSONLStorage(t *testing.T) {
@@ -197,7 +197,7 @@ func TestSQLiteStorage_Encryption(t *testing.T) {
 	}
 
 	// 2. Verify UpdateNodeObservations encrypts observations
-	obs := []providers.ToolObservation{
+	obs := []domain.ToolObservation{
 		{ToolCallID: "call_abc", Result: "Confidential tool result."},
 	}
 	if err := storage.UpdateNodeObservations("enc_1", obs); err != nil {
@@ -387,7 +387,7 @@ func TestSQLiteStorage_SaveNodePreservesExistingObservations(t *testing.T) {
 		Role:      graph.RoleAssistant,
 		Content:   "Reading log file...",
 		Timestamp: time.Now(),
-		ToolCalls: []providers.ToolCall{
+		ToolCalls: []domain.ToolCall{
 			{
 				ID: "call_read_log",
 				Function: struct {
@@ -399,7 +399,7 @@ func TestSQLiteStorage_SaveNodePreservesExistingObservations(t *testing.T) {
 				},
 			},
 		},
-		Observations: []providers.ToolObservation{
+		Observations: []domain.ToolObservation{
 			{
 				ToolCallID: "call_read_log",
 				Result:     "# Log Content\nYesterday we refactored the DAG.",
