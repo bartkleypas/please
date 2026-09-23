@@ -9,15 +9,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/bartkleypas/please/internal/providers"
-	"github.com/bartkleypas/please/internal/tools"
+	"github.com/bartkleypas/please/internal/domain"
 )
 
 // CurrentConfigVersion is the current schema version for config.json
 const CurrentConfigVersion = 2
-
-// ModelOptions holds model inference and sampling parameters (aliased from internal/providers)
-type ModelOptions = providers.ModelOptions
 
 // ServerConfig holds settings for running the engine daemon / standalone backend
 type ServerConfig struct {
@@ -40,8 +36,8 @@ type ServerConfig struct {
 	MaxToolDepth      *int          `json:"max_tool_depth,omitempty"`
 	SignatSteering    *bool         `json:"signat_steering,omitempty"`
 	AmbientTelemetry  *bool         `json:"ambient_telemetry,omitempty"`
-	WorktreeIsolation *bool         `json:"worktree_isolation,omitempty"`
-	Options           *ModelOptions `json:"options,omitempty"`
+	WorktreeIsolation *bool                `json:"worktree_isolation,omitempty"`
+	Options           *domain.ModelOptions `json:"options,omitempty"`
 }
 
 // ClientConfig holds settings for connecting the TUI to a remote daemon
@@ -76,9 +72,9 @@ type legacyV1Config struct {
 	Vault              string        `json:"vault"`
 	StorageType        string        `json:"storage_type"`
 	EncryptionKey      string        `json:"encryption_key"`
-	NaturalPacing      *bool         `json:"natural_pacing"`
-	Options            *ModelOptions `json:"options"`
-	WorkspaceDir       string        `json:"workspace_dir"`
+	NaturalPacing      *bool                `json:"natural_pacing"`
+	Options            *domain.ModelOptions `json:"options"`
+	WorkspaceDir       string               `json:"workspace_dir"`
 	Workspace          string        `json:"workspace"`
 	AuthToken          string        `json:"auth_token"`
 	TLSCertFile        string        `json:"tls_cert_file"`
@@ -365,7 +361,7 @@ func (c *Config) GetMaxToolDepth() int {
 // Defaults to SandboxPolicyStandard if not configured.
 func (s *ServerConfig) GetSandboxPolicy() string {
 	if s == nil || s.SandboxPolicy == "" {
-		return tools.SandboxPolicyStandard
+		return string(domain.SandboxPolicyStandard)
 	}
 	return s.SandboxPolicy
 }
@@ -375,7 +371,7 @@ func (c *Config) GetSandboxPolicy() string {
 	if c != nil && c.Server != nil {
 		return c.Server.GetSandboxPolicy()
 	}
-	return tools.SandboxPolicyStandard
+	return string(domain.SandboxPolicyStandard)
 }
 
 // EnableSignatSteering returns whether turn signature (signat) emoji steering is enabled.

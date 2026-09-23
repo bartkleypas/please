@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/bartkleypas/please/internal/domain"
 )
 
 // SensoryTools returns the standard suite of read-only sensory tools.
@@ -65,7 +67,7 @@ func ReadFileTool(workspaceDir ...string) Tool {
 
 	return Tool{
 		Name:        "read_file",
-		Category:    CategorySensory,
+		Category:    domain.CategorySensory,
 		Description: "Read the contents of a file from the local filesystem with optional line slicing and byte windowing. Supports pagination for large files. If a file is truncated, inspect the pagination header and call read_file again with offset set to the next offset indicated.",
 		Interactive: false,
 		Parameters: map[string]interface{}{
@@ -187,7 +189,7 @@ func ListDirectoryTool(workspaceDir ...string) Tool {
 
 	return Tool{
 		Name:        "list_directory",
-		Category:    CategorySensory,
+		Category:    domain.CategorySensory,
 		Description: "List the contents of a directory on the local filesystem",
 		Interactive: false,
 		Parameters: map[string]interface{}{
@@ -238,7 +240,7 @@ func GrepSearchTool(workspaceDir ...string) Tool {
 
 	return Tool{
 		Name:        "grep_search",
-		Category:    CategorySensory,
+		Category:    domain.CategorySensory,
 		Description: "Search for a pattern in files within a directory (recursive)",
 		Interactive: false,
 		Parameters: map[string]interface{}{
@@ -328,7 +330,7 @@ func ListFilesRecursiveTool(workspaceDir ...string) Tool {
 
 	return Tool{
 		Name:        "list_files_recursive",
-		Category:    CategorySensory,
+		Category:    domain.CategorySensory,
 		Description: "Recursively list all files in a directory",
 		Interactive: false,
 		Parameters: map[string]interface{}{

@@ -7,8 +7,8 @@ import (
 	"os"
 	"syscall"
 
+	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/graph"
-	"github.com/bartkleypas/please/internal/providers"
 )
 
 // JSONLStorage implements Storage using a JSON Lines file
@@ -34,7 +34,7 @@ func (s *JSONLStorage) UpdateNodeParentID(nodeID, newParentID string) error {
 	return fmt.Errorf("parent updates not implemented for JSONL storage")
 }
 
-func (s *JSONLStorage) UpdateNodeObservations(nodeID string, obs []providers.ToolObservation) error {
+func (s *JSONLStorage) UpdateNodeObservations(nodeID string, obs []domain.ToolObservation) error {
 	return fmt.Errorf("observation updates not implemented for JSONL storage")
 }
 

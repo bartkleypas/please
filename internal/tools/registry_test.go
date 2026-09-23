@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+
+	"github.com/bartkleypas/please/internal/domain"
 )
 
 func TestToolRegistry(t *testing.T) {
@@ -96,12 +98,12 @@ func TestToolCategory_TaxonomyAndPolicyFiltering(t *testing.T) {
 	RegisterDefaultTools(registry, "/tmp")
 
 	// 1. Permissive returns all tools including execute_command
-	permTools := registry.GetToolsForPolicy(SandboxPolicyPermissive)
+	permTools := registry.GetToolsForPolicy(string(domain.SandboxPolicyPermissive))
 	hasExec := false
 	for _, tool := range permTools {
 		if tool.Name == "execute_command" {
 			hasExec = true
-			if tool.Category != CategoryExecute {
+			if tool.Category != domain.CategoryExecute {
 				t.Errorf("expected execute_command to have CategoryExecute, got %s", tool.Category)
 			}
 		}
@@ -111,13 +113,13 @@ func TestToolCategory_TaxonomyAndPolicyFiltering(t *testing.T) {
 	}
 
 	// 2. Standard policy includes Mutate & Sensory, but drops execute_command
-	stdTools := registry.GetToolsForPolicy(SandboxPolicyStandard)
+	stdTools := registry.GetToolsForPolicy(string(domain.SandboxPolicyStandard))
 	hasMutate := false
 	for _, tool := range stdTools {
-		if tool.Category == CategoryExecute || tool.Name == "execute_command" {
+		if tool.Category == domain.CategoryExecute || tool.Name == "execute_command" {
 			t.Errorf("standard policy leaked execution tool: %s (%s)", tool.Name, tool.Category)
 		}
-		if tool.Category == CategoryMutate {
+		if tool.Category == domain.CategoryMutate {
 			hasMutate = true
 		}
 	}
@@ -126,15 +128,15 @@ func TestToolCategory_TaxonomyAndPolicyFiltering(t *testing.T) {
 	}
 
 	// 3. Strict drops BOTH CategoryExecute and CategoryMutate tools (Sensory only)
-	strictTools := registry.GetToolsForPolicy(SandboxPolicyStrict)
+	strictTools := registry.GetToolsForPolicy(string(domain.SandboxPolicyStrict))
 	for _, tool := range strictTools {
-		if tool.Category == CategoryExecute || tool.Name == "execute_command" {
+		if tool.Category == domain.CategoryExecute || tool.Name == "execute_command" {
 			t.Errorf("strict policy leaked execution tool: %s (%s)", tool.Name, tool.Category)
 		}
-		if tool.Category == CategoryMutate {
+		if tool.Category == domain.CategoryMutate {
 			t.Errorf("strict policy leaked mutate tool: %s (%s)", tool.Name, tool.Category)
 		}
-		if tool.Category != CategorySensory {
+		if tool.Category != domain.CategorySensory {
 			t.Errorf("strict policy allowed non-sensory tool: %s (%s)", tool.Name, tool.Category)
 		}
 	}

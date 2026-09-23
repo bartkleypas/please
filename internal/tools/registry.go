@@ -6,23 +6,16 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-)
 
-// ToolCategory defines the fundamental nature of a tool's capability.
-type ToolCategory string
-
-const (
-	CategorySensory ToolCategory = "sensory" // Read-only / discovery (Should be ordered "first")
-	CategoryMutate  ToolCategory = "mutate"  // State-modifying / writes (ordered "second")
-	CategoryExecute ToolCategory = "execute" // Host compute execution (ordered "third")
+	"github.com/bartkleypas/please/internal/domain"
 )
 
 // Tool defines an external function that the LLM can call.
 type Tool struct {
-	Name        string       `json:"name"`
-	Category    ToolCategory `json:"category,omitempty"` // Turns out, pretty important now :D
-	Description string       `json:"description"`
-	Parameters  interface{}  `json:"parameters"` // JSON Schema for the tool's arguments
+	Name        string              `json:"name"`
+	Category    domain.ToolCategory `json:"category,omitempty"` // Turns out, pretty important now :D
+	Description string              `json:"description"`
+	Parameters  interface{}         `json:"parameters"` // JSON Schema for the tool's arguments
 	Function    func(ctx context.Context, args map[string]interface{}) (string, error)
 	Interactive bool `json:"interactive"` // If true, requires user approval before execution
 }
@@ -104,13 +97,13 @@ func (r *ToolRegistry) Dispatch(ctx context.Context, name string, rawArgs json.R
 
 // categoryPriority maps ToolCategory to deterministic sequence weights.
 // Follows the Unix paradigm: Sensory/Read -> Mutate/Write -> Execute/Verify.
-func categoryPriority(c ToolCategory) int {
+func categoryPriority(c domain.ToolCategory) int {
 	switch c {
-	case CategorySensory:
+	case domain.CategorySensory:
 		return 10
-	case CategoryMutate:
+	case domain.CategoryMutate:
 		return 20
-	case CategoryExecute:
+	case domain.CategoryExecute:
 		return 30
 	default:
 		return 99
@@ -144,24 +137,24 @@ func (r *ToolRegistry) GetToolsForPolicy(policy string) []Tool {
 	allTools := r.GetTools()
 	pol := strings.ToLower(strings.TrimSpace(policy))
 	if pol == "" {
-		pol = SandboxPolicyStandard
+		pol = string(domain.SandboxPolicyStandard)
 	}
 
-	if pol == SandboxPolicyPermissive {
+	if pol == string(domain.SandboxPolicyPermissive) {
 		return allTools
 	}
 
 	filtered := make([]Tool, 0, len(allTools))
 	for _, t := range allTools {
 		switch pol {
-		case SandboxPolicyStrict:
-			if t.Category == CategorySensory {
+		case string(domain.SandboxPolicyStrict):
+			if t.Category == domain.CategorySensory {
 				filtered = append(filtered, t)
 			}
-		case SandboxPolicyStandard:
+		case string(domain.SandboxPolicyStandard):
 			fallthrough
 		default:
-			if t.Category != CategoryExecute && t.Name != "execute_command" {
+			if t.Category != domain.CategoryExecute && t.Name != "execute_command" {
 				filtered = append(filtered, t)
 			}
 		}

@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/graph"
-	"github.com/bartkleypas/please/internal/providers"
 	"github.com/google/uuid"
 )
 
@@ -33,7 +33,7 @@ func NewRemoteDaemonStorage(baseURL, authToken, caCertPath string) (*RemoteDaemo
 		baseURL = "http://" + baseURL
 	}
 
-	caCertPath = providers.ResolveCACert(caCertPath, baseURL)
+	caCertPath = domain.ResolveCACert(caCertPath, baseURL)
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 
@@ -155,7 +155,7 @@ func (s *RemoteDaemonStorage) UpdateNodeParentID(nodeID, newParentID string) err
 }
 
 // UpdateNodeObservations updates tool execution observations on the daemon.
-func (s *RemoteDaemonStorage) UpdateNodeObservations(nodeID string, obs []providers.ToolObservation) error {
+func (s *RemoteDaemonStorage) UpdateNodeObservations(nodeID string, obs []domain.ToolObservation) error {
 	return nil
 }
 
