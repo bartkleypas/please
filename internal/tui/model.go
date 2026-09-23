@@ -77,15 +77,15 @@ type Model struct {
 	CollapsedNodes    map[string]bool
 
 	// Deletion state
-	PruneTargetID             string
+	PruneTargetID string
 
 	// Compaction state
-	CompactTargetIDs            []string
-	CompactDirective            string
-	IsCompressing               bool
+	CompactTargetIDs []string
+	CompactDirective string
+	IsCompressing    bool
 
 	// Tool handling fields
-	PendingToolCalls         []domain.ToolCall
+	PendingToolCalls []domain.ToolCall
 
 	// Animation state
 	LastActivity time.Time

@@ -16,8 +16,8 @@ type mockLayer struct {
 	escHandle bool
 }
 
-func (m *mockLayer) Name() string { return m.name }
-func (m *mockLayer) IsOverlay() bool { return m.overlay }
+func (m *mockLayer) Name() string                  { return m.name }
+func (m *mockLayer) IsOverlay() bool               { return m.overlay }
 func (m *mockLayer) View(width, height int) string { return m.viewText }
 func (m *mockLayer) Update(msg tea.Msg) (tea.Cmd, bool) {
 	m.lastMsg = msg

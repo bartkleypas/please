@@ -7,7 +7,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-
 func TestConfirmOverlay_Prune(t *testing.T) {
 	root := &mockLayer{name: "root"}
 	stack := NewViewStack(root)
