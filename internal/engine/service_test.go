@@ -81,12 +81,14 @@ type MockStorage struct {
 	Sessions map[string]string
 }
 
-func (s *MockStorage) SaveNode(n *graph.Node) error                                        { return nil }
-func (s *MockStorage) LoadGraph() (*graph.Graph, string, error)                            { return graph.NewGraph(), "", nil }
-func (s *MockStorage) UpdateNodeMetadata(n *graph.Node) error                              { return nil }
-func (s *MockStorage) UpdateNodeParentID(id, p string) error                         { return nil }
-func (s *MockStorage) UpdateNodeObservations(id string, obs []domain.ToolObservation) error { return nil }
-func (s *MockStorage) GarbageCollect() (int64, error)                                { return 0, nil }
+func (s *MockStorage) SaveNode(n *graph.Node) error             { return nil }
+func (s *MockStorage) LoadGraph() (*graph.Graph, string, error) { return graph.NewGraph(), "", nil }
+func (s *MockStorage) UpdateNodeMetadata(n *graph.Node) error   { return nil }
+func (s *MockStorage) UpdateNodeParentID(id, p string) error    { return nil }
+func (s *MockStorage) UpdateNodeObservations(id string, obs []domain.ToolObservation) error {
+	return nil
+}
+func (s *MockStorage) GarbageCollect() (int64, error) { return 0, nil }
 func (s *MockStorage) SaveSessionHead(sessionID, nodeID string) error {
 	if s.Sessions == nil {
 		s.Sessions = make(map[string]string)
@@ -1651,4 +1653,3 @@ func TestCompactRangeWithDirective_LegacyFallback(t *testing.T) {
 		t.Errorf("expected 0 memories in store, got %d", len(memStore.memories))
 	}
 }
-

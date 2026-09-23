@@ -30,7 +30,6 @@ type RemoteDaemonProvider struct {
 // ResolveCACert determines the effective CA certificate path with auto-discovery.
 var ResolveCACert = domain.ResolveCACert
 
-
 // NewRemoteDaemonProvider creates a new provider instance connected to the specified daemon base URL.
 func NewRemoteDaemonProvider(baseURL, authToken, caCertPath string) (*RemoteDaemonProvider, error) {
 	baseURL = strings.TrimRight(baseURL, "/")

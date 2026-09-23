@@ -1935,4 +1935,3 @@ func TestCompactionFinished_NotificationWithMemories(t *testing.T) {
 		t.Errorf("expected notification %q, got %q", expected0, res.Notification)
 	}
 }
-

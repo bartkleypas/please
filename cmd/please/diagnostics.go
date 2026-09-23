@@ -182,10 +182,10 @@ func runInspect(args []string) {
 	if *jsonOutput {
 		type NodeInspectJSON struct {
 			TargetNode      *graph.Node `json:"target_node"`
-			EstimatedTokens int          `json:"estimated_tokens"`
-			NumCtx          int          `json:"num_ctx"`
-			FillRatio       float64      `json:"fill_ratio"`
-			PathLength      int          `json:"path_length"`
+			EstimatedTokens int         `json:"estimated_tokens"`
+			NumCtx          int         `json:"num_ctx"`
+			FillRatio       float64     `json:"fill_ratio"`
+			PathLength      int         `json:"path_length"`
 		}
 		data, _ := json.MarshalIndent(NodeInspectJSON{
 			TargetNode:      targetNode,
