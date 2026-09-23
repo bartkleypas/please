@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/bartkleypas/please/internal/domain"
 	"github.com/google/uuid"
 )
 
@@ -46,9 +47,9 @@ func normalizePseudoJSON(rawArgs string) string {
 
 // ExtractContentToolCalls detects raw tool call patterns leaked into text content
 // when model providers or local inference backends fail to intercept them into structured API tool calls.
-// It returns the cleaned text content and any extracted ToolCall items.
-func ExtractContentToolCalls(content string) (string, []ToolCall) {
-	var toolCalls []ToolCall
+// It returns the cleaned text content and any extracted domain.ToolCall items.
+func ExtractContentToolCalls(content string) (string, []domain.ToolCall) {
+	var toolCalls []domain.ToolCall
 	cleaned := content
 
 	// 1. Check for Gemma <call>tool_name{...}</call>
@@ -63,7 +64,7 @@ func ExtractContentToolCalls(content string) (string, []ToolCall) {
 			if err := json.Unmarshal([]byte(normJSON), &parsed); err == nil {
 				jsonBytes, _ := json.Marshal(parsed)
 				callID := fmt.Sprintf("call_%s", strings.ReplaceAll(uuid.New().String(), "-", "")[:8])
-				toolCalls = append([]ToolCall{{
+				toolCalls = append([]domain.ToolCall{{
 					ID:   callID,
 					Type: "function",
 					Function: struct {
@@ -95,7 +96,7 @@ func ExtractContentToolCalls(content string) (string, []ToolCall) {
 			if err := json.Unmarshal([]byte(normJSON), &parsed); err == nil {
 				jsonBytes, _ := json.Marshal(parsed)
 				callID := fmt.Sprintf("call_%s", strings.ReplaceAll(uuid.New().String(), "-", "")[:8])
-				toolCalls = append([]ToolCall{{
+				toolCalls = append([]domain.ToolCall{{
 					ID:   callID,
 					Type: "function",
 					Function: struct {
@@ -157,7 +158,7 @@ func ExtractContentToolCalls(content string) (string, []ToolCall) {
 						argsBytes = []byte("{}")
 					}
 					callID := fmt.Sprintf("call_%s", strings.ReplaceAll(uuid.New().String(), "-", "")[:8])
-					toolCalls = append([]ToolCall{{
+					toolCalls = append([]domain.ToolCall{{
 						ID:   callID,
 						Type: "function",
 						Function: struct {
@@ -182,7 +183,7 @@ func ExtractContentToolCalls(content string) (string, []ToolCall) {
 				if err := json.Unmarshal([]byte(normJSON), &parsed); err == nil {
 					jsonBytes, _ := json.Marshal(parsed)
 					callID := fmt.Sprintf("call_%s", strings.ReplaceAll(uuid.New().String(), "-", "")[:8])
-					toolCalls = append([]ToolCall{{
+					toolCalls = append([]domain.ToolCall{{
 						ID:   callID,
 						Type: "function",
 						Function: struct {

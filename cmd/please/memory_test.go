@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bartkleypas/please/internal/engine"
 	"github.com/bartkleypas/please/internal/storage"
 )
 
@@ -16,7 +15,7 @@ func TestMemoryCLI_Commands(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test_vault.db")
 
-	sqliteStore, err := engine.NewSQLiteStorage(dbPath, "")
+	sqliteStore, err := storage.NewSQLiteStorage(dbPath, "")
 	if err != nil {
 		t.Fatalf("failed to create sqlite storage: %v", err)
 	}

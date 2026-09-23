@@ -4,7 +4,11 @@ import (
 	"context"
 	"time"
 
+	"github.com/bartkleypas/please/internal/config"
+	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/engine"
+	"github.com/bartkleypas/please/internal/graph"
+	"github.com/bartkleypas/please/internal/providers"
 	"github.com/bartkleypas/please/internal/server"
 	"github.com/bartkleypas/please/internal/storage"
 
@@ -23,9 +27,9 @@ const (
 )
 
 type Model struct {
-	Config   *engine.Config
+	Config   *config.Config
 	Manager  *engine.Manager
-	Provider engine.LLMProvider
+	Provider providers.Provider
 	Server   *server.Server // Host engine server daemon in standalone mode
 
 	Ready             bool
@@ -58,7 +62,7 @@ type Model struct {
 	CurrentStreamingThought string
 	StreamContentChan       <-chan string
 	StreamThoughtChan       <-chan string
-	StreamToolCallChan      <-chan []engine.ToolCall
+	StreamToolCallChan      <-chan []domain.ToolCall
 	StreamErrChan           <-chan error
 	StreamCancel            func() // Cancellation function for the active LLM stream
 	InterleavingNodeID      string // The Assistant node currently receiving observations
@@ -82,7 +86,7 @@ type Model struct {
 	IsCompressing               bool
 
 	// Tool handling fields
-	PendingToolCalls         []engine.ToolCall
+	PendingToolCalls         []domain.ToolCall
 	AwaitingToolConfirmation bool
 
 	// Animation state
@@ -113,16 +117,16 @@ type Model struct {
 	DefaultFoldThoughts bool
 }
 
-func NewModel(cfg *engine.Config, g *engine.Graph, s engine.Storage, p engine.LLMProvider, currentID string) Model {
+func NewModel(cfg *config.Config, g *graph.Graph, s storage.Storage, p providers.Provider, currentID string) Model {
 	if cfg == nil {
-		cfg = engine.NewDefaultConfig()
+		cfg = config.NewDefaultConfig()
 	} else {
 		if cfg.Server == nil {
-			defaultCfg := engine.NewDefaultConfig()
+			defaultCfg := config.NewDefaultConfig()
 			cfg.Server = defaultCfg.Server
 		}
 		if cfg.Client == nil {
-			defaultCfg := engine.NewDefaultConfig()
+			defaultCfg := config.NewDefaultConfig()
 			cfg.Client = defaultCfg.Client
 		}
 	}
@@ -155,9 +159,9 @@ func NewModel(cfg *engine.Config, g *engine.Graph, s engine.Storage, p engine.LL
 	si.Prompt = " / "
 
 	sessionID := ""
-	if rdp, ok := p.(*engine.RemoteDaemonProvider); ok && rdp.SessionID != "" {
+	if rdp, ok := p.(*providers.RemoteDaemonProvider); ok && rdp.SessionID != "" {
 		sessionID = rdp.SessionID
-	} else if rds, ok := s.(*engine.RemoteDaemonStorage); ok && rds.SessionID != "" {
+	} else if rds, ok := s.(*storage.RemoteDaemonStorage); ok && rds.SessionID != "" {
 		sessionID = rds.SessionID
 	} else if cfg != nil {
 		sessionID = cfg.GetSession()

@@ -3,17 +3,17 @@ package tui
 import (
 	"strings"
 
-	"github.com/bartkleypas/please/internal/engine"
+	"github.com/bartkleypas/please/internal/domain"
 	"github.com/charmbracelet/lipgloss"
 )
 
-func getRoleStyle(role engine.Role) lipgloss.Style {
+func getRoleStyle(role domain.Role) lipgloss.Style {
 	switch role {
-	case engine.RoleAssistant:
+	case domain.RoleAssistant:
 		return botStyle
-	case engine.RoleTool:
+	case domain.RoleTool:
 		return markStyle
-	case engine.RoleSystem:
+	case domain.RoleSystem:
 		return titleStyle
 	default:
 		return userStyle

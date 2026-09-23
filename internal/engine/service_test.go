@@ -12,11 +12,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bartkleypas/please/internal/domain"
+	"github.com/bartkleypas/please/internal/graph"
+	"github.com/bartkleypas/please/internal/providers"
 	"github.com/bartkleypas/please/internal/storage"
 )
 
 func TestManager_Validation(t *testing.T) {
-	mgr := NewManager(NewGraph(), &MockStorage{})
+	mgr := NewManager(graph.NewGraph(), &MockStorage{})
 
 	tests := []struct {
 		name    string
@@ -26,7 +29,7 @@ func TestManager_Validation(t *testing.T) {
 		{
 			name: "Empty user content",
 			fn: func() error {
-				_, err := mgr.CreateNode("root", RoleUser, "", false)
+				_, err := mgr.CreateNode("root", domain.RoleUser, "", false)
 				return err
 			},
 			wantErr: "user message content cannot be empty",
@@ -36,7 +39,7 @@ func TestManager_Validation(t *testing.T) {
 			fn: func() error {
 				// We have to bypass the UUID generation to test ID == ParentID
 				// Since CreateNode generates a UUID, we'll test the internal validateNode directly
-				node := &Node{ID: "A", ParentID: "A", Role: RoleUser, Content: "Hello"}
+				node := &graph.Node{ID: "A", ParentID: "A", Role: domain.RoleUser, Content: "Hello"}
 				return mgr.validateNode(node)
 			},
 			wantErr: "node cannot be its own parent",
@@ -78,11 +81,11 @@ type MockStorage struct {
 	Sessions map[string]string
 }
 
-func (s *MockStorage) SaveNode(n *Node) error                                        { return nil }
-func (s *MockStorage) LoadGraph() (*Graph, string, error)                            { return NewGraph(), "", nil }
-func (s *MockStorage) UpdateNodeMetadata(n *Node) error                              { return nil }
+func (s *MockStorage) SaveNode(n *graph.Node) error                                        { return nil }
+func (s *MockStorage) LoadGraph() (*graph.Graph, string, error)                            { return graph.NewGraph(), "", nil }
+func (s *MockStorage) UpdateNodeMetadata(n *graph.Node) error                              { return nil }
 func (s *MockStorage) UpdateNodeParentID(id, p string) error                         { return nil }
-func (s *MockStorage) UpdateNodeObservations(id string, obs []ToolObservation) error { return nil }
+func (s *MockStorage) UpdateNodeObservations(id string, obs []domain.ToolObservation) error { return nil }
 func (s *MockStorage) GarbageCollect() (int64, error)                                { return 0, nil }
 func (s *MockStorage) SaveSessionHead(sessionID, nodeID string) error {
 	if s.Sessions == nil {
@@ -109,20 +112,20 @@ func (s *MockStorage) ListSessions() (map[string]string, error) {
 }
 
 func TestManager_ResonanceScoring(t *testing.T) {
-	mgr := NewManager(NewGraph(), &MockStorage{})
+	mgr := NewManager(graph.NewGraph(), &MockStorage{})
 
 	// 1. Create a root system node
-	systemNode, _ := mgr.CreateNode("", RoleSystem, "System prompt", false)
+	systemNode, _ := mgr.CreateNode("", domain.RoleSystem, "System prompt", false)
 
-	// 2. Test MaxFloat64 for RoleSystem and RoleSummary
+	// 2. Test MaxFloat64 for domain.RoleSystem and domain.RoleSummary
 	score := mgr.calculateResonanceScore(systemNode, 10, 0.90, 10)
 	if score != math.MaxFloat64 {
 		t.Errorf("expected MaxFloat64 for system node, got %f", score)
 	}
 
-	summaryNode := &Node{
+	summaryNode := &graph.Node{
 		ID:      "summary_1",
-		Role:    RoleSummary,
+		Role:    domain.RoleSummary,
 		Content: "Compacted discussion",
 	}
 	score = mgr.calculateResonanceScore(summaryNode, 10, 0.90, 10)
@@ -133,9 +136,9 @@ func TestManager_ResonanceScoring(t *testing.T) {
 	// 3. Test Grace Window: distance < 3
 	// We create a node from 2 hours ago
 	oldTime := time.Now().Add(-2 * time.Hour)
-	oldUserNode := &Node{
+	oldUserNode := &graph.Node{
 		ID:        "old_user",
-		Role:      RoleUser,
+		Role:      domain.RoleUser,
 		Content:   "Hello",
 		Timestamp: oldTime,
 	}
@@ -159,15 +162,15 @@ func TestManager_ResonanceScoring(t *testing.T) {
 }
 
 func TestManager_BuildLLMContext_FidelityAndToolSummaries(t *testing.T) {
-	mgr := NewManager(NewGraph(), &MockStorage{})
+	mgr := NewManager(graph.NewGraph(), &MockStorage{})
 	mgr.NumCtx = 4000 // Force high pressure to test observation crushing
 
 	// Construct a path of nodes standardly
 	// 1. Root system node
-	n1, _ := mgr.CreateNode("", RoleSystem, "System Prompt", false)
+	n1, _ := mgr.CreateNode("", domain.RoleSystem, "System Prompt", false)
 
 	// 2. Assistant node with large tool calls
-	tcs := []ToolCall{
+	tcs := []domain.ToolCall{
 		{
 			ID:   "call_abc",
 			Type: "function",
@@ -193,7 +196,7 @@ func TestManager_BuildLLMContext_FidelityAndToolSummaries(t *testing.T) {
 	}
 
 	// 3. User node (distance = 2)
-	n3, _ := mgr.CreateNode(n2.ID, RoleUser, "Thanks", false)
+	n3, _ := mgr.CreateNode(n2.ID, domain.RoleUser, "Thanks", false)
 
 	// 4. Internal assistant node (distance = 1) - should be dropped completely if low fidelity
 	n4, err := mgr.CreateAssistantNode(n3.ID, strings.Repeat("internal thought trace ", 300), "", nil, true)
@@ -202,7 +205,7 @@ func TestManager_BuildLLMContext_FidelityAndToolSummaries(t *testing.T) {
 	}
 
 	// 5. Leaf assistant node (distance = 0)
-	n5, _ := mgr.CreateNode(n4.ID, RoleAssistant, "Final answer", false)
+	n5, _ := mgr.CreateNode(n4.ID, domain.RoleAssistant, "Final answer", false)
 
 	// Build context from leaf n5
 	messages, err := mgr.BuildLLMContext(n5.ID, false)
@@ -232,7 +235,7 @@ func TestManager_BuildLLMContext_FidelityAndToolSummaries(t *testing.T) {
 	// Check Node 2's pruned observation summary
 	foundSummary := false
 	for _, msg := range messages {
-		if msg.Role == RoleTool && msg.ToolCallID == "call_abc" {
+		if msg.Role == domain.RoleTool && msg.ToolCallID == "call_abc" {
 			obsResult := msg.Content
 			if !strings.Contains(obsResult, "[Tool 'read_file' execution completed. Detailed results omitted. Total size:") {
 				t.Errorf("expected informative summary, got: %s", obsResult)
@@ -246,13 +249,13 @@ func TestManager_BuildLLMContext_FidelityAndToolSummaries(t *testing.T) {
 }
 
 func TestManager_BuildLLMContext_SequentialSegments(t *testing.T) {
-	mgr := NewManager(NewGraph(), &MockStorage{})
+	mgr := NewManager(graph.NewGraph(), &MockStorage{})
 
 	// 1. Create root node
-	n1, _ := mgr.CreateNode("", RoleUser, "Run test", false)
+	n1, _ := mgr.CreateNode("", domain.RoleUser, "Run test", false)
 
 	// 2. Create assistant node with first tool call
-	tcs1 := []ToolCall{
+	tcs1 := []domain.ToolCall{
 		{
 			ID:   "call_1",
 			Type: "function",
@@ -284,7 +287,7 @@ func TestManager_BuildLLMContext_SequentialSegments(t *testing.T) {
 	}
 	node.Content += "Step 1 done. Running test 2."
 	node.Thought += "thought 2"
-	tcs2 := []ToolCall{
+	tcs2 := []domain.ToolCall{
 		{
 			ID:   "call_2",
 			Type: "function",
@@ -312,7 +315,7 @@ func TestManager_BuildLLMContext_SequentialSegments(t *testing.T) {
 	node.Metadata["segments"] = string(segJSON)
 
 	// Update observation 2
-	node.Observations = append(node.Observations, ToolObservation{
+	node.Observations = append(node.Observations, domain.ToolObservation{
 		ToolCallID: "call_2",
 		Result:     "success 2",
 	})
@@ -340,27 +343,27 @@ func TestManager_BuildLLMContext_SequentialSegments(t *testing.T) {
 		t.Fatalf("expected 5 messages, got %d", len(messages))
 	}
 
-	if messages[0].Role != RoleUser || messages[0].Content != "Run test" {
+	if messages[0].Role != domain.RoleUser || messages[0].Content != "Run test" {
 		t.Errorf("unexpected message 0: %+v", messages[0])
 	}
-	if messages[1].Role != RoleAssistant || messages[1].Content != "" || len(messages[1].ToolCalls) != 1 || messages[1].ToolCalls[0].ID != "call_1" {
+	if messages[1].Role != domain.RoleAssistant || messages[1].Content != "" || len(messages[1].ToolCalls) != 1 || messages[1].ToolCalls[0].ID != "call_1" {
 		t.Errorf("unexpected message 1: %+v", messages[1])
 	}
-	if messages[2].Role != RoleTool || messages[2].Content != "success 1" || messages[2].ToolCallID != "call_1" {
+	if messages[2].Role != domain.RoleTool || messages[2].Content != "success 1" || messages[2].ToolCallID != "call_1" {
 		t.Errorf("unexpected message 2: %+v", messages[2])
 	}
-	if messages[3].Role != RoleAssistant || messages[3].Content != "Step 1 done. Running test 2." || len(messages[3].ToolCalls) != 1 || messages[3].ToolCalls[0].ID != "call_2" {
+	if messages[3].Role != domain.RoleAssistant || messages[3].Content != "Step 1 done. Running test 2." || len(messages[3].ToolCalls) != 1 || messages[3].ToolCalls[0].ID != "call_2" {
 		t.Errorf("unexpected message 3: %+v", messages[3])
 	}
-	if messages[4].Role != RoleTool || messages[4].Content != "success 2" || messages[4].ToolCallID != "call_2" {
+	if messages[4].Role != domain.RoleTool || messages[4].Content != "success 2" || messages[4].ToolCallID != "call_2" {
 		t.Errorf("unexpected message 4: %+v", messages[4])
 	}
 }
 
 func TestCreateNode_RoleToolAutoGeneratedID(t *testing.T) {
-	mgr := NewManager(NewGraph(), &MockStorage{})
+	mgr := NewManager(graph.NewGraph(), &MockStorage{})
 
-	node, err := mgr.CreateNode("root", RoleTool, "tool output", false)
+	node, err := mgr.CreateNode("root", domain.RoleTool, "tool output", false)
 	if err != nil {
 		t.Fatalf("expected no error creating tool node, got: %v", err)
 	}
@@ -375,7 +378,7 @@ func TestCreateNode_RoleToolAutoGeneratedID(t *testing.T) {
 }
 
 func TestBuildLLMContext_ImageFallbackFlow(t *testing.T) {
-	mgr := NewManager(NewGraph(), &MockStorage{})
+	mgr := NewManager(graph.NewGraph(), &MockStorage{})
 
 	img1 := createTestPNG(t)
 	defer os.Remove(img1)
@@ -383,7 +386,7 @@ func TestBuildLLMContext_ImageFallbackFlow(t *testing.T) {
 	img2 := createTestPNG(t)
 	defer os.Remove(img2)
 
-	node, err := mgr.CreateNode("", RoleUser, "Draw this", false)
+	node, err := mgr.CreateNode("", domain.RoleUser, "Draw this", false)
 	if err != nil {
 		t.Fatalf("failed to create node: %v", err)
 	}
@@ -443,15 +446,15 @@ func createTestPNG(t *testing.T) string {
 }
 
 func TestBuildLLMContext_BudgetAwareRetention(t *testing.T) {
-	mgr := NewManager(NewGraph(), &MockStorage{})
+	mgr := NewManager(graph.NewGraph(), &MockStorage{})
 	mgr.NumCtx = 131072 // 128k context window (e.g. Gemma 4)
 
 	// Create 8 deep conversational turns with thoughts
-	root, _ := mgr.CreateNode("", RoleSystem, "System prompt", false)
+	root, _ := mgr.CreateNode("", domain.RoleSystem, "System prompt", false)
 	currID := root.ID
 
 	for i := 1; i <= 8; i++ {
-		user, _ := mgr.CreateNode(currID, RoleUser, fmt.Sprintf("User question %d", i), false)
+		user, _ := mgr.CreateNode(currID, domain.RoleUser, fmt.Sprintf("User question %d", i), false)
 		asst, _ := mgr.CreateAssistantNode(user.ID, fmt.Sprintf("Answer %d", i), fmt.Sprintf("Reasoning thought for turn %d", i), nil, false)
 		currID = asst.ID
 	}
@@ -465,7 +468,7 @@ func TestBuildLLMContext_BudgetAwareRetention(t *testing.T) {
 	asstCount := 0
 	thoughtsInContext := 0
 	for _, msg := range messages {
-		if msg.Role == RoleAssistant {
+		if msg.Role == domain.RoleAssistant {
 			asstCount++
 			if msg.Thought != "" {
 				thoughtsInContext++
@@ -483,19 +486,19 @@ func TestBuildLLMContext_BudgetAwareRetention(t *testing.T) {
 	// Verify that thoughts remain 100% preserved in graph/storage for humans
 	path, _ := mgr.GetPath(currID)
 	for _, n := range path {
-		if n.Role == RoleAssistant && n.Thought == "" {
+		if n.Role == domain.RoleAssistant && n.Thought == "" {
 			t.Errorf("expected node in storage to preserve Thought, got empty string")
 		}
 	}
 
 	// 2. Test tight context capacity (e.g. NumCtx = 50 tokens) -> High pressure triggers pruning
-	mgrTight := NewManager(NewGraph(), &MockStorage{})
+	mgrTight := NewManager(graph.NewGraph(), &MockStorage{})
 	mgrTight.NumCtx = 50 // Extremely tight context
 
-	rootTight, _ := mgrTight.CreateNode("", RoleSystem, "System prompt", false)
+	rootTight, _ := mgrTight.CreateNode("", domain.RoleSystem, "System prompt", false)
 	currTightID := rootTight.ID
 	for i := 1; i <= 8; i++ {
-		user, _ := mgrTight.CreateNode(currTightID, RoleUser, fmt.Sprintf("User question %d with long rambling text to consume tokens", i), false)
+		user, _ := mgrTight.CreateNode(currTightID, domain.RoleUser, fmt.Sprintf("User question %d with long rambling text to consume tokens", i), false)
 		asst, _ := mgrTight.CreateAssistantNode(user.ID, fmt.Sprintf("Answer %d", i), fmt.Sprintf("Reasoning thought for turn %d with long text", i), nil, false)
 		currTightID = asst.ID
 	}
@@ -511,15 +514,15 @@ func TestBuildLLMContext_BudgetAwareRetention(t *testing.T) {
 }
 
 func TestCompactRangeWithDirective_TrajectoryAndSteering(t *testing.T) {
-	mgr := NewManager(NewGraph(), &MockStorage{})
+	mgr := NewManager(graph.NewGraph(), &MockStorage{})
 
-	root, _ := mgr.CreateNode("", RoleSystem, "You are George 🦉📚", false)
-	user1, _ := mgr.CreateNode(root.ID, RoleUser, "Refactor the database schema", false)
+	root, _ := mgr.CreateNode("", domain.RoleSystem, "You are George 🦉📚", false)
+	user1, _ := mgr.CreateNode(root.ID, domain.RoleUser, "Refactor the database schema", false)
 	asst1, _ := mgr.CreateAssistantNode(user1.ID, "Schema updated 🛠️💻", "Thinking...", nil, false)
-	user2, _ := mgr.CreateNode(asst1.ID, RoleUser, "Verify the queries", false)
+	user2, _ := mgr.CreateNode(asst1.ID, domain.RoleUser, "Verify the queries", false)
 	asst2, _ := mgr.CreateAssistantNode(user2.ID, "Queries verified 🔍📁", "Analyzing...", nil, false)
 
-	mockProvider := &MockLLMProvider{
+	mockProvider := &providers.MockLLMProvider{
 		ResponseContent: "Milestone: Database schema refactored and verified.",
 	}
 
@@ -548,14 +551,14 @@ func TestCompactRangeWithDirective_TrajectoryAndSteering(t *testing.T) {
 }
 
 func TestManager_AutonomousVectorLoop_Mock(t *testing.T) {
-	mgr := NewManager(NewGraph(), &MockStorage{})
+	mgr := NewManager(graph.NewGraph(), &MockStorage{})
 	mgr.NumCtx = 131072
 
 	// 1. Establish George the Archivist Persona
-	root, _ := mgr.CreateNode("", RoleSystem, "You are George the Archivist 🦉📚. Chronicle the workspace.", false)
+	root, _ := mgr.CreateNode("", domain.RoleSystem, "You are George the Archivist 🦉📚. Chronicle the workspace.", false)
 
 	// 2. Mission Primer
-	primer, _ := mgr.CreateNode(root.ID, RoleUser, "Explore the workspace in 5 turns. Your continuation impulse is 'Please proceed.'", false)
+	primer, _ := mgr.CreateNode(root.ID, domain.RoleUser, "Explore the workspace in 5 turns. Your continuation impulse is 'Please proceed.'", false)
 	currID := primer.ID
 
 	// 3. Autonomous 5-turn Vector Loop
@@ -575,10 +578,10 @@ func TestManager_AutonomousVectorLoop_Mock(t *testing.T) {
 	turnIDs = append(turnIDs, primer.ID)
 
 	for i, step := range steps {
-		userTurn, _ := mgr.CreateNode(currID, RoleUser, "Please proceed.", false)
+		userTurn, _ := mgr.CreateNode(currID, domain.RoleUser, "Please proceed.", false)
 		turnIDs = append(turnIDs, userTurn.ID)
 
-		tcs := []ToolCall{
+		tcs := []domain.ToolCall{
 			{
 				ID:   fmt.Sprintf("call_%d", i+1),
 				Type: "function",
@@ -612,7 +615,7 @@ func TestManager_AutonomousVectorLoop_Mock(t *testing.T) {
 	asstCount := 0
 	thoughtsInContext := 0
 	for _, msg := range messages {
-		if msg.Role == RoleAssistant {
+		if msg.Role == domain.RoleAssistant {
 			asstCount++
 			if msg.Thought != "" {
 				thoughtsInContext++
@@ -630,13 +633,13 @@ func TestManager_AutonomousVectorLoop_Mock(t *testing.T) {
 	// Verify thoughts are preserved in storage for the human
 	path, _ := mgr.GetPath(currID)
 	for _, n := range path {
-		if n.Role == RoleAssistant && n.Thought == "" {
+		if n.Role == domain.RoleAssistant && n.Thought == "" {
 			t.Errorf("expected storage node %s to retain thought", n.ID)
 		}
 	}
 
 	// 5. Synthesize 5-turn Milestone Compaction
-	mockProvider := &MockLLMProvider{
+	mockProvider := &providers.MockLLMProvider{
 		ResponseContent: "Milestone: George completed a 5-step exploration of README, storage, server, service, and map.",
 	}
 
@@ -655,13 +658,13 @@ func TestManager_AutonomousVectorLoop_Mock(t *testing.T) {
 }
 
 func TestBuildLLMContext_EphemeralToolCompaction(t *testing.T) {
-	mgr := NewManager(NewGraph(), &MockStorage{})
+	mgr := NewManager(graph.NewGraph(), &MockStorage{})
 	mgr.NumCtx = 131072 // 128k context (fillRatio < 0.60)
 
-	root, _ := mgr.CreateNode("", RoleSystem, "System prompt", false)
+	root, _ := mgr.CreateNode("", domain.RoleSystem, "System prompt", false)
 
 	// Turn 1: Assistant executes large read_file (e.g. ~4400 chars)
-	tcs1 := []ToolCall{
+	tcs1 := []domain.ToolCall{
 		{
 			ID:   "call_read_old",
 			Type: "function",
@@ -678,10 +681,10 @@ func TestBuildLLMContext_EphemeralToolCompaction(t *testing.T) {
 	_ = mgr.UpdateAssistantObservations(asst1.ID, "call_read_old", strings.Repeat("old file content line\n", 200))
 
 	// Turn 2: Follow-up user turn
-	user2, _ := mgr.CreateNode(asst1.ID, RoleUser, "Now check recent.go", false)
+	user2, _ := mgr.CreateNode(asst1.ID, domain.RoleUser, "Now check recent.go", false)
 
 	// Turn 3: Assistant executes recent read_file (distance = 1 from leaf)
-	tcs3 := []ToolCall{
+	tcs3 := []domain.ToolCall{
 		{
 			ID:   "call_read_recent",
 			Type: "function",
@@ -699,7 +702,7 @@ func TestBuildLLMContext_EphemeralToolCompaction(t *testing.T) {
 	_ = mgr.UpdateAssistantObservations(asst3.ID, "call_read_recent", recentContent)
 
 	// Turn 4: User active leaf (distance = 0)
-	user4, _ := mgr.CreateNode(asst3.ID, RoleUser, "What is the summary?", false)
+	user4, _ := mgr.CreateNode(asst3.ID, domain.RoleUser, "What is the summary?", false)
 
 	// Build context from active leaf user4:
 	// - asst1 is at distance = 3 (>= 1): should be compacted!
@@ -712,7 +715,7 @@ func TestBuildLLMContext_EphemeralToolCompaction(t *testing.T) {
 	foundOld := false
 	foundRecent := false
 	for _, msg := range messages {
-		if msg.Role == RoleTool {
+		if msg.Role == domain.RoleTool {
 			if msg.ToolCallID == "call_read_old" {
 				foundOld = true
 				if !strings.Contains(msg.Content, "[Tool 'read_file' execution completed. Detailed results omitted. Total size:") {
@@ -737,14 +740,14 @@ func TestBuildLLMContext_EphemeralToolCompaction(t *testing.T) {
 }
 
 func TestBuildLLMContext_IntraTurnRollingCompaction(t *testing.T) {
-	mgr := NewManager(NewGraph(), &MockStorage{})
+	mgr := NewManager(graph.NewGraph(), &MockStorage{})
 	mgr.NumCtx = 131072
 
-	root, _ := mgr.CreateNode("", RoleSystem, "System prompt", false)
-	user, _ := mgr.CreateNode(root.ID, RoleUser, "Analyze multiple files", false)
+	root, _ := mgr.CreateNode("", domain.RoleSystem, "System prompt", false)
+	user, _ := mgr.CreateNode(root.ID, domain.RoleUser, "Analyze multiple files", false)
 
 	// Single active turn with 4 sequential tool calls
-	tcs := []ToolCall{
+	tcs := []domain.ToolCall{
 		{
 			ID:   "call_1",
 			Type: "function",
@@ -805,7 +808,7 @@ func TestBuildLLMContext_IntraTurnRollingCompaction(t *testing.T) {
 
 	obsMap := make(map[string]string)
 	for _, msg := range messages {
-		if msg.Role == RoleTool {
+		if msg.Role == domain.RoleTool {
 			obsMap[msg.ToolCallID] = msg.Content
 		}
 	}
@@ -828,13 +831,13 @@ func TestBuildLLMContext_IntraTurnRollingCompaction(t *testing.T) {
 }
 
 func TestBuildLLMContext_PreservesPaginationBannerOnCompaction(t *testing.T) {
-	mgr := NewManager(NewGraph(), &MockStorage{})
+	mgr := NewManager(graph.NewGraph(), &MockStorage{})
 	mgr.NumCtx = 131072
 
-	root, _ := mgr.CreateNode("", RoleSystem, "System prompt", false)
+	root, _ := mgr.CreateNode("", domain.RoleSystem, "System prompt", false)
 
 	// Turn 1: Assistant executes read_file with pagination header
-	tc1 := ToolCall{
+	tc1 := domain.ToolCall{
 		ID:   "call_paged",
 		Type: "function",
 		Function: struct {
@@ -845,18 +848,18 @@ func TestBuildLLMContext_PreservesPaginationBannerOnCompaction(t *testing.T) {
 			Arguments: json.RawMessage(`{"path":"log.md"}`),
 		},
 	}
-	asst1, _ := mgr.CreateAssistantNode(root.ID, "Reading log...", "Analyzing", []ToolCall{tc1}, false)
+	asst1, _ := mgr.CreateAssistantNode(root.ID, "Reading log...", "Analyzing", []domain.ToolCall{tc1}, false)
 	pagedResult := "[Lines 1-64 of 131 (Showing 7.9 KB) (Byte budget reached; 67 lines remaining. To read further, call read_file with path: \"log.md\", offset: 65)]\n\n" + strings.Repeat("log entry line...\n", 150)
 	_ = mgr.UpdateAssistantObservations(asst1.ID, "call_paged", pagedResult)
 
 	// Turn 2: User follow-up
-	user2, _ := mgr.CreateNode(asst1.ID, RoleUser, "Next step", false)
+	user2, _ := mgr.CreateNode(asst1.ID, domain.RoleUser, "Next step", false)
 
 	// Turn 3: Assistant intermediate turn
-	asst2, _ := mgr.CreateNode(user2.ID, RoleAssistant, "Working on next step...", false)
+	asst2, _ := mgr.CreateNode(user2.ID, domain.RoleAssistant, "Working on next step...", false)
 
 	// Turn 4: User active leaf (distance of asst1 is >= 2)
-	user4, _ := mgr.CreateNode(asst2.ID, RoleUser, "What is the status?", false)
+	user4, _ := mgr.CreateNode(asst2.ID, domain.RoleUser, "What is the status?", false)
 
 	messages, err := mgr.BuildLLMContext(user4.ID, false)
 	if err != nil {
@@ -865,7 +868,7 @@ func TestBuildLLMContext_PreservesPaginationBannerOnCompaction(t *testing.T) {
 
 	foundPaged := false
 	for _, msg := range messages {
-		if msg.Role == RoleTool && msg.ToolCallID == "call_paged" {
+		if msg.Role == domain.RoleTool && msg.ToolCallID == "call_paged" {
 			foundPaged = true
 			if !strings.Contains(msg.Content, "Lines 1-64 of 131") {
 				t.Errorf("expected compacted observation to preserve pagination banner, got: %s", msg.Content)
@@ -885,11 +888,11 @@ func TestBuildLLMContext_PreservesPaginationBannerOnCompaction(t *testing.T) {
 
 func TestBuildLLMContext_PureRootAndUnbumperedUserTurns(t *testing.T) {
 	storage := &MockStorage{}
-	mgr := NewManager(NewGraph(), storage)
+	mgr := NewManager(graph.NewGraph(), storage)
 
 	// 1. Genesis node: pure persona (ADR 003)
 	rootPrompt := "You are George the Archivist, Lore-Warden of the Scriptorium."
-	rootNode, err := mgr.CreateNode("", RoleSystem, rootPrompt, false)
+	rootNode, err := mgr.CreateNode("", domain.RoleSystem, rootPrompt, false)
 	if err != nil {
 		t.Fatalf("failed to create root node: %v", err)
 	}
@@ -904,9 +907,9 @@ func TestBuildLLMContext_PureRootAndUnbumperedUserTurns(t *testing.T) {
 	}
 
 	// 2. Multi-turn path: Turn 1 (User -> Assistant) -> Turn 2 (User active leaf)
-	user1, _ := mgr.CreateNode(rootNode.ID, RoleUser, "Turn 1 prompt", false)
-	asst1, _ := mgr.CreateNode(user1.ID, RoleAssistant, "Turn 1 response", false)
-	user2, _ := mgr.CreateNode(asst1.ID, RoleUser, "Turn 2 active leaf prompt", false)
+	user1, _ := mgr.CreateNode(rootNode.ID, domain.RoleUser, "Turn 1 prompt", false)
+	asst1, _ := mgr.CreateNode(user1.ID, domain.RoleAssistant, "Turn 1 response", false)
+	user2, _ := mgr.CreateNode(asst1.ID, domain.RoleUser, "Turn 2 active leaf prompt", false)
 
 	messages, err := mgr.BuildLLMContext(user2.ID, false)
 	if err != nil {
@@ -926,8 +929,8 @@ func TestBuildLLMContext_PureRootAndUnbumperedUserTurns(t *testing.T) {
 
 	// Message 3 (Active Leaf User Turn 2): 100% untouched human words (no synthetic bumpers!)
 	leafMsg := messages[len(messages)-1]
-	if leafMsg.Role != RoleUser {
-		t.Fatalf("expected last message to be RoleUser, got %s", leafMsg.Role)
+	if leafMsg.Role != domain.RoleUser {
+		t.Fatalf("expected last message to be domain.RoleUser, got %s", leafMsg.Role)
 	}
 	if leafMsg.Content != "Turn 2 active leaf prompt" {
 		t.Errorf("expected leaf user turn to remain un-bumpered %q, got: %q", "Turn 2 active leaf prompt", leafMsg.Content)
@@ -935,17 +938,17 @@ func TestBuildLLMContext_PureRootAndUnbumperedUserTurns(t *testing.T) {
 }
 
 func TestManager_DeriveSilentSignat(t *testing.T) {
-	mgr := NewManager(NewGraph(), &MockStorage{})
+	mgr := NewManager(graph.NewGraph(), &MockStorage{})
 	mgr.RegisterDefaultTools(".")
 
-	makeTC := func(name string) ToolCall {
-		var tc ToolCall
+	makeTC := func(name string) domain.ToolCall {
+		var tc domain.ToolCall
 		tc.Function.Name = name
 		return tc
 	}
 
 	// 1. Sensory tools -> 🔍📜
-	sensoryNode, _ := mgr.CreateAssistantNode("root", "Reading file", "", []ToolCall{
+	sensoryNode, _ := mgr.CreateAssistantNode("root", "Reading file", "", []domain.ToolCall{
 		makeTC("read_file"),
 	}, false)
 	if sensoryNode.Metadata["signat"] != "🔍📜" {
@@ -953,7 +956,7 @@ func TestManager_DeriveSilentSignat(t *testing.T) {
 	}
 
 	// 2. Mutate tools -> 🛠️💻
-	mutateNode, _ := mgr.CreateAssistantNode("root", "Editing file", "", []ToolCall{
+	mutateNode, _ := mgr.CreateAssistantNode("root", "Editing file", "", []domain.ToolCall{
 		makeTC("edit_file"),
 	}, false)
 	if mutateNode.Metadata["signat"] != "🛠️💻" {
@@ -961,7 +964,7 @@ func TestManager_DeriveSilentSignat(t *testing.T) {
 	}
 
 	// 3. Execute tools -> 🧪⚡
-	execNode, _ := mgr.CreateAssistantNode("root", "Running tests", "", []ToolCall{
+	execNode, _ := mgr.CreateAssistantNode("root", "Running tests", "", []domain.ToolCall{
 		makeTC("execute_command"),
 	}, false)
 	if execNode.Metadata["signat"] != "🧪⚡" {
@@ -981,7 +984,7 @@ func TestManager_DeriveSilentSignat(t *testing.T) {
 	}
 
 	// 6. Explicit model signat takes priority
-	explicitNode, _ := mgr.CreateAssistantNode("root", "I found the lore. 🦉☕", "", []ToolCall{
+	explicitNode, _ := mgr.CreateAssistantNode("root", "I found the lore. 🦉☕", "", []domain.ToolCall{
 		makeTC("read_file"),
 	}, false)
 	if explicitNode.Metadata["signat"] != "🦉☕" {
@@ -991,15 +994,15 @@ func TestManager_DeriveSilentSignat(t *testing.T) {
 
 func TestBuildLLMContext_AmbientTelemetrySynthesis(t *testing.T) {
 	storage := &MockStorage{}
-	mgr := NewManager(NewGraph(), storage)
+	mgr := NewManager(graph.NewGraph(), storage)
 	mgr.WorkspaceDir = "/Users/bart/Code/please"
 
 	// 1. Setup multi-turn thread
 	rootPrompt := "You are George the Archivist."
-	rootNode, _ := mgr.CreateNode("", RoleSystem, rootPrompt, false)
-	user1, _ := mgr.CreateNode(rootNode.ID, RoleUser, "Historical Turn 1", false)
-	asst1, _ := mgr.CreateNode(user1.ID, RoleAssistant, "Historical Assistant 1", false)
-	user2, _ := mgr.CreateNode(asst1.ID, RoleUser, "Active Leaf Turn 2", false)
+	rootNode, _ := mgr.CreateNode("", domain.RoleSystem, rootPrompt, false)
+	user1, _ := mgr.CreateNode(rootNode.ID, domain.RoleUser, "Historical Turn 1", false)
+	asst1, _ := mgr.CreateNode(user1.ID, domain.RoleAssistant, "Historical Assistant 1", false)
+	user2, _ := mgr.CreateNode(asst1.ID, domain.RoleUser, "Active Leaf Turn 2", false)
 
 	// Mode A: AmbientTelemetry = false (Default)
 	mgr.AmbientTelemetry = false
@@ -1086,19 +1089,19 @@ func TestBuildLLMContext_AmbientTelemetrySynthesis(t *testing.T) {
 
 func TestBuildLLMContext_TrailingToolCallsWithoutSegments(t *testing.T) {
 	storage := &MockStorage{}
-	mgr := NewManager(NewGraph(), storage)
+	mgr := NewManager(graph.NewGraph(), storage)
 
-	root, _ := mgr.CreateNode("", RoleSystem, "You are an assistant.", false)
-	user, _ := mgr.CreateNode(root.ID, RoleUser, "Find the garden file", false)
+	root, _ := mgr.CreateNode("", domain.RoleSystem, "You are an assistant.", false)
+	user, _ := mgr.CreateNode(root.ID, domain.RoleUser, "Find the garden file", false)
 
 	// Assistant turn initialized with 1 tool call
-	tc1 := ToolCall{ID: "call_1"}
+	tc1 := domain.ToolCall{ID: "call_1"}
 	tc1.Function.Name = "list_directory"
-	asst, _ := mgr.CreateAssistantNode(user.ID, "Listing directory", "", []ToolCall{tc1}, false)
+	asst, _ := mgr.CreateAssistantNode(user.ID, "Listing directory", "", []domain.ToolCall{tc1}, false)
 	_ = mgr.UpdateAssistantObservations(asst.ID, "call_1", "DigitalGarden.md")
 
 	// Simulate follow-up tool call without updating segments metadata (the failure mode)
-	tc2 := ToolCall{ID: "call_2"}
+	tc2 := domain.ToolCall{ID: "call_2"}
 	tc2.Function.Name = "read_file"
 	asst.ToolCalls = append(asst.ToolCalls, tc2)
 	_ = mgr.Storage.SaveNode(asst)
@@ -1110,9 +1113,9 @@ func TestBuildLLMContext_TrailingToolCallsWithoutSegments(t *testing.T) {
 	}
 
 	// Verify both tool calls and both observations are emitted
-	var toolMsgs []Message
+	var toolMsgs []domain.Message
 	for _, m := range messages {
-		if m.Role == RoleTool {
+		if m.Role == domain.RoleTool {
 			toolMsgs = append(toolMsgs, m)
 		}
 	}
@@ -1129,9 +1132,9 @@ func TestBuildLLMContext_TrailingToolCallsWithoutSegments(t *testing.T) {
 }
 
 func TestPruneBranch_SystemRootGuard(t *testing.T) {
-	mgr := NewManager(NewGraph(), &MockStorage{})
+	mgr := NewManager(graph.NewGraph(), &MockStorage{})
 
-	root, err := mgr.CreateNode("", RoleSystem, "You are a helpful assistant.", false)
+	root, err := mgr.CreateNode("", domain.RoleSystem, "You are a helpful assistant.", false)
 	if err != nil {
 		t.Fatalf("failed to create root node: %v", err)
 	}
@@ -1150,11 +1153,11 @@ func TestPruneBranch_SessionProtectionGuard(t *testing.T) {
 	storage := &MockStorage{
 		Sessions: make(map[string]string),
 	}
-	mgr := NewManager(NewGraph(), storage)
+	mgr := NewManager(graph.NewGraph(), storage)
 
-	root, _ := mgr.CreateNode("", RoleSystem, "System root", false)
-	userNode, _ := mgr.CreateNode(root.ID, RoleUser, "Message", false)
-	asstNode, _ := mgr.CreateNode(userNode.ID, RoleAssistant, "Response", false)
+	root, _ := mgr.CreateNode("", domain.RoleSystem, "System root", false)
+	userNode, _ := mgr.CreateNode(root.ID, domain.RoleUser, "Message", false)
+	asstNode, _ := mgr.CreateNode(userNode.ID, domain.RoleAssistant, "Response", false)
 
 	// Mark asstNode as head for active session "felicia"
 	_ = storage.SaveSessionHead("felicia", asstNode.ID)
@@ -1178,7 +1181,7 @@ func TestPruneBranch_SessionProtectionGuard(t *testing.T) {
 	}
 
 	// 3. Create a side branch with no sessions attached
-	sideNode, _ := mgr.CreateNode(userNode.ID, RoleUser, "Side branch", false)
+	sideNode, _ := mgr.CreateNode(userNode.ID, domain.RoleUser, "Side branch", false)
 	err = mgr.PruneBranch(sideNode.ID)
 	if err != nil {
 		t.Errorf("expected side branch without active session to be pruned cleanly, got err: %v", err)
@@ -1189,17 +1192,17 @@ func TestCompactRange_SessionProtectionGuard(t *testing.T) {
 	storage := &MockStorage{
 		Sessions: make(map[string]string),
 	}
-	mgr := NewManager(NewGraph(), storage)
+	mgr := NewManager(graph.NewGraph(), storage)
 
-	root, _ := mgr.CreateNode("", RoleSystem, "System root", false)
-	n1, _ := mgr.CreateNode(root.ID, RoleUser, "Step 1", false)
-	n2, _ := mgr.CreateNode(n1.ID, RoleAssistant, "Step 2", false)
-	n3, _ := mgr.CreateNode(n2.ID, RoleUser, "Step 3", false)
+	root, _ := mgr.CreateNode("", domain.RoleSystem, "System root", false)
+	n1, _ := mgr.CreateNode(root.ID, domain.RoleUser, "Step 1", false)
+	n2, _ := mgr.CreateNode(n1.ID, domain.RoleAssistant, "Step 2", false)
+	n3, _ := mgr.CreateNode(n2.ID, domain.RoleUser, "Step 3", false)
 
 	// Place session "experiment" head on intermediate node n2
 	_ = storage.SaveSessionHead("experiment", n2.ID)
 
-	provider := &MockLLMProvider{
+	provider := &providers.MockLLMProvider{
 		ResponseContent: "Summary of steps",
 	}
 
@@ -1215,13 +1218,13 @@ func TestCompactRange_SessionProtectionGuard(t *testing.T) {
 
 func TestBuildLLMContext_MissingObservationDefensiveFallback(t *testing.T) {
 	storage := &MockStorage{}
-	mgr := NewManager(NewGraph(), storage)
+	mgr := NewManager(graph.NewGraph(), storage)
 
-	root, _ := mgr.CreateNode("", RoleSystem, "System prompt", false)
-	user, _ := mgr.CreateNode(root.ID, RoleUser, "List files please", false)
+	root, _ := mgr.CreateNode("", domain.RoleSystem, "System prompt", false)
+	user, _ := mgr.CreateNode(root.ID, domain.RoleUser, "List files please", false)
 
 	// Simulate an assistant turn that executed a tool call, has 2 segments, but Observations is missing/empty
-	tCalls := []ToolCall{
+	tCalls := []domain.ToolCall{
 		{
 			ID:   "call_test_123",
 			Type: "function",
@@ -1272,8 +1275,8 @@ func TestBuildLLMContext_MissingObservationDefensiveFallback(t *testing.T) {
 	}
 
 	nextMsg := msgs[foundToolCallIdx+1]
-	if nextMsg.Role != RoleTool {
-		t.Errorf("expected RoleTool immediately after RoleAssistant(tool_calls), got role: %s", nextMsg.Role)
+	if nextMsg.Role != domain.RoleTool {
+		t.Errorf("expected domain.RoleTool immediately after domain.RoleAssistant(tool_calls), got role: %s", nextMsg.Role)
 	}
 	if nextMsg.ToolCallID != "call_test_123" {
 		t.Errorf("expected ToolCallID 'call_test_123', got: %s", nextMsg.ToolCallID)
@@ -1283,14 +1286,14 @@ func TestBuildLLMContext_MissingObservationDefensiveFallback(t *testing.T) {
 func TestManager_CloneWithWorkspace(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "vault.db")
-	storage, _ := NewSQLiteStorage(dbPath, "")
-	graph := NewGraph()
+	sqliteStorage, _ := storage.NewSQLiteStorage(dbPath, "")
+	g := graph.NewGraph()
 	primaryDir := filepath.Join(tmpDir, "primary")
 	worktreeDir := filepath.Join(tmpDir, "worktree")
 	_ = os.MkdirAll(primaryDir, 0755)
 	_ = os.MkdirAll(worktreeDir, 0755)
 
-	mgr := NewManager(graph, storage)
+	mgr := NewManager(g, sqliteStorage)
 	mgr.RegisterDefaultTools(primaryDir)
 
 	cloned := mgr.CloneWithWorkspace(worktreeDir, primaryDir)
@@ -1312,7 +1315,7 @@ func TestManager_CloneWithWorkspace(t *testing.T) {
 	}
 
 	// Execute write_file via cloned manager
-	_, err := cloned.ExecuteToolCall(context.Background(), ToolCall{
+	_, err := cloned.ExecuteToolCall(context.Background(), domain.ToolCall{
 		ID: "call_clone_test",
 		Function: struct {
 			Name      string          `json:"name"`
@@ -1397,18 +1400,18 @@ func TestBuildLLMContext_RecalledMemories(t *testing.T) {
 		Scope:    storage.ScopeGlobal,
 	})
 
-	g := NewGraph()
-	rootNode := &Node{
+	g := graph.NewGraph()
+	rootNode := &graph.Node{
 		ID:        "root",
-		Role:      RoleSystem,
+		Role:      domain.RoleSystem,
 		Content:   "Base System Prompt",
 		Timestamp: time.Now(),
 	}
 	g.AddNode(rootNode)
-	userNode := &Node{
+	userNode := &graph.Node{
 		ID:        "user-1",
 		ParentID:  "root",
-		Role:      RoleUser,
+		Role:      domain.RoleUser,
 		Content:   "Hello",
 		Timestamp: time.Now().Add(time.Second),
 	}
@@ -1425,7 +1428,7 @@ func TestBuildLLMContext_RecalledMemories(t *testing.T) {
 	}
 
 	sysMsg := messages[0]
-	if sysMsg.Role != RoleSystem {
+	if sysMsg.Role != domain.RoleSystem {
 		t.Errorf("expected first message to be system, got %s", sysMsg.Role)
 	}
 
@@ -1546,15 +1549,15 @@ func TestCompactRangeWithDirective_MemoryHarvesting(t *testing.T) {
 	memStore := &MockMemoryStorage{
 		memories: make(map[string]*storage.Memory),
 	}
-	mgr := NewManager(NewGraph(), memStore)
+	mgr := NewManager(graph.NewGraph(), memStore)
 
-	root, _ := mgr.CreateNode("", RoleSystem, "System prompt", false)
-	user1, _ := mgr.CreateNode(root.ID, RoleUser, "Let's adopt WAL mode for SQLite", false)
+	root, _ := mgr.CreateNode("", domain.RoleSystem, "System prompt", false)
+	user1, _ := mgr.CreateNode(root.ID, domain.RoleUser, "Let's adopt WAL mode for SQLite", false)
 	asst1, _ := mgr.CreateAssistantNode(user1.ID, "Done, WAL mode active 🛠️💻", "Thinking...", nil, false)
-	user2, _ := mgr.CreateNode(asst1.ID, RoleUser, "Also we should enforce hermetic testing", false)
+	user2, _ := mgr.CreateNode(asst1.ID, domain.RoleUser, "Also we should enforce hermetic testing", false)
 	asst2, _ := mgr.CreateAssistantNode(user2.ID, "Added hermetic test script 🧪⚡", "Thinking...", nil, false)
 
-	mockProvider := &MockLLMProvider{
+	mockProvider := &providers.MockLLMProvider{
 		ResponseContent: `SUMMARY:
 Configured SQLite WAL journal mode and created hermetic test suite.
 
@@ -1618,13 +1621,13 @@ func TestCompactRangeWithDirective_LegacyFallback(t *testing.T) {
 	memStore := &MockMemoryStorage{
 		memories: make(map[string]*storage.Memory),
 	}
-	mgr := NewManager(NewGraph(), memStore)
+	mgr := NewManager(graph.NewGraph(), memStore)
 
-	root, _ := mgr.CreateNode("", RoleSystem, "System prompt", false)
-	user1, _ := mgr.CreateNode(root.ID, RoleUser, "Chat turn 1", false)
+	root, _ := mgr.CreateNode("", domain.RoleSystem, "System prompt", false)
+	user1, _ := mgr.CreateNode(root.ID, domain.RoleUser, "Chat turn 1", false)
 	asst1, _ := mgr.CreateAssistantNode(user1.ID, "Response 1 💬💭", "", nil, false)
 
-	mockProvider := &MockLLMProvider{
+	mockProvider := &providers.MockLLMProvider{
 		ResponseContent: "Legacy milestone summary without any sections.",
 	}
 

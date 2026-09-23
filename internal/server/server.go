@@ -14,7 +14,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bartkleypas/please/internal/config"
+	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/engine"
+	"github.com/bartkleypas/please/internal/graph"
+	"github.com/bartkleypas/please/internal/providers"
 )
 
 //go:embed assets/*
@@ -23,8 +27,8 @@ var assets embed.FS
 // Server manages the HTTP and SSE server for graph visualization and API interaction
 type Server struct {
 	Manager   *engine.Manager
-	Provider  engine.LLMProvider
-	Config    *engine.Config
+	Provider  providers.Provider
+	Config    *config.Config
 	AuthToken string
 	EventBus  *EventBus
 	Actors    *SessionActorRegistry
@@ -44,7 +48,7 @@ func NewServer(mgr *engine.Manager) *Server {
 		EventBus: bus,
 		host:     "127.0.0.1",
 	}
-	srv.Actors = NewSessionActorRegistry(mgr, nil, nil, func(sessionID string, node *engine.Node) {
+	srv.Actors = NewSessionActorRegistry(mgr, nil, nil, func(sessionID string, node *graph.Node) {
 		if srv.EventBus != nil {
 			srv.EventBus.PublishSession(EventNodeSaved, sessionID, map[string]interface{}{
 				"node_id":    node.ID,
@@ -58,7 +62,7 @@ func NewServer(mgr *engine.Manager) *Server {
 }
 
 // NewServerWithProvider creates a Server instance with provider and configuration
-func NewServerWithProvider(mgr *engine.Manager, provider engine.LLMProvider, cfg *engine.Config) *Server {
+func NewServerWithProvider(mgr *engine.Manager, provider providers.Provider, cfg *config.Config) *Server {
 	token := ""
 	if cfg != nil && cfg.Server != nil {
 		token = cfg.Server.AuthToken
@@ -74,7 +78,7 @@ func NewServerWithProvider(mgr *engine.Manager, provider engine.LLMProvider, cfg
 		EventBus:  NewEventBus(),
 		host:      "127.0.0.1",
 	}
-	srv.Actors = NewSessionActorRegistry(mgr, provider, cfg, func(sessionID string, node *engine.Node) {
+	srv.Actors = NewSessionActorRegistry(mgr, provider, cfg, func(sessionID string, node *graph.Node) {
 		if srv.EventBus != nil {
 			srv.EventBus.PublishSession(EventNodeSaved, sessionID, map[string]interface{}{
 				"node_id":    node.ID,
@@ -88,7 +92,7 @@ func NewServerWithProvider(mgr *engine.Manager, provider engine.LLMProvider, cfg
 }
 
 // SetProvider updates the LLMProvider on the server
-func (s *Server) SetProvider(p engine.LLMProvider) {
+func (s *Server) SetProvider(p providers.Provider) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Provider = p
@@ -98,7 +102,7 @@ func (s *Server) SetProvider(p engine.LLMProvider) {
 }
 
 // SetConfig updates the configuration on the server
-func (s *Server) SetConfig(cfg *engine.Config) {
+func (s *Server) SetConfig(cfg *config.Config) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Config = cfg
@@ -419,7 +423,7 @@ func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 		}
 		nodes := s.Manager.Graph.GetAllNodes()
 		if nodes == nil {
-			nodes = []*engine.Node{}
+			nodes = []*graph.Node{}
 		}
 		_ = json.NewEncoder(w).Encode(nodes)
 		return
@@ -431,7 +435,7 @@ func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		var node engine.Node
+		var node graph.Node
 		if err := json.Unmarshal(bodyBytes, &node); err == nil && node.ID != "" {
 			// Complete node upsert
 			if err := s.Manager.Storage.SaveNode(&node); err != nil {
@@ -455,7 +459,7 @@ func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 
 		var payload struct {
 			ParentID string      `json:"parent_id"`
-			Role     engine.Role `json:"role"`
+			Role     domain.Role `json:"role"`
 			Content  string      `json:"content"`
 			Internal bool        `json:"internal"`
 		}
@@ -466,7 +470,7 @@ func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if payload.Role == "" {
-			payload.Role = engine.RoleUser
+			payload.Role = domain.RoleUser
 		}
 
 		createdNode, err := s.Manager.CreateNode(payload.ParentID, payload.Role, payload.Content, payload.Internal)
@@ -642,7 +646,7 @@ func (s *Server) handleTools(w http.ResponseWriter, r *http.Request) {
 
 	type toolInfo struct {
 		Name        string              `json:"name"`
-		Category    engine.ToolCategory `json:"category,omitempty"`
+		Category    domain.ToolCategory `json:"category,omitempty"`
 		Description string              `json:"description"`
 		Parameters  interface{}         `json:"parameters"`
 	}

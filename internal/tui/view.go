@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/bartkleypas/please/internal/engine"
+	"github.com/bartkleypas/please/internal/domain"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -23,7 +23,7 @@ func (m Model) renderFooterHelp(leftHelp string) string {
 	ctxBadge := lipgloss.NewStyle().Foreground(color).Render(fmt.Sprintf("[Ctx: %s/%s %d%%]", usedStr, limitStr, pct))
 
 	// Real-time persistent sandbox security badge
-	policy := engine.SandboxPolicyStandard
+	policy := string(domain.SandboxPolicyStandard)
 	if m.Config != nil {
 		if pol := m.Config.GetSandboxPolicy(); pol != "" {
 			policy = pol
@@ -32,11 +32,11 @@ func (m Model) renderFooterHelp(leftHelp string) string {
 
 	var sandboxBadge string
 	switch strings.ToLower(policy) {
-	case engine.SandboxPolicyStrict:
+	case string(domain.SandboxPolicyStrict):
 		sandboxBadge = lipgloss.NewStyle().Foreground(lipgloss.Color("#10b981")).Render("[🔒 STRICT]")
-	case engine.SandboxPolicyPermissive:
+	case string(domain.SandboxPolicyPermissive):
 		sandboxBadge = lipgloss.NewStyle().Foreground(lipgloss.Color("#f59e0b")).Render("[⚠️ PERMISSIVE]")
-	case engine.SandboxPolicyStandard:
+	case string(domain.SandboxPolicyStandard):
 		fallthrough
 	default:
 		sandboxBadge = lipgloss.NewStyle().Foreground(lipgloss.Color("#06b6d4")).Render("[🛡️ STANDARD]")

@@ -7,10 +7,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/engine"
+	"github.com/bartkleypas/please/internal/graph"
 )
 
-func (m *Model) renderNode(node *engine.Node) string {
+func (m *Model) renderNode(node *graph.Node) string {
 	roleStyle := getRoleStyle(node.Role)
 
 	prefix := string(node.Role)
@@ -46,7 +48,7 @@ func (m *Model) renderNode(node *engine.Node) string {
 		Content string `json:"content"`
 		Thought string `json:"thought"`
 	}
-	if node.Role == engine.RoleAssistant && node.Metadata != nil && node.Metadata["segments"] != "" {
+	if node.Role == domain.RoleAssistant && node.Metadata != nil && node.Metadata["segments"] != "" {
 		_ = json.Unmarshal([]byte(node.Metadata["segments"]), &segments)
 	}
 
@@ -148,7 +150,7 @@ func (m *Model) isThoughtExpanded(nodeID string) bool {
 	return !m.DefaultFoldThoughts
 }
 
-func (m *Model) updateViewportWithNode(node *engine.Node) {
+func (m *Model) updateViewportWithNode(node *graph.Node) {
 	m.ViewportOverride = ""
 	line := m.renderNode(node)
 	m.ChatHistoryBuffer += line
@@ -164,7 +166,7 @@ func (m *Model) updateViewportWithStreaming() {
 	}
 
 	var s strings.Builder
-	s.WriteString(botStyle.Render(string(engine.RoleAssistant)))
+	s.WriteString(botStyle.Render(string(domain.RoleAssistant)))
 	s.WriteString(":\n")
 
 	// Render already committed segments during a resumed streaming session
@@ -281,11 +283,11 @@ func (m *Model) syncMapSelection() {
 // the input box with the user turn's content for editing, and restores any images.
 // If the selected node is an Assistant/System/Tool turn, it sets the active anchor
 // directly to that node and clears the input box for a fresh prompt.
-func (m *Model) navigateToNode(node *engine.Node) {
+func (m *Model) navigateToNode(node *graph.Node) {
 	if node == nil {
 		return
 	}
-	if node.Role == engine.RoleUser {
+	if node.Role == domain.RoleUser {
 		m.CurrentID = node.ParentID
 		m.TextInput.SetValue(node.Content)
 		m.TextInput.CursorEnd()

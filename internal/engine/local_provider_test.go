@@ -5,15 +5,21 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/bartkleypas/please/internal/config"
+	"github.com/bartkleypas/please/internal/domain"
+	"github.com/bartkleypas/please/internal/graph"
+	"github.com/bartkleypas/please/internal/providers"
+	"github.com/bartkleypas/please/internal/tools"
 )
 
 func TestLocalHarnessProvider_MultiTurnStream(t *testing.T) {
 	storage := &MockStorage{}
-	graph := NewGraph()
-	mgr := NewManager(graph, storage)
+	g := graph.NewGraph()
+	mgr := NewManager(g, storage)
 
-	mgr.Registry = NewToolRegistry()
-	mgr.Registry.Register(Tool{
+	mgr.Registry = tools.NewToolRegistry()
+	mgr.Registry.Register(tools.Tool{
 		Name:        "get_time",
 		Description: "Get current time",
 		Parameters: map[string]interface{}{
@@ -25,11 +31,11 @@ func TestLocalHarnessProvider_MultiTurnStream(t *testing.T) {
 	})
 
 	callCount := 0
-	mockProvider := &MockLLMProvider{
-		StreamHandler: func(messages []Message, tools []Tool) (string, string, []ToolCall, error) {
+	mockProvider := &providers.MockLLMProvider{
+		StreamHandler: func(messages []domain.Message, tools []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
 			callCount++
 			if callCount == 1 {
-				return "", "Checking clock...", []ToolCall{
+				return "", "Checking clock...", []domain.ToolCall{
 					{
 						ID:   "call_clock_1",
 						Type: "function",
@@ -47,15 +53,15 @@ func TestLocalHarnessProvider_MultiTurnStream(t *testing.T) {
 		},
 	}
 
-	cfg := NewDefaultConfig()
+	cfg := config.NewDefaultConfig()
 	harness := NewSessionHarness(mgr, mockProvider, cfg)
 	localProvider := NewLocalHarnessProvider(harness, "alpha")
 
-	userNode, _ := mgr.CreateNode("", RoleUser, "What time is it?", false)
+	userNode, _ := mgr.CreateNode("", domain.RoleUser, "What time is it?", false)
 
 	contentChan, thoughtChan, toolCallChan, errChan := localProvider.GenerateResponseStream(
 		context.Background(),
-		[]Message{{Role: RoleUser, Content: "What time is it?", ID: userNode.ID}},
+		[]domain.Message{{Role: domain.RoleUser, Content: "What time is it?", ID: userNode.ID}},
 		nil,
 	)
 
@@ -128,14 +134,14 @@ func TestLocalHarnessProvider_MultiTurnStream(t *testing.T) {
 
 func TestLocalHarnessProvider_GenerateResponse_StatelessOneShot(t *testing.T) {
 	storage := &MockStorage{}
-	graph := NewGraph()
-	mgr := NewManager(graph, storage)
+	g := graph.NewGraph()
+	mgr := NewManager(g, storage)
 
-	mockProvider := &MockLLMProvider{
+	mockProvider := &providers.MockLLMProvider{
 		ResponseContent: "Stateless summary paragraph",
 	}
 
-	cfg := NewDefaultConfig()
+	cfg := config.NewDefaultConfig()
 	harness := NewSessionHarness(mgr, mockProvider, cfg)
 	localProvider := NewLocalHarnessProvider(harness, "main")
 
@@ -145,14 +151,14 @@ func TestLocalHarnessProvider_GenerateResponse_StatelessOneShot(t *testing.T) {
 	}
 
 	// 1. Initial graph has 0 nodes
-	if len(graph.Nodes) != 0 {
-		t.Fatalf("expected 0 initial graph nodes, got %d", len(graph.Nodes))
+	if len(g.Nodes) != 0 {
+		t.Fatalf("expected 0 initial graph nodes, got %d", len(g.Nodes))
 	}
 
 	// 2. Execute one-shot GenerateResponse (e.g. as used in /compact)
-	messages := []Message{
-		{Role: RoleSystem, Content: "You are an archivist."},
-		{Role: RoleUser, Content: "Summarize this segment."},
+	messages := []domain.Message{
+		{Role: domain.RoleSystem, Content: "You are an archivist."},
+		{Role: domain.RoleUser, Content: "Summarize this segment."},
 	}
 
 	resp, err := localProvider.GenerateResponse(context.Background(), messages, nil)
@@ -165,8 +171,8 @@ func TestLocalHarnessProvider_GenerateResponse_StatelessOneShot(t *testing.T) {
 	}
 
 	// 3. Verify ZERO nodes were created in the graph
-	if len(graph.Nodes) != 0 {
-		t.Errorf("CRITICAL: GenerateResponse mutated the graph! Expected 0 nodes, got %d", len(graph.Nodes))
+	if len(g.Nodes) != 0 {
+		t.Errorf("CRITICAL: GenerateResponse mutated the graph! Expected 0 nodes, got %d", len(g.Nodes))
 	}
 
 	// 4. Verify no session head was created/modified

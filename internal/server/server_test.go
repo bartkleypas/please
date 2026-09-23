@@ -18,7 +18,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bartkleypas/please/internal/config"
+	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/engine"
+	"github.com/bartkleypas/please/internal/graph"
+	"github.com/bartkleypas/please/internal/providers"
+	"github.com/bartkleypas/please/internal/storage"
+	"github.com/bartkleypas/please/internal/tools"
 )
 
 func TestCertGeneration(t *testing.T) {
@@ -74,8 +80,8 @@ func TestCertGeneration(t *testing.T) {
 func TestAuthMiddleware(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
-	storage, _ := engine.NewSQLiteStorage(dbPath, "")
-	mgr := engine.NewManager(engine.NewGraph(), storage)
+	strg, _ := storage.NewSQLiteStorage(dbPath, "")
+	mgr := engine.NewManager(graph.NewGraph(), strg)
 	srv := NewServer(mgr)
 
 	handler := srv.Handler()
@@ -137,20 +143,20 @@ func TestAuthMiddleware(t *testing.T) {
 func TestRESTAPI_V1(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
-	storage, _ := engine.NewSQLiteStorage(dbPath, "")
-	mgr := engine.NewManager(engine.NewGraph(), storage)
+	strg, _ := storage.NewSQLiteStorage(dbPath, "")
+	mgr := engine.NewManager(graph.NewGraph(), strg)
 	mgr.RegisterDefaultTools(tmpDir)
 
-	mockProvider := &engine.MockLLMProvider{
+	mockProvider := &providers.MockLLMProvider{
 		ResponseContent: "Summary of discussion",
 	}
 	pacing := false
-	cfg := &engine.Config{
-		Server: &engine.ServerConfig{
+	cfg := &config.Config{
+		Server: &config.ServerConfig{
 			Provider: "mock",
 			Model:    "mock-model",
 		},
-		Client: &engine.ClientConfig{
+		Client: &config.ClientConfig{
 			NaturalPacing: &pacing,
 		},
 	}
@@ -174,7 +180,7 @@ func TestRESTAPI_V1(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201 Created on node creation, got %d: %s", w.Code, w.Body.String())
 	}
-	var createdNode engine.Node
+	var createdNode graph.Node
 	_ = json.NewDecoder(w.Body).Decode(&createdNode)
 	if createdNode.ID == "" || createdNode.Content != "System instructions" {
 		t.Errorf("unexpected created node: %+v", createdNode)
@@ -194,7 +200,7 @@ func TestRESTAPI_V1(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w = httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
-	var childNode engine.Node
+	var childNode graph.Node
 	_ = json.NewDecoder(w.Body).Decode(&childNode)
 
 	// 5. Test Supernode Compaction via POST /api/v1/supernodes
@@ -238,20 +244,20 @@ func TestRESTAPI_V1(t *testing.T) {
 func TestChatStream_SSE(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
-	storage, _ := engine.NewSQLiteStorage(dbPath, "")
-	mgr := engine.NewManager(engine.NewGraph(), storage)
+	strg, _ := storage.NewSQLiteStorage(dbPath, "")
+	mgr := engine.NewManager(graph.NewGraph(), strg)
 
-	mockProvider := &engine.MockLLMProvider{
+	mockProvider := &providers.MockLLMProvider{
 		ResponseContent: "Hello from streaming AI!",
 		ResponseThought: "Internal reasoning stream",
 	}
 	pacing := false
-	cfg := &engine.Config{
-		Server: &engine.ServerConfig{
+	cfg := &config.Config{
+		Server: &config.ServerConfig{
 			Provider: "mock",
 			Model:    "mock-model",
 		},
-		Client: &engine.ClientConfig{
+		Client: &config.ClientConfig{
 			NaturalPacing: &pacing,
 		},
 	}
@@ -298,19 +304,19 @@ func TestChatStream_SSE(t *testing.T) {
 func TestChatStream_ReusesExistingUserNode(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
-	storage, _ := engine.NewSQLiteStorage(dbPath, "")
-	mgr := engine.NewManager(engine.NewGraph(), storage)
+	strg, _ := storage.NewSQLiteStorage(dbPath, "")
+	mgr := engine.NewManager(graph.NewGraph(), strg)
 
-	mockProvider := &engine.MockLLMProvider{
+	mockProvider := &providers.MockLLMProvider{
 		ResponseContent: "Assistant response",
 	}
 	pacing := false
-	cfg := &engine.Config{
-		Server: &engine.ServerConfig{
+	cfg := &config.Config{
+		Server: &config.ServerConfig{
 			Provider: "mock",
 			Model:    "mock-model",
 		},
-		Client: &engine.ClientConfig{
+		Client: &config.ClientConfig{
 			NaturalPacing: &pacing,
 		},
 	}
@@ -319,25 +325,25 @@ func TestChatStream_ReusesExistingUserNode(t *testing.T) {
 	defer ts.Close()
 
 	// 1. Client creates system node and user node first
-	sysNode, err := mgr.CreateNode("", engine.RoleSystem, "System prompt", false)
+	sysNode, err := mgr.CreateNode("", domain.RoleSystem, "System prompt", false)
 	if err != nil {
 		t.Fatalf("failed to create system node: %v", err)
 	}
 
-	userNode, err := mgr.CreateNode(sysNode.ID, engine.RoleUser, "Client created message", false)
+	userNode, err := mgr.CreateNode(sysNode.ID, domain.RoleUser, "Client created message", false)
 	if err != nil {
 		t.Fatalf("failed to create user node: %v", err)
 	}
 
 	// 2. Client initiates stream passing node_id
-	clientProvider, err := engine.NewRemoteDaemonProvider(ts.URL, "", "")
+	clientProvider, err := providers.NewRemoteDaemonProvider(ts.URL, "", "")
 	if err != nil {
 		t.Fatalf("failed to create client provider: %v", err)
 	}
 
-	messages := []engine.Message{
-		{ID: sysNode.ID, Role: engine.RoleSystem, Content: "System prompt"},
-		{ID: userNode.ID, ParentID: sysNode.ID, Role: engine.RoleUser, Content: "Client created message"},
+	messages := []domain.Message{
+		{ID: sysNode.ID, Role: domain.RoleSystem, Content: "System prompt"},
+		{ID: userNode.ID, ParentID: sysNode.ID, Role: domain.RoleUser, Content: "Client created message"},
 	}
 
 	contentChan, _, _, errChan := clientProvider.GenerateResponseStream(context.Background(), messages, nil)
@@ -371,7 +377,7 @@ func TestChatStream_ReusesExistingUserNode(t *testing.T) {
 
 	// Verify assistant node's parent is the original userNode
 	userChildren := mgr.GetChildren(userNode.ID)
-	if len(userChildren) != 1 || userChildren[0].Role != engine.RoleAssistant {
+	if len(userChildren) != 1 || userChildren[0].Role != domain.RoleAssistant {
 		t.Errorf("expected user node to have 1 assistant child, got %+v", userChildren)
 	}
 }
@@ -384,25 +390,25 @@ func TestServerAutoSync(t *testing.T) {
 	defer os.Remove(tmpFile.Name())
 	tmpFile.Close()
 
-	storage, err := engine.NewSQLiteStorage(tmpFile.Name(), "")
+	strg, err := storage.NewSQLiteStorage(tmpFile.Name(), "")
 	if err != nil {
 		t.Fatalf("failed to create storage: %v", err)
 	}
 
-	graph := engine.NewGraph()
-	mgr := engine.NewManager(graph, storage)
+	g := graph.NewGraph()
+	mgr := engine.NewManager(g, strg)
 	srv := NewServer(mgr)
 
-	node, err := mgr.CreateNode("", engine.RoleSystem, "Initial Prompt", false)
+	node, err := mgr.CreateNode("", domain.RoleSystem, "Initial Prompt", false)
 	if err != nil {
 		t.Fatalf("failed to create node: %v", err)
 	}
 
-	externalStorage, _ := engine.NewSQLiteStorage(tmpFile.Name(), "")
-	externalNode := &engine.Node{
+	externalStorage, _ := storage.NewSQLiteStorage(tmpFile.Name(), "")
+	externalNode := &graph.Node{
 		ID:       "external-node",
 		ParentID: node.ID,
-		Role:     engine.RoleUser,
+		Role:     domain.RoleUser,
 		Content:  "External Message",
 	}
 	if err := externalStorage.SaveNode(externalNode); err != nil {
@@ -417,7 +423,7 @@ func TestServerAutoSync(t *testing.T) {
 		t.Errorf("expected status OK, got %d", w.Code)
 	}
 
-	var respGraph engine.Graph
+	var respGraph graph.Graph
 	if err := json.NewDecoder(w.Body).Decode(&respGraph); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
@@ -430,12 +436,12 @@ func TestServerAutoSync(t *testing.T) {
 func TestChatStream_MultiTurnToolCascading(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
-	storage, _ := engine.NewSQLiteStorage(dbPath, "")
-	mgr := engine.NewManager(engine.NewGraph(), storage)
+	strg, _ := storage.NewSQLiteStorage(dbPath, "")
+	mgr := engine.NewManager(graph.NewGraph(), strg)
 
 	// Register a test tool in manager
-	mgr.Registry = engine.NewToolRegistry()
-	mgr.Registry.Register(engine.Tool{
+	mgr.Registry = tools.NewToolRegistry()
+	mgr.Registry.Register(tools.Tool{
 		Name:        "test_reader",
 		Description: "Reads test files",
 		Parameters: map[string]interface{}{
@@ -450,12 +456,12 @@ func TestChatStream_MultiTurnToolCascading(t *testing.T) {
 	})
 
 	turnCounter := 0
-	mockProvider := &engine.MockLLMProvider{
-		StreamHandler: func(messages []engine.Message, tools []engine.Tool) (string, string, []engine.ToolCall, error) {
+	mockProvider := &providers.MockLLMProvider{
+		StreamHandler: func(messages []domain.Message, tools []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
 			turnCounter++
 			if turnCounter == 1 {
 				// Turn 1: Emit tool call
-				tCall := engine.ToolCall{
+				tCall := domain.ToolCall{
 					ID:   "call_123",
 					Type: "function",
 					Function: struct {
@@ -466,13 +472,13 @@ func TestChatStream_MultiTurnToolCascading(t *testing.T) {
 						Arguments: json.RawMessage(`{"path":"test.txt"}`),
 					},
 				}
-				return "", "I will read the test file first.", []engine.ToolCall{tCall}, nil
+				return "", "I will read the test file first.", []domain.ToolCall{tCall}, nil
 			}
 
 			// Turn 2: Verify tool result was delivered in messages context
 			hasToolResult := false
 			for _, m := range messages {
-				if m.Role == engine.RoleTool && strings.Contains(m.Content, "[Lines 1-64 of test content]") {
+				if m.Role == domain.RoleTool && strings.Contains(m.Content, "[Lines 1-64 of test content]") {
 					hasToolResult = true
 					break
 				}
@@ -487,12 +493,12 @@ func TestChatStream_MultiTurnToolCascading(t *testing.T) {
 	}
 
 	pacing := false
-	cfg := &engine.Config{
-		Server: &engine.ServerConfig{
+	cfg := &config.Config{
+		Server: &config.ServerConfig{
 			Provider: "mock",
 			Model:    "mock-model",
 		},
-		Client: &engine.ClientConfig{
+		Client: &config.ClientConfig{
 			NaturalPacing: &pacing,
 		},
 	}
@@ -501,13 +507,13 @@ func TestChatStream_MultiTurnToolCascading(t *testing.T) {
 	defer ts.Close()
 
 	// Connect client to daemon
-	clientProvider, err := engine.NewRemoteDaemonProvider(ts.URL, "", "")
+	clientProvider, err := providers.NewRemoteDaemonProvider(ts.URL, "", "")
 	if err != nil {
 		t.Fatalf("failed to create client provider: %v", err)
 	}
 
-	messages := []engine.Message{
-		{Role: engine.RoleUser, Content: "Please summarize test.txt"},
+	messages := []domain.Message{
+		{Role: domain.RoleUser, Content: "Please summarize test.txt"},
 	}
 
 	contentChan, thoughtChan, toolCallChan, errChan := clientProvider.GenerateResponseStream(context.Background(), messages, nil)
@@ -556,7 +562,7 @@ func TestChatStream_MultiTurnToolCascading(t *testing.T) {
 	}
 
 	// Verify that the server unified multi-turn tool calling into exactly ONE assistant node
-	loadedGraph, _, err := storage.LoadGraph()
+	loadedGraph, _, err := strg.LoadGraph()
 	if err != nil {
 		t.Fatalf("failed to load graph from storage: %v", err)
 	}
@@ -568,9 +574,9 @@ func TestChatStream_MultiTurnToolCascading(t *testing.T) {
 		t.Errorf("expected exactly 2 nodes in graph (1 user, 1 unified assistant), got %d", len(nodes))
 	}
 
-	var asstNode *engine.Node
+	var asstNode *graph.Node
 	for _, n := range nodes {
-		if n.Role == engine.RoleAssistant {
+		if n.Role == domain.RoleAssistant {
 			asstNode = n
 			break
 		}
@@ -605,25 +611,25 @@ func TestChatStream_MultiTurnToolCascading(t *testing.T) {
 func TestRemoteDaemonStorage_CreateSupernode(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "vault.db")
-	storage, _ := engine.NewSQLiteStorage(dbPath, "")
-	graph := engine.NewGraph()
-	mgr := engine.NewManager(graph, storage)
+	strg, _ := storage.NewSQLiteStorage(dbPath, "")
+	g := graph.NewGraph()
+	mgr := engine.NewManager(g, strg)
 
-	root, _ := mgr.CreateNode("", engine.RoleSystem, "You are George 🦉📚", false)
-	user, _ := mgr.CreateNode(root.ID, engine.RoleUser, "Investigate logs", false)
+	root, _ := mgr.CreateNode("", domain.RoleSystem, "You are George 🦉📚", false)
+	user, _ := mgr.CreateNode(root.ID, domain.RoleUser, "Investigate logs", false)
 	asst, _ := mgr.CreateAssistantNode(user.ID, "Logs clear 🔍📜", "", nil, false)
 
-	mockProvider := &engine.MockLLMProvider{
+	mockProvider := &providers.MockLLMProvider{
 		ResponseContent: "Milestone: Investigation complete.",
 	}
 
-	cfg := engine.NewDefaultConfig()
+	cfg := config.NewDefaultConfig()
 	srv := NewServerWithProvider(mgr, mockProvider, cfg)
 
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	remoteStorage, err := engine.NewRemoteDaemonStorage(ts.URL, "", "")
+	remoteStorage, err := storage.NewRemoteDaemonStorage(ts.URL, "", "")
 	if err != nil {
 		t.Fatalf("failed to create remote storage: %v", err)
 	}
@@ -633,7 +639,7 @@ func TestRemoteDaemonStorage_CreateSupernode(t *testing.T) {
 		t.Fatalf("expected CreateSupernode to succeed, got: %v", err)
 	}
 
-	if superNode.Role != engine.RoleSummary {
+	if superNode.Role != domain.RoleSummary {
 		t.Errorf("expected supernode role to be RoleSummary, got %s", superNode.Role)
 	}
 	if !strings.Contains(superNode.Content, "🎯 Trajectory: 🔍📜") {
@@ -644,15 +650,15 @@ func TestRemoteDaemonStorage_CreateSupernode(t *testing.T) {
 func TestChatStream_WithAmbientTelemetryContext(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
-	storage, _ := engine.NewSQLiteStorage(dbPath, "")
-	mgr := engine.NewManager(engine.NewGraph(), storage)
+	strg, _ := storage.NewSQLiteStorage(dbPath, "")
+	mgr := engine.NewManager(graph.NewGraph(), strg)
 	mgr.AmbientTelemetry = true
 	mgr.WorkspaceDir = tmpDir
-	rootNode, _ := mgr.CreateNode("", engine.RoleSystem, "You are George the Archivist.", false)
+	rootNode, _ := mgr.CreateNode("", domain.RoleSystem, "You are George the Archivist.", false)
 
-	var capturedMessages []engine.Message
-	mockProvider := &engine.MockLLMProvider{
-		StreamHandler: func(messages []engine.Message, tools []engine.Tool) (string, string, []engine.ToolCall, error) {
+	var capturedMessages []domain.Message
+	mockProvider := &providers.MockLLMProvider{
+		StreamHandler: func(messages []domain.Message, tools []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
 			capturedMessages = messages
 			return "I received your telemetry.", "", nil, nil
 		},
@@ -660,13 +666,13 @@ func TestChatStream_WithAmbientTelemetryContext(t *testing.T) {
 
 	pacing := false
 	enabled := true
-	cfg := &engine.Config{
-		Server: &engine.ServerConfig{
+	cfg := &config.Config{
+		Server: &config.ServerConfig{
 			Provider:         "mock",
 			Model:            "mock-model",
 			AmbientTelemetry: &enabled,
 		},
-		Client: &engine.ClientConfig{
+		Client: &config.ClientConfig{
 			NaturalPacing: &pacing,
 		},
 	}
@@ -706,7 +712,7 @@ func TestChatStream_WithAmbientTelemetryContext(t *testing.T) {
 	}
 
 	leaf := capturedMessages[len(capturedMessages)-1]
-	if leaf.Role != engine.RoleUser {
+	if leaf.Role != domain.RoleUser {
 		t.Errorf("expected leaf to be RoleUser, got %s", leaf.Role)
 	}
 	if !strings.Contains(leaf.Content, "<USER_REQUEST>\nWhere are we?\n</USER_REQUEST>") {
@@ -731,11 +737,11 @@ func TestChatStream_WithAmbientTelemetryContext(t *testing.T) {
 func TestServer_Sessions(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
-	storage, err := engine.NewSQLiteStorage(dbPath, "")
+	strg, err := storage.NewSQLiteStorage(dbPath, "")
 	if err != nil {
 		t.Fatalf("failed to init storage: %v", err)
 	}
-	mgr := engine.NewManager(engine.NewGraph(), storage)
+	mgr := engine.NewManager(graph.NewGraph(), strg)
 	srv := NewServer(mgr)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -796,7 +802,7 @@ func TestServer_Sessions(t *testing.T) {
 	resp.Body.Close()
 
 	// 5. Test RemoteDaemonStorage proxying session calls
-	remoteStorage, err := engine.NewRemoteDaemonStorage(ts.URL, "", "")
+	remoteStorage, err := storage.NewRemoteDaemonStorage(ts.URL, "", "")
 	if err != nil {
 		t.Fatalf("failed to init RemoteDaemonStorage: %v", err)
 	}
@@ -821,15 +827,15 @@ func TestServer_Sessions(t *testing.T) {
 func TestServer_SessionActor_SerializedQueue(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "vault.db")
-	storage, _ := engine.NewSQLiteStorage(dbPath, "")
-	graph := engine.NewGraph()
-	mgr := engine.NewManager(graph, storage)
+	strg, _ := storage.NewSQLiteStorage(dbPath, "")
+	g := graph.NewGraph()
+	mgr := engine.NewManager(g, strg)
 
 	var executionOrder []string
 	var mu sync.Mutex
 
-	mockProvider := &engine.MockLLMProvider{
-		StreamHandler: func(messages []engine.Message, tools []engine.Tool) (string, string, []engine.ToolCall, error) {
+	mockProvider := &providers.MockLLMProvider{
+		StreamHandler: func(messages []domain.Message, tools []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
 			mu.Lock()
 			lastMsg := messages[len(messages)-1].Content
 			executionOrder = append(executionOrder, lastMsg)
@@ -839,12 +845,12 @@ func TestServer_SessionActor_SerializedQueue(t *testing.T) {
 		},
 	}
 
-	cfg := engine.NewDefaultConfig()
+	cfg := config.NewDefaultConfig()
 	srv := NewServerWithProvider(mgr, mockProvider, cfg)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	clientAlpha, err := engine.NewRemoteDaemonProvider(ts.URL, "", "")
+	clientAlpha, err := providers.NewRemoteDaemonProvider(ts.URL, "", "")
 	if err != nil {
 		t.Fatalf("failed to init RemoteDaemonProvider: %v", err)
 	}
@@ -854,21 +860,21 @@ func TestServer_SessionActor_SerializedQueue(t *testing.T) {
 	wg.Add(2)
 
 	// Fire two requests concurrently to session-alpha
-	var res1, res2 *engine.Message
+	var res1, res2 *domain.Message
 	var err1, err2 error
 
 	go func() {
 		defer wg.Done()
-		res1, err1 = clientAlpha.GenerateResponse(context.Background(), []engine.Message{
-			{Role: engine.RoleUser, Content: "Alpha 1"},
+		res1, err1 = clientAlpha.GenerateResponse(context.Background(), []domain.Message{
+			{Role: domain.RoleUser, Content: "Alpha 1"},
 		}, nil)
 	}()
 
 	go func() {
 		defer wg.Done()
 		time.Sleep(5 * time.Millisecond) // Ensure Alpha 1 queues first
-		res2, err2 = clientAlpha.GenerateResponse(context.Background(), []engine.Message{
-			{Role: engine.RoleUser, Content: "Alpha 2"},
+		res2, err2 = clientAlpha.GenerateResponse(context.Background(), []domain.Message{
+			{Role: domain.RoleUser, Content: "Alpha 2"},
 		}, nil)
 	}()
 
@@ -895,7 +901,7 @@ func TestServer_SessionActor_SerializedQueue(t *testing.T) {
 	mu.Unlock()
 
 	// Verify session head is the second response node
-	headID, err := storage.GetSessionHead("session-alpha")
+	headID, err := strg.GetSessionHead("session-alpha")
 	if err != nil {
 		t.Fatalf("GetSessionHead failed: %v", err)
 	}
@@ -939,16 +945,16 @@ func TestServer_SessionActor_WorktreeIsolation(t *testing.T) {
 	execCmd("commit", "-m", "initial")
 
 	dbPath := filepath.Join(tmpDir, "vault.db")
-	storage, _ := engine.NewSQLiteStorage(dbPath, "")
-	graph := engine.NewGraph()
-	mgr := engine.NewManager(graph, storage)
+	strg, _ := storage.NewSQLiteStorage(dbPath, "")
+	g := graph.NewGraph()
+	mgr := engine.NewManager(g, strg)
 	mgr.RegisterDefaultTools(repoDir)
 
-	mockProvider := &engine.MockLLMProvider{
-		StreamHandler: func(messages []engine.Message, tools []engine.Tool) (string, string, []engine.ToolCall, error) {
+	mockProvider := &providers.MockLLMProvider{
+		StreamHandler: func(messages []domain.Message, tools []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
 			lastMsg := messages[len(messages)-1].Content
 			if strings.Contains(lastMsg, "Write Alpha") {
-				return "", "", []engine.ToolCall{
+				return "", "", []domain.ToolCall{
 					{
 						ID: "call_alpha",
 						Function: struct {
@@ -962,7 +968,7 @@ func TestServer_SessionActor_WorktreeIsolation(t *testing.T) {
 				}, nil
 			}
 			if strings.Contains(lastMsg, "Write Beta") {
-				return "", "", []engine.ToolCall{
+				return "", "", []domain.ToolCall{
 					{
 						ID: "call_beta",
 						Function: struct {
@@ -979,7 +985,7 @@ func TestServer_SessionActor_WorktreeIsolation(t *testing.T) {
 		},
 	}
 
-	cfg := engine.NewDefaultConfig()
+	cfg := config.NewDefaultConfig()
 	wtTrue := true
 	cfg.Server.WorktreeIsolation = &wtTrue
 	cfg.Server.WorkspaceDir = repoDir
@@ -988,23 +994,23 @@ func TestServer_SessionActor_WorktreeIsolation(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	clientAlpha, _ := engine.NewRemoteDaemonProvider(ts.URL, "", "")
+	clientAlpha, _ := providers.NewRemoteDaemonProvider(ts.URL, "", "")
 	clientAlpha.SessionID = "alpha"
 
-	clientBeta, _ := engine.NewRemoteDaemonProvider(ts.URL, "", "")
+	clientBeta, _ := providers.NewRemoteDaemonProvider(ts.URL, "", "")
 	clientBeta.SessionID = "beta"
 
 	// Execute turn for alpha
-	_, err = clientAlpha.GenerateResponse(context.Background(), []engine.Message{
-		{Role: engine.RoleUser, Content: "Write Alpha"},
+	_, err = clientAlpha.GenerateResponse(context.Background(), []domain.Message{
+		{Role: domain.RoleUser, Content: "Write Alpha"},
 	}, nil)
 	if err != nil {
 		t.Fatalf("clientAlpha turn failed: %v", err)
 	}
 
 	// Execute turn for beta
-	_, err = clientBeta.GenerateResponse(context.Background(), []engine.Message{
-		{Role: engine.RoleUser, Content: "Write Beta"},
+	_, err = clientBeta.GenerateResponse(context.Background(), []domain.Message{
+		{Role: domain.RoleUser, Content: "Write Beta"},
 	}, nil)
 	if err != nil {
 		t.Fatalf("clientBeta turn failed: %v", err)

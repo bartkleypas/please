@@ -1,7 +1,8 @@
 package tui
 
 import (
-	"github.com/bartkleypas/please/internal/engine"
+	"github.com/bartkleypas/please/internal/domain"
+	"github.com/bartkleypas/please/internal/graph"
 )
 
 // tickMsg is sent to trigger the spinner animation
@@ -30,14 +31,14 @@ type llmStreamFinishedMsg struct {
 	parentID     string
 	activeNodeID string // If set, this was a resumption
 	thought      string
-	toolCalls    []engine.ToolCall
+	toolCalls    []domain.ToolCall
 }
 
 // streamResponseMsg is sent to initialize the streaming channels in the model
 type streamResponseMsg struct {
 	contentChan  <-chan string
 	thoughtChan  <-chan string
-	toolCallChan <-chan []engine.ToolCall
+	toolCallChan <-chan []domain.ToolCall
 	errChan      <-chan error
 	parentID     string
 	activeNodeID string // If set, this is an interleaving resumption
@@ -55,7 +56,7 @@ type syncResultMsg struct {
 }
 
 type compactionFinishedMsg struct {
-	node *engine.Node
+	node *graph.Node
 	err  error
 }
 

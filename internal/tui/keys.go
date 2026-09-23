@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/bartkleypas/please/internal/engine"
+	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/storage"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -178,7 +178,7 @@ func (m *Model) handleChatKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 		targetID := m.CurrentID
 		if path, err := m.Manager.GetPath(m.CurrentID); err == nil && len(path) > 0 {
 			for i := len(path) - 1; i >= 0; i-- {
-				if path[i].Role == engine.RoleAssistant && (path[i].Thought != "" || (path[i].Metadata != nil && path[i].Metadata["segments"] != "")) {
+				if path[i].Role == domain.RoleAssistant && (path[i].Thought != "" || (path[i].Metadata != nil && path[i].Metadata["segments"] != "")) {
 					targetID = path[i].ID
 					break
 				}
@@ -199,7 +199,7 @@ func (m *Model) handleChatKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 		hasExpanded := false
 		if path, err := m.Manager.GetPath(m.CurrentID); err == nil {
 			for _, node := range path {
-				if node.Role == engine.RoleAssistant && m.isThoughtExpanded(node.ID) {
+				if node.Role == domain.RoleAssistant && m.isThoughtExpanded(node.ID) {
 					hasExpanded = true
 					break
 				}
@@ -209,7 +209,7 @@ func (m *Model) handleChatKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 		newState := !hasExpanded
 		if path, err := m.Manager.GetPath(m.CurrentID); err == nil {
 			for _, node := range path {
-				if node.Role == engine.RoleAssistant {
+				if node.Role == domain.RoleAssistant {
 					m.ExpandedThoughts[node.ID] = newState
 				}
 			}
@@ -512,7 +512,7 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 	// 1. Handle Setup Modes: Initial system prompt or new persona creation.
 	if m.SetupMode || m.PersonaSetupMode {
 		// Genesis node holds pure persona without baked-in workspace supplement (ADR 003)
-		newNode, err := m.Manager.CreateNode("", engine.RoleSystem, input, false)
+		newNode, err := m.Manager.CreateNode("", domain.RoleSystem, input, false)
 		if err != nil {
 			m.Notification = fmt.Sprintf("Error: %v", err)
 			return m, nil
@@ -544,7 +544,7 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 	}
 
 	// 3. Handle Regular Chat: Create a user node and trigger LLM generation.
-	newNode, err := m.Manager.CreateNode(m.CurrentID, engine.RoleUser, input, false)
+	newNode, err := m.Manager.CreateNode(m.CurrentID, domain.RoleUser, input, false)
 	if err != nil {
 		m.Notification = fmt.Sprintf("Error: %v", err)
 		m.TextInput.Reset()
@@ -577,7 +577,7 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 	m.StreamCancel = cancel
 
 	return m, tea.Batch(
-		streamResponse(ctx, m.Provider, messages, m.Manager.Registry.GetToolsForPolicy(m.Config.GetSandboxPolicy()), newNode.ID, ""),
+		streamResponse(ctx, m.Provider, messages, m.Manager.Registry.GetToolSpecsForPolicy(m.Config.GetSandboxPolicy()), newNode.ID, ""),
 		tick(),
 	)
 }

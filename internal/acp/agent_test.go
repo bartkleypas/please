@@ -10,8 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bartkleypas/please/internal/config"
+	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/engine"
 	"github.com/bartkleypas/please/internal/graph"
+	"github.com/bartkleypas/please/internal/providers"
 	"github.com/bartkleypas/please/internal/tools"
 	acpsdk "github.com/coder/acp-go-sdk"
 )
@@ -62,7 +65,7 @@ func (s *mockStorage) UpdateNodeParentID(nodeID, newParentID string) error {
 	return nil
 }
 
-func (s *mockStorage) UpdateNodeObservations(nodeID string, obs []engine.ToolObservation) error {
+func (s *mockStorage) UpdateNodeObservations(nodeID string, obs []domain.ToolObservation) error {
 	return nil
 }
 
@@ -168,13 +171,13 @@ func (c *mockACPClient) WaitForTerminalExit(ctx context.Context, params acpsdk.W
 	return acpsdk.WaitForTerminalExitResponse{}, nil
 }
 
-func setupConnectedHarness(t *testing.T, clientDecision string, provider engine.Provider) (*acpsdk.ClientSideConnection, *Agent, *mockACPClient, func()) {
+func setupConnectedHarness(t *testing.T, clientDecision string, provider providers.Provider) (*acpsdk.ClientSideConnection, *Agent, *mockACPClient, func()) {
 	t.Helper()
 	storage := newMockStorage()
 	g := graph.NewGraph()
 	mgr := engine.NewManager(g, storage)
 	mgr.Registry = tools.NewToolRegistry()
-	cfg := engine.NewDefaultConfig()
+	cfg := config.NewDefaultConfig()
 
 	agent := NewAgent(mgr, provider, cfg, "/tmp/test-workspace")
 	mockClient := &mockACPClient{decision: clientDecision}
@@ -284,8 +287,8 @@ func TestACPAgent_SessionLifecycle(t *testing.T) {
 }
 
 func TestACPAgent_PromptStreaming(t *testing.T) {
-	mockProv := &engine.MockLLMProvider{
-		StreamHandler: func(messages []engine.Message, tools []engine.Tool) (string, string, []engine.ToolCall, error) {
+	mockProv := &providers.MockLLMProvider{
+		StreamHandler: func(messages []domain.Message, tools []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
 			return "Hello from please ACP agent!", "Reasoning about user request", nil, nil
 		},
 	}
@@ -339,10 +342,10 @@ func TestACPAgent_PromptStreaming(t *testing.T) {
 
 func TestACPAgent_PermissionGate_AllowOnce(t *testing.T) {
 	toolExecuted := false
-	mockProv := &engine.MockLLMProvider{
-		StreamHandler: func(messages []engine.Message, tools []engine.Tool) (string, string, []engine.ToolCall, error) {
+	mockProv := &providers.MockLLMProvider{
+		StreamHandler: func(messages []domain.Message, tools []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
 			if !toolExecuted {
-				return "", "", []engine.ToolCall{
+				return "", "", []domain.ToolCall{
 					{
 						ID:   "call_cmd_1",
 						Type: "function",
@@ -365,7 +368,7 @@ func TestACPAgent_PermissionGate_AllowOnce(t *testing.T) {
 
 	agent.mgr.Registry.Register(tools.Tool{
 		Name:        "execute_cmd",
-		Category:    tools.CategoryExecute,
+		Category:    domain.CategoryExecute,
 		Interactive: true,
 		Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			toolExecuted = true
@@ -414,15 +417,15 @@ func TestACPAgent_PermissionGate_AllowOnce(t *testing.T) {
 
 func TestACPAgent_PermissionGate_RejectOnce(t *testing.T) {
 	toolExecuted := false
-	mockProv := &engine.MockLLMProvider{
-		StreamHandler: func(messages []engine.Message, tools []engine.Tool) (string, string, []engine.ToolCall, error) {
+	mockProv := &providers.MockLLMProvider{
+		StreamHandler: func(messages []domain.Message, tools []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
 			if len(messages) > 0 {
 				last := messages[len(messages)-1]
 				if strings.Contains(last.Content, "User denied execution") {
 					return "I see the command was denied, stopping.", "", nil, nil
 				}
 			}
-			return "", "", []engine.ToolCall{
+			return "", "", []domain.ToolCall{
 				{
 					ID:   "call_cmd_2",
 					Type: "function",
@@ -443,7 +446,7 @@ func TestACPAgent_PermissionGate_RejectOnce(t *testing.T) {
 
 	agent.mgr.Registry.Register(tools.Tool{
 		Name:        "execute_cmd",
-		Category:    tools.CategoryExecute,
+		Category:    domain.CategoryExecute,
 		Interactive: true,
 		Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			toolExecuted = true
@@ -491,11 +494,11 @@ func TestACPAgent_PermissionGate_AllowAlways(t *testing.T) {
 	execCount := 0
 	turn := 1
 	step := 0
-	mockProv := &engine.MockLLMProvider{
-		StreamHandler: func(messages []engine.Message, tools []engine.Tool) (string, string, []engine.ToolCall, error) {
+	mockProv := &providers.MockLLMProvider{
+		StreamHandler: func(messages []domain.Message, tools []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
 			step++
 			if step%2 == 1 {
-				return "", "", []engine.ToolCall{
+				return "", "", []domain.ToolCall{
 					{
 						ID:   fmt.Sprintf("call_cmd_%d", step),
 						Type: "function",
@@ -518,7 +521,7 @@ func TestACPAgent_PermissionGate_AllowAlways(t *testing.T) {
 
 	agent.mgr.Registry.Register(tools.Tool{
 		Name:        "safe_cmd",
-		Category:    tools.CategoryExecute,
+		Category:    domain.CategoryExecute,
 		Interactive: true,
 		Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			execCount++

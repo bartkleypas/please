@@ -5,39 +5,42 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/engine"
+	"github.com/bartkleypas/please/internal/graph"
+	"github.com/bartkleypas/please/internal/storage"
 )
 
 func TestResolveDiagnosticNode(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test_vault.db")
 
-	storage, err := engine.NewSQLiteStorage(dbPath, "")
+	strg, err := storage.NewSQLiteStorage(dbPath, "")
 	if err != nil {
 		t.Fatalf("failed to create sqlite storage: %v", err)
 	}
 
-	g := engine.NewGraph()
-	mgr := engine.NewManager(g, storage)
+	g := graph.NewGraph()
+	mgr := engine.NewManager(g, strg)
 
 	now := time.Now()
-	root := &engine.Node{
+	root := &graph.Node{
 		ID:        "root-0001",
-		Role:      engine.RoleSystem,
+		Role:      domain.RoleSystem,
 		Content:   "You are an assistant.",
 		Timestamp: now.Add(-10 * time.Minute),
 	}
-	user := &engine.Node{
+	user := &graph.Node{
 		ID:        "user-0002",
 		ParentID:  root.ID,
-		Role:      engine.RoleUser,
+		Role:      domain.RoleUser,
 		Content:   "Hello!",
 		Timestamp: now.Add(-5 * time.Minute),
 	}
-	leaf := &engine.Node{
+	leaf := &graph.Node{
 		ID:        "asst-0003-leaf-node-xyz",
 		ParentID:  user.ID,
-		Role:      engine.RoleAssistant,
+		Role:      domain.RoleAssistant,
 		Content:   "Hi there!",
 		Timestamp: now,
 	}

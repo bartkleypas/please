@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/bartkleypas/please/internal/config"
-	"github.com/bartkleypas/please/internal/engine"
 	"github.com/bartkleypas/please/internal/storage"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -72,7 +71,7 @@ func setupMemoryStore(vaultPath, configPath string) (storage.MemoryStore, *confi
 		return nil, nil, fmt.Errorf("persistent agent memory requires an SQLite vault (.db/.sqlite), current vault is %q", finalVaultPath)
 	}
 
-	sqliteStorage, err := engine.NewSQLiteStorage(finalVaultPath, cfg.Server.EncryptionKey)
+	sqliteStorage, err := storage.NewSQLiteStorage(finalVaultPath, cfg.Server.EncryptionKey)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to initialize sqlite storage at %q: %w", finalVaultPath, err)
 	}

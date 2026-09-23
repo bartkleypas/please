@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/bartkleypas/please/internal/engine"
+	"github.com/bartkleypas/please/internal/graph"
+	"github.com/bartkleypas/please/internal/storage"
 )
 
 func TestEventBus_PubSub(t *testing.T) {
@@ -54,8 +56,8 @@ func TestEventBus_PubSub(t *testing.T) {
 
 func TestEventsEndpoint_SSE(t *testing.T) {
 	tmpDir := t.TempDir()
-	storage, _ := engine.NewSQLiteStorage(tmpDir+"/vault.db", "")
-	graph := engine.NewGraph()
+	storage, _ := storage.NewSQLiteStorage(tmpDir+"/vault.db", "")
+	graph := graph.NewGraph()
 	mgr := engine.NewManager(graph, storage)
 	srv := NewServer(mgr)
 

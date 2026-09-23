@@ -11,8 +11,12 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/bartkleypas/please/internal/config"
+	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/engine"
+	"github.com/bartkleypas/please/internal/providers"
 	"github.com/bartkleypas/please/internal/server"
+	"github.com/bartkleypas/please/internal/storage"
 	"github.com/bartkleypas/please/internal/tui"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -151,12 +155,12 @@ func main() {
 	}
 
 	// Load Configuration
-	var cfg *engine.Config
+	var cfg *config.Config
 	var err error
 	if *configPath != "" {
-		cfg, err = engine.LoadConfigFile(*configPath)
+		cfg, err = config.LoadConfigFile(*configPath)
 	} else {
-		cfg, err = engine.LoadConfig()
+		cfg, err = config.LoadConfig()
 	}
 	if err != nil {
 		fmt.Printf("Configuration error: %v\n", err)
@@ -168,7 +172,7 @@ func main() {
 	}
 	if *worktreeFlag {
 		if cfg.Server == nil {
-			cfg.Server = &engine.ServerConfig{}
+			cfg.Server = &config.ServerConfig{}
 		}
 		cfg.Server.WorktreeIsolation = worktreeFlag
 	}
@@ -176,7 +180,7 @@ func main() {
 	// Apply CLI flag overrides to cfg.Server.Options
 	if *tempFlag >= 0 || *topPFlag >= 0 || *topKFlag >= 0 || *ctxFlag > 0 || *maxTokensFlag > 0 {
 		if cfg.Server.Options == nil {
-			cfg.Server.Options = &engine.ModelOptions{}
+			cfg.Server.Options = &domain.ModelOptions{}
 		}
 		if *tempFlag >= 0 {
 			cfg.Server.Options.Temperature = tempFlag
@@ -208,30 +212,30 @@ func main() {
 		storageType = "jsonl"
 	}
 
-	var storage engine.Storage
+	var strg storage.Storage
 	if storageType == "sqlite" {
-		storage, err = engine.NewSQLiteStorage(finalVaultPath, cfg.Server.EncryptionKey)
+		strg, err = storage.NewSQLiteStorage(finalVaultPath, cfg.Server.EncryptionKey)
 		if err != nil {
 			fmt.Printf("Error initializing sqlite storage: %v\n", err)
 			os.Exit(1)
 		}
 	} else {
-		storage = engine.NewJSONLStorage(finalVaultPath, cfg.Server.EncryptionKey)
+		strg = storage.NewJSONLStorage(finalVaultPath, cfg.Server.EncryptionKey)
 	}
 
-	graph, lastID, err := storage.LoadGraph()
+	graph, lastID, err := strg.LoadGraph()
 	if err != nil {
 		fmt.Printf("Error loading graph: %v\n", err)
 		os.Exit(1)
 	}
 
-	var provider engine.LLMProvider
+	var provider providers.Provider
 	if cfg.Server.Provider == "openai" {
-		provider = engine.NewOpenAIProvider(cfg.Server.Endpoint, cfg.Server.Model, cfg.Server.APIKey, cfg.Server.Options)
+		provider = providers.NewOpenAIProvider(cfg.Server.Endpoint, cfg.Server.Model, cfg.Server.APIKey, cfg.Server.Options)
 	} else {
-		provider = engine.NewOllamaProvider(cfg.Server.Endpoint, cfg.Server.Model, cfg.Server.Options)
+		provider = providers.NewOllamaProvider(cfg.Server.Endpoint, cfg.Server.Model, cfg.Server.Options)
 	}
-	mgr := engine.NewManager(graph, storage)
+	mgr := engine.NewManager(graph, strg)
 	mgr.SignatSteering = cfg.EnableSignatSteering()
 	mgr.AmbientTelemetry = cfg.EnableAmbientTelemetry()
 	mgr.RegisterDefaultTools(cfg.GetWorkspaceDir())
@@ -239,7 +243,7 @@ func main() {
 
 	// Determine if we have a message from args or stdin
 	var pipedContent string
-	var pipedRole engine.Role = engine.RoleTool
+	var pipedRole domain.Role = domain.RoleTool
 
 	stat, statErr := os.Stdin.Stat()
 	if statErr == nil && (stat.Mode()&os.ModeCharDevice) == 0 {
@@ -255,7 +259,7 @@ func main() {
 	}
 
 	if *roleStr != "" {
-		pipedRole = engine.Role(*roleStr)
+		pipedRole = domain.Role(*roleStr)
 	}
 
 	sessionName := cfg.GetSession()
@@ -267,10 +271,10 @@ func main() {
 	if pipedContent != "" || argContent != "" {
 		parentID := *parent
 		if parentID == "" {
-			if pipedContent != "" && pipedRole == engine.RoleSystem {
+			if pipedContent != "" && pipedRole == domain.RoleSystem {
 				parentID = ""
 			} else {
-				if headID, err := storage.GetSessionHead(sessionName); err == nil && headID != "" {
+				if headID, err := strg.GetSessionHead(sessionName); err == nil && headID != "" {
 					parentID = headID
 				} else {
 					parentID = lastID
@@ -291,7 +295,7 @@ func main() {
 		}
 
 		if argContent != "" {
-			newNode, err := mgr.CreateNode(parentID, engine.RoleUser, argContent, false)
+			newNode, err := mgr.CreateNode(parentID, domain.RoleUser, argContent, false)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error creating message node: %v\n", err)
 				os.Exit(1)
@@ -328,7 +332,7 @@ func main() {
 			finalID = assistantNode.ID
 		}
 
-		_ = storage.SaveSessionHead(sessionName, finalID)
+		_ = strg.SaveSessionHead(sessionName, finalID)
 		fmt.Println(finalID)
 		os.Exit(0)
 	}
@@ -344,7 +348,7 @@ func main() {
 
 	// Start Standalone TUI
 	startID := lastID
-	if headID, err := storage.GetSessionHead(sessionName); err == nil && headID != "" {
+	if headID, err := strg.GetSessionHead(sessionName); err == nil && headID != "" {
 		if _, err := graph.GetNode(headID); err == nil {
 			startID = headID
 		}
@@ -355,7 +359,7 @@ func main() {
 
 	harness := engine.NewSessionHarness(mgr, provider, cfg)
 	localProvider := engine.NewLocalHarnessProvider(harness, sessionName)
-	m := tui.NewModel(cfg, graph, storage, localProvider, startID)
+	m := tui.NewModel(cfg, graph, strg, localProvider, startID)
 	m.SessionID = sessionName
 	m.Server = webServer
 	p := tea.NewProgram(&m, tea.WithAltScreen())
@@ -385,12 +389,12 @@ func runServe(args []string) {
 
 	_ = fs.Parse(args)
 
-	var cfg *engine.Config
+	var cfg *config.Config
 	var err error
 	if *configPath != "" {
-		cfg, err = engine.LoadConfigFile(*configPath)
+		cfg, err = config.LoadConfigFile(*configPath)
 	} else {
-		cfg, err = engine.LoadConfig()
+		cfg, err = config.LoadConfig()
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Configuration error: %v\n", err)
@@ -419,31 +423,31 @@ func runServe(args []string) {
 		storageType = "jsonl"
 	}
 
-	var storage engine.Storage
+	var strg storage.Storage
 	if storageType == "sqlite" {
-		storage, err = engine.NewSQLiteStorage(finalVaultPath, cfg.Server.EncryptionKey)
+		strg, err = storage.NewSQLiteStorage(finalVaultPath, cfg.Server.EncryptionKey)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error initializing sqlite storage: %v\n", err)
 			os.Exit(1)
 		}
 	} else {
-		storage = engine.NewJSONLStorage(finalVaultPath, cfg.Server.EncryptionKey)
+		strg = storage.NewJSONLStorage(finalVaultPath, cfg.Server.EncryptionKey)
 	}
 
-	graph, _, err := storage.LoadGraph()
+	graph, _, err := strg.LoadGraph()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading graph: %v\n", err)
 		os.Exit(1)
 	}
 
-	var provider engine.LLMProvider
+	var provider providers.Provider
 	if cfg.Server.Provider == "openai" {
-		provider = engine.NewOpenAIProvider(cfg.Server.Endpoint, cfg.Server.Model, cfg.Server.APIKey, cfg.Server.Options)
+		provider = providers.NewOpenAIProvider(cfg.Server.Endpoint, cfg.Server.Model, cfg.Server.APIKey, cfg.Server.Options)
 	} else {
-		provider = engine.NewOllamaProvider(cfg.Server.Endpoint, cfg.Server.Model, cfg.Server.Options)
+		provider = providers.NewOllamaProvider(cfg.Server.Endpoint, cfg.Server.Model, cfg.Server.Options)
 	}
 
-	mgr := engine.NewManager(graph, storage)
+	mgr := engine.NewManager(graph, strg)
 	mgr.SignatSteering = cfg.EnableSignatSteering()
 	mgr.AmbientTelemetry = cfg.EnableAmbientTelemetry()
 	mgr.RegisterDefaultTools(cfg.GetWorkspaceDir())
@@ -465,7 +469,7 @@ func runServe(args []string) {
 		}
 
 		if cFile == "" || kFile == "" || *genCerts {
-			cfgDir, _ := engine.GetConfigDir()
+			cfgDir, _ := config.GetConfigDir()
 			certDir := filepath.Join(cfgDir, "certs")
 			if _, statErr := os.Stat(filepath.Join(certDir, "server.crt")); os.IsNotExist(statErr) || *genCerts {
 				bundle, genErr := server.Generate20YearCerts(certDir, []string{*host, "localhost", "127.0.0.1", "please.local"})
@@ -546,12 +550,12 @@ func runConnect(args []string) {
 
 	_ = fs.Parse(flagArgs)
 
-	var cfg *engine.Config
+	var cfg *config.Config
 	var err error
 	if *configPath != "" {
-		cfg, err = engine.LoadConfigFile(*configPath)
+		cfg, err = config.LoadConfigFile(*configPath)
 	} else {
-		cfg, err = engine.LoadConfig()
+		cfg, err = config.LoadConfig()
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Configuration error: %v\n", err)
@@ -588,7 +592,7 @@ func runConnect(args []string) {
 	}
 
 	// 1. Create RemoteDaemonProvider
-	provider, err := engine.NewRemoteDaemonProvider(remoteURL, token, caCert)
+	provider, err := providers.NewRemoteDaemonProvider(remoteURL, token, caCert)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to initialize remote provider: %v\n", err)
 		os.Exit(1)
@@ -596,15 +600,15 @@ func runConnect(args []string) {
 	provider.SessionID = sessionName
 
 	// 2. Initialize RemoteDaemonStorage
-	storage, err := engine.NewRemoteDaemonStorage(remoteURL, token, caCert)
+	strg, err := storage.NewRemoteDaemonStorage(remoteURL, token, caCert)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to initialize remote storage: %v\n", err)
 		os.Exit(1)
 	}
-	storage.SessionID = sessionName
+	strg.SessionID = sessionName
 
 	// 3. Pull initial graph from daemon
-	graph, lastID, err := storage.LoadGraph()
+	graph, lastID, err := strg.LoadGraph()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to connect to daemon at %s: %v\n", remoteURL, err)
 		fmt.Fprintf(os.Stderr, "Ensure the daemon is running with: please serve\n")
@@ -612,7 +616,7 @@ func runConnect(args []string) {
 	}
 
 	startID := lastID
-	if headID, err := storage.GetSessionHead(sessionName); err == nil && headID != "" {
+	if headID, err := strg.GetSessionHead(sessionName); err == nil && headID != "" {
 		if _, err := graph.GetNode(headID); err == nil {
 			startID = headID
 		}
@@ -621,7 +625,7 @@ func runConnect(args []string) {
 		startID = *jumpID
 	}
 
-	m := tui.NewModel(cfg, graph, storage, provider, startID)
+	m := tui.NewModel(cfg, graph, strg, provider, startID)
 	m.SessionID = sessionName
 	m.RemoteURL = remoteURL
 	p := tea.NewProgram(&m, tea.WithAltScreen())
@@ -639,7 +643,7 @@ func runCertGenerate(args []string) {
 
 	outDir := *dir
 	if outDir == "" {
-		cfgDir, err := engine.GetConfigDir()
+		cfgDir, err := config.GetConfigDir()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Could not determine config directory: %v\n", err)
 			os.Exit(1)

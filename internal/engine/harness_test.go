@@ -7,16 +7,22 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/bartkleypas/please/internal/config"
+	"github.com/bartkleypas/please/internal/domain"
+	"github.com/bartkleypas/please/internal/graph"
+	"github.com/bartkleypas/please/internal/providers"
+	"github.com/bartkleypas/please/internal/tools"
 )
 
 func TestSessionHarness_MultiTurnToolExecution(t *testing.T) {
 	storage := &MockStorage{}
-	graph := NewGraph()
+	graph := graph.NewGraph()
 	mgr := NewManager(graph, storage)
 
 	// Register a mock tool
-	mgr.Registry = NewToolRegistry()
-	mgr.Registry.Register(Tool{
+	mgr.Registry = tools.NewToolRegistry()
+	mgr.Registry.Register(tools.Tool{
 		Name:        "get_weather",
 		Description: "Get weather for city",
 		Parameters: map[string]interface{}{
@@ -32,12 +38,12 @@ func TestSessionHarness_MultiTurnToolExecution(t *testing.T) {
 	})
 
 	callCount := 0
-	mockProvider := &MockLLMProvider{
-		StreamHandler: func(messages []Message, tools []Tool) (string, string, []ToolCall, error) {
+	mockProvider := &providers.MockLLMProvider{
+		StreamHandler: func(messages []domain.Message, tools []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
 			callCount++
 			if callCount == 1 {
 				// Turn 1: request weather tool
-				return "", "Thinking about weather...", []ToolCall{
+				return "", "Thinking about weather...", []domain.ToolCall{
 					{
 						ID:   "call_weather_1",
 						Type: "function",
@@ -57,7 +63,7 @@ func TestSessionHarness_MultiTurnToolExecution(t *testing.T) {
 		},
 	}
 
-	cfg := NewDefaultConfig()
+	cfg := config.NewDefaultConfig()
 	harness := NewSessionHarness(mgr, mockProvider, cfg)
 
 	eventCh := make(chan HarnessEvent, 50)
@@ -144,16 +150,16 @@ func TestSessionHarness_MultiTurnToolExecution(t *testing.T) {
 
 func TestSessionHarness_DirectTurnWithoutTools(t *testing.T) {
 	storage := &MockStorage{}
-	graph := NewGraph()
+	graph := graph.NewGraph()
 	mgr := NewManager(graph, storage)
 
-	mockProvider := &MockLLMProvider{
-		StreamHandler: func(messages []Message, tools []Tool) (string, string, []ToolCall, error) {
+	mockProvider := &providers.MockLLMProvider{
+		StreamHandler: func(messages []domain.Message, tools []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
 			return "Hello there! 🦉☕", "Thinking...", nil, nil
 		},
 	}
 
-	cfg := NewDefaultConfig()
+	cfg := config.NewDefaultConfig()
 	harness := NewSessionHarness(mgr, mockProvider, cfg)
 
 	req := TurnRequest{
@@ -176,17 +182,17 @@ func TestSessionHarness_DirectTurnWithoutTools(t *testing.T) {
 
 func TestSessionHarness_ContextCancellation(t *testing.T) {
 	storage := &MockStorage{}
-	graph := NewGraph()
+	graph := graph.NewGraph()
 	mgr := NewManager(graph, storage)
 
-	mockProvider := &MockLLMProvider{
-		StreamHandler: func(messages []Message, tools []Tool) (string, string, []ToolCall, error) {
+	mockProvider := &providers.MockLLMProvider{
+		StreamHandler: func(messages []domain.Message, tools []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
 			time.Sleep(50 * time.Millisecond)
 			return "delayed response", "", nil, nil
 		},
 	}
 
-	cfg := NewDefaultConfig()
+	cfg := config.NewDefaultConfig()
 	harness := NewSessionHarness(mgr, mockProvider, cfg)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -200,11 +206,11 @@ func TestSessionHarness_ContextCancellation(t *testing.T) {
 
 func TestSessionHarness_RunwayWrapUp(t *testing.T) {
 	storage := &MockStorage{}
-	graph := NewGraph()
+	graph := graph.NewGraph()
 	mgr := NewManager(graph, storage)
 
-	mgr.Registry = NewToolRegistry()
-	mgr.Registry.Register(Tool{
+	mgr.Registry = tools.NewToolRegistry()
+	mgr.Registry.Register(tools.Tool{
 		Name: "infinite_tool",
 		Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			return "infinite output", nil
@@ -213,12 +219,12 @@ func TestSessionHarness_RunwayWrapUp(t *testing.T) {
 
 	callStep := 0
 	sawToolsOnFinalStep := false
-	mockProvider := &MockLLMProvider{
-		StreamHandler: func(messages []Message, tools []Tool) (string, string, []ToolCall, error) {
+	mockProvider := &providers.MockLLMProvider{
+		StreamHandler: func(messages []domain.Message, tools []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
 			callStep++
 			if callStep < 3 {
 				// Steps 1 & 2: request infinite_tool
-				return "", "", []ToolCall{
+				return "", "", []domain.ToolCall{
 					{
 						ID:   fmt.Sprintf("call_%d", callStep),
 						Type: "function",
@@ -241,7 +247,7 @@ func TestSessionHarness_RunwayWrapUp(t *testing.T) {
 		},
 	}
 
-	cfg := NewDefaultConfig()
+	cfg := config.NewDefaultConfig()
 	harness := NewSessionHarness(mgr, mockProvider, cfg)
 
 	req := TurnRequest{
@@ -266,11 +272,11 @@ func TestSessionHarness_RunwayWrapUp(t *testing.T) {
 
 func TestSessionHarness_LoopCircuitBreaker(t *testing.T) {
 	storage := &MockStorage{}
-	graph := NewGraph()
+	graph := graph.NewGraph()
 	mgr := NewManager(graph, storage)
 
-	mgr.Registry = NewToolRegistry()
-	mgr.Registry.Register(Tool{
+	mgr.Registry = tools.NewToolRegistry()
+	mgr.Registry.Register(tools.Tool{
 		Name: "ping_tool",
 		Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			return "pong", nil
@@ -279,19 +285,19 @@ func TestSessionHarness_LoopCircuitBreaker(t *testing.T) {
 
 	step := 0
 	circuitBreakerTriggered := false
-	mockProvider := &MockLLMProvider{
-		StreamHandler: func(messages []Message, tools []Tool) (string, string, []ToolCall, error) {
+	mockProvider := &providers.MockLLMProvider{
+		StreamHandler: func(messages []domain.Message, tools []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
 			step++
 			// Inspect observations to see if circuit breaker triggered
 			for _, m := range messages {
-				if m.Role == RoleTool && strings.Contains(m.Content, "loop circuit breaker triggered") {
+				if m.Role == domain.RoleTool && strings.Contains(m.Content, "loop circuit breaker triggered") {
 					circuitBreakerTriggered = true
 					return "Loop detected, halting and summarizing.", "", nil, nil
 				}
 			}
 
 			// Model stubbornly keeps calling identical tool with identical args
-			return "", "", []ToolCall{
+			return "", "", []domain.ToolCall{
 				{
 					ID:   fmt.Sprintf("ping_%d", step),
 					Type: "function",
@@ -307,7 +313,7 @@ func TestSessionHarness_LoopCircuitBreaker(t *testing.T) {
 		},
 	}
 
-	cfg := NewDefaultConfig()
+	cfg := config.NewDefaultConfig()
 	harness := NewSessionHarness(mgr, mockProvider, cfg)
 
 	req := TurnRequest{
@@ -332,14 +338,14 @@ func TestSessionHarness_LoopCircuitBreaker(t *testing.T) {
 
 func TestSessionHarness_PermissionGate_Allowed(t *testing.T) {
 	storage := &MockStorage{}
-	graph := NewGraph()
+	graph := graph.NewGraph()
 	mgr := NewManager(graph, storage)
 
 	toolExecuted := false
-	mgr.Registry = NewToolRegistry()
-	mgr.Registry.Register(Tool{
+	mgr.Registry = tools.NewToolRegistry()
+	mgr.Registry.Register(tools.Tool{
 		Name:        "dangerous_exec",
-		Category:    CategoryExecute,
+		Category:    domain.CategoryExecute,
 		Interactive: true,
 		Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			toolExecuted = true
@@ -348,11 +354,11 @@ func TestSessionHarness_PermissionGate_Allowed(t *testing.T) {
 	})
 
 	callCount := 0
-	mockProvider := &MockLLMProvider{
-		StreamHandler: func(messages []Message, tools []Tool) (string, string, []ToolCall, error) {
+	mockProvider := &providers.MockLLMProvider{
+		StreamHandler: func(messages []domain.Message, tools []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
 			callCount++
 			if callCount == 1 {
-				return "", "Preparing exec", []ToolCall{
+				return "", "Preparing exec", []domain.ToolCall{
 					{
 						ID:   "call_exec_1",
 						Type: "function",
@@ -370,10 +376,10 @@ func TestSessionHarness_PermissionGate_Allowed(t *testing.T) {
 		},
 	}
 
-	cfg := NewDefaultConfig()
+	cfg := config.NewDefaultConfig()
 	harness := NewSessionHarness(mgr, mockProvider, cfg)
 	gateCalled := false
-	harness.PermissionGate = func(ctx context.Context, sessionID string, call ToolCall) (bool, error) {
+	harness.PermissionGate = func(ctx context.Context, sessionID string, call domain.ToolCall) (bool, error) {
 		gateCalled = true
 		if call.Function.Name != "dangerous_exec" {
 			t.Errorf("unexpected tool in gate: %s", call.Function.Name)
@@ -404,14 +410,14 @@ func TestSessionHarness_PermissionGate_Allowed(t *testing.T) {
 
 func TestSessionHarness_PermissionGate_Denied(t *testing.T) {
 	storage := &MockStorage{}
-	graph := NewGraph()
+	graph := graph.NewGraph()
 	mgr := NewManager(graph, storage)
 
 	toolExecuted := false
-	mgr.Registry = NewToolRegistry()
-	mgr.Registry.Register(Tool{
+	mgr.Registry = tools.NewToolRegistry()
+	mgr.Registry.Register(tools.Tool{
 		Name:        "dangerous_exec",
-		Category:    CategoryExecute,
+		Category:    domain.CategoryExecute,
 		Interactive: true,
 		Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			toolExecuted = true
@@ -420,11 +426,11 @@ func TestSessionHarness_PermissionGate_Denied(t *testing.T) {
 	})
 
 	callCount := 0
-	mockProvider := &MockLLMProvider{
-		StreamHandler: func(messages []Message, tools []Tool) (string, string, []ToolCall, error) {
+	mockProvider := &providers.MockLLMProvider{
+		StreamHandler: func(messages []domain.Message, tools []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
 			callCount++
 			if callCount == 1 {
-				return "", "Preparing exec", []ToolCall{
+				return "", "Preparing exec", []domain.ToolCall{
 					{
 						ID:   "call_exec_1",
 						Type: "function",
@@ -444,10 +450,10 @@ func TestSessionHarness_PermissionGate_Denied(t *testing.T) {
 		},
 	}
 
-	cfg := NewDefaultConfig()
+	cfg := config.NewDefaultConfig()
 	harness := NewSessionHarness(mgr, mockProvider, cfg)
 	gateCalled := false
-	harness.PermissionGate = func(ctx context.Context, sessionID string, call ToolCall) (bool, error) {
+	harness.PermissionGate = func(ctx context.Context, sessionID string, call domain.ToolCall) (bool, error) {
 		gateCalled = true
 		return false, nil // Operator explicitly denies consent
 	}
@@ -475,22 +481,22 @@ func TestSessionHarness_PermissionGate_Denied(t *testing.T) {
 
 func TestSessionHarness_PermissionGate_Error(t *testing.T) {
 	storage := &MockStorage{}
-	graph := NewGraph()
+	graph := graph.NewGraph()
 	mgr := NewManager(graph, storage)
 
-	mgr.Registry = NewToolRegistry()
-	mgr.Registry.Register(Tool{
+	mgr.Registry = tools.NewToolRegistry()
+	mgr.Registry.Register(tools.Tool{
 		Name:        "dangerous_exec",
-		Category:    CategoryExecute,
+		Category:    domain.CategoryExecute,
 		Interactive: true,
 		Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			return "ok", nil
 		},
 	})
 
-	mockProvider := &MockLLMProvider{
-		StreamHandler: func(messages []Message, tools []Tool) (string, string, []ToolCall, error) {
-			return "", "", []ToolCall{
+	mockProvider := &providers.MockLLMProvider{
+		StreamHandler: func(messages []domain.Message, tools []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
+			return "", "", []domain.ToolCall{
 				{
 					ID:   "call_exec_1",
 					Type: "function",
@@ -506,9 +512,9 @@ func TestSessionHarness_PermissionGate_Error(t *testing.T) {
 		},
 	}
 
-	cfg := NewDefaultConfig()
+	cfg := config.NewDefaultConfig()
 	harness := NewSessionHarness(mgr, mockProvider, cfg)
-	harness.PermissionGate = func(ctx context.Context, sessionID string, call ToolCall) (bool, error) {
+	harness.PermissionGate = func(ctx context.Context, sessionID string, call domain.ToolCall) (bool, error) {
 		return false, context.Canceled
 	}
 
