@@ -134,3 +134,27 @@ func TestListNavigator_HandleKey(t *testing.T) {
 		t.Errorf("expected enter not to be handled by ListNavigator")
 	}
 }
+
+func TestListNavigator_Wrap(t *testing.T) {
+	nav := NewListNavigator(3, 1)
+	nav.Wrap = true
+
+	if nav.Cursor != 0 {
+		t.Fatalf("expected initial cursor 0, got %d", nav.Cursor)
+	}
+
+	// 1. Wrap backwards from 0 to 2
+	if !nav.Prev() || nav.Cursor != 2 {
+		t.Errorf("expected Prev() to wrap to 2, got %d", nav.Cursor)
+	}
+
+	// 2. Wrap forwards from 2 to 0
+	if !nav.Next() || nav.Cursor != 0 {
+		t.Errorf("expected Next() to wrap to 0, got %d", nav.Cursor)
+	}
+
+	// 3. Step forward to 1
+	if !nav.Next() || nav.Cursor != 1 {
+		t.Errorf("expected Next() to advance to 1, got %d", nav.Cursor)
+	}
+}

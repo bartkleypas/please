@@ -11,6 +11,10 @@ func newChatLayer(m *Model) *chatLayer {
 	return &chatLayer{m: m}
 }
 
+func (l *chatLayer) setModel(m *Model) {
+	l.m = m
+}
+
 func (l *chatLayer) Name() string {
 	return "chat"
 }
@@ -33,6 +37,11 @@ func (l *chatLayer) Update(msg tea.Msg) (tea.Cmd, bool) {
 	keyMsg, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return nil, false
+	}
+
+	if newM, pCmd, handled := l.m.handlePacingKeys(keyMsg); handled {
+		l.m = newM
+		return pCmd, true
 	}
 
 	var cmd tea.Cmd

@@ -77,10 +77,22 @@ func (m Model) View() string {
 		return s
 	}
 
+	if m.ViewStack != nil && m.ViewStack.Top() != nil {
+		top := m.ViewStack.Top()
+		if !top.IsOverlay() && top.Name() != "chat" && top.Name() != "map" && top.Name() != "memories" {
+			return top.View(m.Width, m.Height)
+		}
+	}
+
+	activeView := "chat"
+	if m.ViewStack != nil && m.ViewStack.Top() != nil {
+		activeView = m.ViewStack.Top().Name()
+	}
+
 	titleText := " PLEASE - Narrative Graph "
 	if m.RemoteURL != "" {
 		titleText = fmt.Sprintf(" PLEASE - Connected (%s) 🟢 ", m.RemoteURL)
-	} else if m.ViewMode == ModeMemories {
+	} else if activeView == "memories" || activeView == "memory_card" {
 		titleText = " PLEASE - Memory Vault"
 	}
 	s := titleStyle.Render(titleText) + "\n\n"
@@ -115,14 +127,14 @@ func (m Model) View() string {
 	m.TextInput.FocusedStyle.Prompt = lipgloss.NewStyle()
 
 	// Footer Rendering
-	switch m.ViewMode {
-	case ModeMap:
+	switch activeView {
+	case "map":
 		if m.Searching {
 			s += "\n\n" + inputBoxStyle.Render(m.SearchInput.View())
 		} else if (m.ViewStack == nil || !m.ViewStack.Top().IsOverlay()) && !m.IsCompressing {
 			s += "\n\n" + m.renderFooterHelp("h/l: fold/unfold • j/k: move • g/G: top/end • /: search • c: compact • d: prune • esc: chat")
 		}
-	case ModeMemories:
+	case "memories", "memory_card":
 		if m.MemoryDetailCard != nil {
 			s += "\n\n" + m.renderFooterHelp("esc/backspace/q: back to deck • d/x: prune • ↑/↓: scroll")
 		} else {
@@ -139,8 +151,6 @@ func (m Model) View() string {
 		s += "\n\n" + inputBoxStyle.Render(m.TextInput.View())
 		if m.hasActiveOverlay("confirm_tool") {
 			s += "\n\n" + m.renderFooterHelp("(Press y/n to confirm/deny, or type a message to bypass)")
-		} else if m.ViewportOverride != "" {
-			s += "\n\n" + m.renderFooterHelp("(ESC: return to chat • ↑/↓ or PgUp/PgDn to scroll • /q to exit)")
 		} else {
 			s += "\n\n" + m.renderFooterHelp("(/q to exit • /map for graph • /help for more)")
 		}

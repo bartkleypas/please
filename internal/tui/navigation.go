@@ -5,6 +5,7 @@ type ListNavigator struct {
 	Cursor   int
 	Total    int
 	PageSize int
+	Wrap     bool
 }
 
 // NewListNavigator creates a ListNavigator with the specified total items and page size.
@@ -41,18 +42,32 @@ func (n *ListNavigator) Clamp() {
 	}
 }
 
-// Next moves the cursor forward by 1, stopping at the last item. Returns true if cursor moved.
+// Next moves the cursor forward by 1. Clamps at end unless Wrap is true. Returns true if cursor moved.
 func (n *ListNavigator) Next() bool {
-	if n.Total <= 0 || n.Cursor >= n.Total-1 {
+	if n.Total <= 0 {
+		return false
+	}
+	if n.Cursor >= n.Total-1 {
+		if n.Wrap && n.Total > 1 {
+			n.Cursor = 0
+			return true
+		}
 		return false
 	}
 	n.Cursor++
 	return true
 }
 
-// Prev moves the cursor backward by 1, stopping at the first item. Returns true if cursor moved.
+// Prev moves the cursor backward by 1. Clamps at start unless Wrap is true. Returns true if cursor moved.
 func (n *ListNavigator) Prev() bool {
-	if n.Total <= 0 || n.Cursor <= 0 {
+	if n.Total <= 0 {
+		return false
+	}
+	if n.Cursor <= 0 {
+		if n.Wrap && n.Total > 1 {
+			n.Cursor = n.Total - 1
+			return true
+		}
 		return false
 	}
 	n.Cursor--

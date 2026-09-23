@@ -36,69 +36,17 @@ func (m *Model) handleKeyEvent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	m.ensureViewStack()
 
-	// If there are modal or overlay layers on top of root chat, route exclusively through ViewStack
-	if m.ViewStack.Len() > 1 {
-		for _, layer := range m.ViewStack.layers {
-			if aware, ok := layer.(interface{ setModel(*Model) }); ok {
-				aware.setModel(m)
-			}
-		}
-		cmd, handled := m.ViewStack.Update(msg)
-		if handled {
-			return m, cmd
+	for _, layer := range m.ViewStack.layers {
+		if aware, ok := layer.(interface{ setModel(*Model) }); ok {
+			aware.setModel(m)
 		}
 	}
-
-	// 1. Let modal interceptors consume standard keys first
-	if newM, cmd, handled := m.handleModalKeys(msg); handled {
-		return newM, cmd
+	cmd, handled := m.ViewStack.Update(msg)
+	if handled {
+		return m, cmd
 	}
 
-	var cmd tea.Cmd
-
-	// 2. Delegate key handling based on active ViewMode
-	switch m.ViewMode {
-	case ModeChat:
-		var cCmd tea.Cmd
-		var handled bool
-		m, cCmd, handled = m.handleChatKeys(msg)
-		if handled {
-			return m, cCmd
-		}
-		cmd = tea.Batch(cmd, cCmd)
-	case ModeMap:
-		return m.handleMapKeys(msg)
-	case ModeMemories:
-		return m.handleMemoriesKeys(msg)
-	}
-
-	// 3. Handle global and generic view overrides
-	if m.ViewportOverride != "" {
-		switch msg.String() {
-		case "esc":
-			m.ViewportOverride = ""
-			m.updateViewportContent()
-			return m, nil
-		}
-	}
-
-	switch msg.String() {
-	case "enter":
-		return m.handleEnterKey()
-	}
-
-	var tiCmd tea.Cmd
-	m.TextInput, tiCmd = m.TextInput.Update(msg)
-	return m, tea.Batch(cmd, tiCmd)
-}
-
-// handleModalKeys checks if there is any active modal state that needs
-// to intercept key events before they propagate to normal view mode handlers.
-func (m *Model) handleModalKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
-	if newM, cmd, handled := m.handlePacingKeys(msg); handled {
-		return newM, cmd, true
-	}
-	return m, nil, false
+	return m, nil
 }
 
 func (m *Model) handlePacingKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
@@ -203,29 +151,8 @@ func (m *Model) handleMapKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 		return newM, cmd
 	}
 
-	switch msg.String() {
-	case "up", "k":
-		if m.MapSelectionIndex > 0 {
-			m.MapSelectionIndex--
-			m.syncMapSelection()
-		}
-	case "down", "j":
-		if m.MapSelectionIndex < len(m.MapNodeIDs)-1 {
-			m.MapSelectionIndex++
-			m.syncMapSelection()
-		}
-	case "h":
-		m.ascendOrCollapseMap()
-	case "l":
-		m.descendOrUnfoldMap()
-	case "g":
-		// Snap to Root
-		if len(m.MapNodeIDs) > 0 {
-			m.MapSelectionIndex = 0
-			m.syncMapSelection()
-		}
-	case "G":
-		// Snap to current active Leaf node
+	// 'G' snaps to current active leaf node
+	if msg.String() == "G" {
 		for i, id := range m.MapNodeIDs {
 			if id == m.CurrentID {
 				m.MapSelectionIndex = i
@@ -233,6 +160,25 @@ func (m *Model) handleMapKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 				break
 			}
 		}
+		return m, nil
+	}
+
+	nav := &ListNavigator{
+		Cursor:   m.MapSelectionIndex,
+		Total:    len(m.MapNodeIDs),
+		PageSize: 5,
+	}
+	if nav.HandleKey(msg.String()) {
+		m.MapSelectionIndex = nav.Cursor
+		m.syncMapSelection()
+		return m, nil
+	}
+
+	switch msg.String() {
+	case "h":
+		m.ascendOrCollapseMap()
+	case "l":
+		m.descendOrUnfoldMap()
 	case "v":
 		m.AuditMode = !m.AuditMode
 		if m.AuditMode {
@@ -303,13 +249,19 @@ func (m *Model) handleMapKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 			targetID := m.MapNodeIDs[m.MapSelectionIndex]
 			if node, err := m.Manager.GetNode(targetID); err == nil {
 				m.navigateToNode(node)
+				m.ViewMode = ModeChat
+				if m.ViewStack != nil && m.ViewStack.Top() != nil && m.ViewStack.Top().Name() == "map" {
+					m.ViewStack.Pop()
+				}
 				return m, nil
 			}
 		}
 	case "esc":
 		m.ViewMode = ModeChat
-		m.ViewportOverride = ""
 		m.updateViewportContent()
+		if m.ViewStack != nil && m.ViewStack.Top() != nil && m.ViewStack.Top().Name() == "map" {
+			m.ViewStack.Pop()
+		}
 		return m, nil
 	}
 
@@ -356,25 +308,21 @@ func (m *Model) handleMemoriesKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 	}
 
 	// 2. Navigating the Card Deck
+	if len(m.MemoryDeck) > 0 {
+		nav := &ListNavigator{
+			Cursor:   m.MemoryDeckIndex,
+			Total:    len(m.MemoryDeck),
+			PageSize: 5,
+			Wrap:     true,
+		}
+		if nav.HandleKey(msg.String()) {
+			m.MemoryDeckIndex = nav.Cursor
+			m.Viewport.SetContent(m.renderMemoriesView())
+			return m, nil
+		}
+	}
+
 	switch msg.String() {
-	case "up", "k":
-		if len(m.MemoryDeck) > 0 {
-			m.MemoryDeckIndex--
-			if m.MemoryDeckIndex < 0 {
-				m.MemoryDeckIndex = len(m.MemoryDeck) - 1
-			}
-			m.Viewport.SetContent(m.renderMemoriesView())
-		}
-		return m, nil
-	case "down", "j":
-		if len(m.MemoryDeck) > 0 {
-			m.MemoryDeckIndex++
-			if m.MemoryDeckIndex >= len(m.MemoryDeck) {
-				m.MemoryDeckIndex = 0
-			}
-			m.Viewport.SetContent(m.renderMemoriesView())
-		}
-		return m, nil
 	case "enter", "space":
 		if len(m.MemoryDeck) > 0 && m.MemoryDeckIndex >= 0 && m.MemoryDeckIndex < len(m.MemoryDeck) {
 			m.MemoryDetailCard = &m.MemoryDeck[m.MemoryDeckIndex]
@@ -406,8 +354,10 @@ func (m *Model) handleMemoriesKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 		m.MemoryDetailCard = nil
 		m.MemoryDeck = nil
 		m.MemoryDeckFilter = ""
-		m.ViewportOverride = ""
 		m.updateViewportContent()
+		if m.ViewStack != nil && m.ViewStack.Top() != nil && m.ViewStack.Top().Name() == "memories" {
+			m.ViewStack.Pop()
+		}
 		return m, nil
 	}
 

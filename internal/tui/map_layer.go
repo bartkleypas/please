@@ -43,11 +43,5 @@ func (l *MapLayer) Update(msg tea.Msg) (tea.Cmd, bool) {
 
 	newM, cmd := l.m.handleMapKeys(keyMsg)
 	l.m = newM
-
-	// If handleMapKeys transitioned back to ModeChat (e.g. on esc or enter jump), pop from stack
-	if l.m.ViewMode == ModeChat && l.m.ViewStack != nil && l.m.ViewStack.Top() == l {
-		l.m.ViewStack.Pop()
-	}
-
 	return cmd, true
 }

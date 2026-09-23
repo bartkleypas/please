@@ -50,11 +50,6 @@ func (l *MemoriesDeckLayer) Update(msg tea.Msg) (tea.Cmd, bool) {
 		l.m.ViewStack.Push(newMemoryCardOverlay(l.m, l.m.MemoryDetailCard))
 	}
 
-	// If handleMemoriesKeys transitioned back to ModeChat (e.g. on esc or q), pop from stack
-	if l.m.ViewMode == ModeChat && l.m.ViewStack != nil && l.m.ViewStack.Top() == l {
-		l.m.ViewStack.Pop()
-	}
-
 	return cmd, true
 }
 

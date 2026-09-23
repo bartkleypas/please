@@ -137,9 +137,9 @@ func (m *Model) handleRemoteDaemonEvent(msg remoteDaemonEventMsg) (tea.Model, te
 			if m.CurrentID == "" && lastID != "" {
 				m.CurrentID = lastID
 			}
-			if m.ViewMode == ModeMap {
+			if m.ViewMode == ModeMap || (m.ViewStack != nil && m.ViewStack.Top() != nil && m.ViewStack.Top().Name() == "map") {
 				m.syncMapSelection()
-			} else if m.ViewportOverride == "" {
+			} else if m.ViewStack == nil || m.ViewStack.Top() == nil || m.ViewStack.Top().Name() == "chat" {
 				m.updateViewportContent()
 			}
 
@@ -153,9 +153,9 @@ func (m *Model) handleRemoteDaemonEvent(msg remoteDaemonEventMsg) (tea.Model, te
 				}
 			}
 
-			if m.ViewMode == ModeMap {
+			if m.ViewMode == ModeMap || (m.ViewStack != nil && m.ViewStack.Top() != nil && m.ViewStack.Top().Name() == "map") {
 				m.syncMapSelection()
-			} else if m.ViewportOverride == "" {
+			} else if m.ViewStack == nil || m.ViewStack.Top() == nil || m.ViewStack.Top().Name() == "chat" {
 				m.updateViewportContent()
 			}
 

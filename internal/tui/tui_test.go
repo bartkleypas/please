@@ -440,18 +440,15 @@ func TestViewportOverrideTextInputAndLiveUpdate(t *testing.T) {
 		t.Fatal("expected /config to set ViewportOverride")
 	}
 
-	// 3. Type while ViewportOverride is active
+	// 3. Keystrokes while config view is active must NOT leak to TextInput (ADR-017 isolation)
 	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
 	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
-	if m.TextInput.Value() != "hi" {
-		t.Fatalf("expected TextInput to receive typing during ViewportOverride, got %q", m.TextInput.Value())
+	if m.TextInput.Value() != "" {
+		t.Fatalf("keystrokes leaked into TextInput during config view! Got: %q", m.TextInput.Value())
 	}
-	m.TextInput.Reset()
 
-	// 4. Run /config temp 0.85 while config view is open
-	m.TextInput.SetValue("/config temp 0.85")
-	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
-
+	// 4. Update settings via HandleCommand while config view is open; verify live-updating
+	m.HandleCommand("/config temp 0.85")
 	if m.Config.Server.Options == nil || m.Config.Server.Options.Temperature == nil || *m.Config.Server.Options.Temperature != 0.85 {
 		t.Fatalf("expected temperature to be 0.85, got %v", m.Config.Server.Options)
 	}
@@ -459,10 +456,7 @@ func TestViewportOverrideTextInputAndLiveUpdate(t *testing.T) {
 		t.Errorf("expected ViewportOverride to live-update with new temperature, got:\n%s", m.ViewportOverride)
 	}
 
-	// 4b. Run /config penalty 1.10 while config view is open
-	m.TextInput.SetValue("/config penalty 1.10")
-	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
-
+	m.HandleCommand("/config penalty 1.10")
 	if m.Config.Server.Options.RepeatPenalty == nil || *m.Config.Server.Options.RepeatPenalty != 1.10 {
 		t.Fatalf("expected repeat penalty to be 1.10, got %v", m.Config.Server.Options.RepeatPenalty)
 	}
@@ -470,10 +464,7 @@ func TestViewportOverrideTextInputAndLiveUpdate(t *testing.T) {
 		t.Errorf("expected ViewportOverride to live-update with new repeat penalty, got:\n%s", m.ViewportOverride)
 	}
 
-	// 4c. Run /config min_p 0.05 while config view is open
-	m.TextInput.SetValue("/config min_p 0.05")
-	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
-
+	m.HandleCommand("/config min_p 0.05")
 	if m.Config.Server.Options.MinP == nil || *m.Config.Server.Options.MinP != 0.05 {
 		t.Fatalf("expected min_p to be 0.05, got %v", m.Config.Server.Options.MinP)
 	}
@@ -482,9 +473,7 @@ func TestViewportOverrideTextInputAndLiveUpdate(t *testing.T) {
 	}
 
 	// 4d. Run /config last_n 128 while config view is open
-	m.TextInput.SetValue("/config last_n 128")
-	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
-
+	m.HandleCommand("/config last_n 128")
 	if m.Config.Server.Options.RepeatLastN == nil || *m.Config.Server.Options.RepeatLastN != 128 {
 		t.Fatalf("expected repeat_last_n to be 128, got %v", m.Config.Server.Options.RepeatLastN)
 	}
@@ -493,9 +482,7 @@ func TestViewportOverrideTextInputAndLiveUpdate(t *testing.T) {
 	}
 
 	// 4e. Run /config freq 0.15 while config view is open
-	m.TextInput.SetValue("/config freq 0.15")
-	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
-
+	m.HandleCommand("/config freq 0.15")
 	if m.Config.Server.Options.FrequencyPenalty == nil || *m.Config.Server.Options.FrequencyPenalty != 0.15 {
 		t.Fatalf("expected frequency penalty to be 0.15, got %v", m.Config.Server.Options.FrequencyPenalty)
 	}
@@ -504,9 +491,7 @@ func TestViewportOverrideTextInputAndLiveUpdate(t *testing.T) {
 	}
 
 	// 4f. Run /config sandbox strict while config view is open
-	m.TextInput.SetValue("/config sandbox strict")
-	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
-
+	m.HandleCommand("/config sandbox strict")
 	if m.Config.Server.SandboxPolicy != "strict" {
 		t.Fatalf("expected sandbox policy to be 'strict', got %q", m.Config.Server.SandboxPolicy)
 	}
@@ -514,13 +499,18 @@ func TestViewportOverrideTextInputAndLiveUpdate(t *testing.T) {
 		t.Errorf("expected ViewportOverride to live-update with new sandbox policy, got:\n%s", m.ViewportOverride)
 	}
 
-	// 5. Send a regular chat message while ViewportOverride is active
+	// 5. Return to chat via Esc and send a regular chat message
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.ViewStack.Top().Name() != "chat" {
+		t.Fatalf("expected ViewStack to return to chat after esc, got %q", m.ViewStack.Top().Name())
+	}
+	if m.ViewportOverride != "" {
+		t.Errorf("expected ViewportOverride to be cleared after esc, got %q", m.ViewportOverride)
+	}
+
 	m.TextInput.SetValue("Let's resume chat")
 	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyEnter})
 
-	if m.ViewportOverride != "" {
-		t.Errorf("expected ViewportOverride to be cleared on user message, got %q", m.ViewportOverride)
-	}
 	if !m.IsThinking {
 		t.Error("expected IsThinking to be true after user message")
 	}
