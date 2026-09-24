@@ -43,20 +43,64 @@ func (m Model) renderFooterHelp(leftHelp string) string {
 	}
 
 	right := sandboxBadge + " " + ctxBadge
-	left := helpStyle.Render(leftHelp)
-
 	if m.Width <= 0 {
-		return left + "  " + right
+		return helpStyle.Render(leftHelp) + "  " + right
 	}
 
-	gap := m.Width - lipgloss.Width(left) - lipgloss.Width(right) - 2
-	if gap < 2 {
-		gap = 2
+	rightWidth := lipgloss.Width(right)
+	maxLeftWidth := m.Width - rightWidth - 2
+	if maxLeftWidth > 10 && lipgloss.Width(leftHelp) > maxLeftWidth {
+		runes := []rune(leftHelp)
+		if len(runes) > maxLeftWidth-1 {
+			leftHelp = string(runes[:maxLeftWidth-1]) + "…"
+		}
+	}
+
+	left := helpStyle.Render(leftHelp)
+	gap := m.Width - lipgloss.Width(left) - rightWidth
+	if gap < 1 {
+		gap = 1
 	}
 	return left + strings.Repeat(" ", gap) + right
 }
 
+// syncViewportDimensions dynamically sizes the viewport to fit the terminal window
+// exactly according to the active view layer (chat vs map vs search).
+func (m *Model) syncViewportDimensions() {
+	if m.Width <= 0 || m.Height <= 0 {
+		return
+	}
+	m.Viewport.Width = m.Width - 4
+	m.TextInput.SetWidth(m.Width - 4)
+
+	activeView := "chat"
+	if m.ViewStack != nil && m.ViewStack.Top() != nil {
+		activeView = m.ViewStack.Top().Name()
+	}
+
+	if activeView == "map" || m.ViewMode == ModeMap {
+		if m.Searching {
+			// Title (2) + History borders (2) + Spacing (1) + Search box (5) + Spacing (1) + Footer (1) = 12
+			m.Viewport.Height = m.Height - 12
+		} else {
+			// Title (2) + History borders (2) + Spacing (1) + Footer (1) = 6
+			m.Viewport.Height = m.Height - 6
+		}
+	} else if activeView == "memories" || activeView == "memory_card" || m.ViewMode == ModeMemories {
+		m.Viewport.Height = m.Height - 6
+	} else {
+		// Chat mode: Title (2) + History borders (2) + Spacing (1) + Input box (5) + Spacing (1) + Footer (1) = 12
+		m.Viewport.Height = m.Height - 12
+	}
+
+	if m.Viewport.Height < 4 {
+		m.Viewport.Height = 4
+	}
+}
+
 func (m Model) View() string {
+	(&m).syncViewportDimensions()
+
 	if m.PersonaSetupMode {
 		s := titleStyle.Render(" PLEASE - New Persona ") + "\n\n"
 		s += "Define a new system prompt to switch personas.\n"
@@ -132,7 +176,7 @@ func (m Model) View() string {
 		if m.Searching {
 			s += "\n\n" + inputBoxStyle.Render(m.SearchInput.View())
 		} else if (m.ViewStack == nil || !m.ViewStack.Top().IsOverlay()) && !m.IsCompressing {
-			s += "\n\n" + m.renderFooterHelp("h/l: fold/unfold • j/k: move • g/G: top/end • /: search • c: compact • d: prune • esc: chat")
+			s += "\n\n" + m.renderFooterHelp("↑/↓ or j/k: move • esc: chat")
 		}
 	case "memories", "memory_card":
 		if m.MemoryDetailCard != nil {

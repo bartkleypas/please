@@ -15,10 +15,8 @@ import (
 func (m *Model) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.Width = msg.Width
 	m.Height = msg.Height
-	m.Viewport.Width = msg.Width - 4    // Account for borders (2) and padding(2)
-	m.Viewport.Height = msg.Height - 14 // Increased offset for textarea height
-	m.TextInput.SetWidth(msg.Width - 4)
 	m.TextInput.SetHeight(3) // Multi-line input
+	m.syncViewportDimensions()
 	m.updateViewportContent()
 	if m.ViewStack != nil {
 		m.ViewStack.Update(msg)
@@ -131,6 +129,7 @@ func (m *Model) handleSearchKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 		case "enter":
 			m.SearchQuery = m.SearchInput.Value()
 			m.Searching = false
+			m.syncViewportDimensions()
 			m.ViewportOverride = m.generateMapString()
 			m.Viewport.SetContent(m.ViewportOverride)
 			return m, nil, true
@@ -138,6 +137,7 @@ func (m *Model) handleSearchKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 			m.Searching = false
 			m.SearchInput.Reset()
 			m.SearchQuery = ""
+			m.syncViewportDimensions()
 			m.ViewportOverride = m.generateMapString()
 			m.Viewport.SetContent(m.ViewportOverride)
 			return m, nil, true
@@ -246,6 +246,7 @@ func (m *Model) handleMapKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 		}
 	case "/":
 		m.Searching = true
+		m.syncViewportDimensions()
 		m.SearchInput.Focus()
 		return m, nil
 	case "enter":
@@ -254,6 +255,7 @@ func (m *Model) handleMapKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 			if node, err := m.Manager.GetNode(targetID); err == nil {
 				m.navigateToNode(node)
 				m.ViewMode = ModeChat
+				m.syncViewportDimensions()
 				if m.ViewStack != nil && m.ViewStack.Top() != nil && m.ViewStack.Top().Name() == "map" {
 					m.ViewStack.Pop()
 				}
@@ -262,6 +264,7 @@ func (m *Model) handleMapKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 		}
 	case "esc":
 		m.ViewMode = ModeChat
+		m.syncViewportDimensions()
 		m.updateViewportContent()
 		if m.ViewStack != nil && m.ViewStack.Top() != nil && m.ViewStack.Top().Name() == "map" {
 			m.ViewStack.Pop()

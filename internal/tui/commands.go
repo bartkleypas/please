@@ -274,6 +274,7 @@ type MapCommand struct{}
 func (c *MapCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	m.ViewMode = ModeMap
 	m.MapSelectionIndex = 0
+	m.syncViewportDimensions()
 	m.Viewport.SetContent(m.generateMapString())
 	m.Viewport.GotoTop()
 	m.ensureViewStack()
