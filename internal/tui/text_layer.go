@@ -41,7 +41,7 @@ func NewTextViewLayer(m *Model, name, title, content, helpText string) *TextView
 	if vpWidth < 10 {
 		vpWidth = 10
 	}
-	vpHeight := h - 8
+	vpHeight := h - 6
 	if vpHeight < 5 {
 		vpHeight = 5
 	}
@@ -71,8 +71,8 @@ func (l *TextViewLayer) setModel(m *Model) {
 		if m.Width > 4 {
 			l.viewport.Width = m.Width - 4
 		}
-		if m.Height > 8 {
-			l.viewport.Height = m.Height - 8
+		if m.Height > 6 {
+			l.viewport.Height = m.Height - 6
 		}
 	}
 }
@@ -99,8 +99,8 @@ func (l *TextViewLayer) View(width, height int) string {
 	if width > 4 {
 		l.viewport.Width = width - 4
 	}
-	if height > 8 {
-		l.viewport.Height = height - 8
+	if height > 6 {
+		l.viewport.Height = height - 6
 	} else if l.viewport.Height <= 0 {
 		l.viewport.Height = 15
 	}
@@ -127,8 +127,8 @@ func (l *TextViewLayer) Update(msg tea.Msg) (tea.Cmd, bool) {
 		if msg.Width > 4 {
 			l.viewport.Width = msg.Width - 4
 		}
-		if msg.Height > 8 {
-			l.viewport.Height = msg.Height - 8
+		if msg.Height > 6 {
+			l.viewport.Height = msg.Height - 6
 		}
 		return nil, true
 
