@@ -77,12 +77,10 @@ func (c *AuditCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		m.Notification = "Audit Mode disabled: Internal nodes hidden."
 	}
 
-	switch m.ViewMode {
-	case ModeChat:
+	if m.ViewStack != nil && m.ViewStack.Top() != nil && m.ViewStack.Top().Name() == "map" {
+		m.Viewport.SetContent(m.generateMapString())
+	} else {
 		m.updateViewportContent()
-	case ModeMap:
-		m.ViewportOverride = m.generateMapString()
-		m.Viewport.SetContent(m.ViewportOverride)
 	}
 
 	return m, nil
@@ -212,13 +210,14 @@ type ListCommand struct{}
 
 func (c *ListCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	nodes := m.Manager.GetAllNodeIDs()
+	var content string
 	if len(nodes) == 0 {
-		m.ViewportOverride = "No nodes found in graph."
+		content = "No nodes found in graph."
 	} else {
-		m.ViewportOverride = "--- Node List ---\n" + strings.Join(nodes, "\n")
+		content = "--- Node List ---\n" + strings.Join(nodes, "\n")
 	}
-	m.Viewport.SetContent(m.ViewportOverride)
-	m.Viewport.GotoTop()
+	m.ensureViewStack()
+	m.ViewStack.Push(NewTextViewLayer(m, "nodes", "Node List", content, ""))
 	return m, nil
 }
 
@@ -275,9 +274,13 @@ type MapCommand struct{}
 func (c *MapCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	m.ViewMode = ModeMap
 	m.MapSelectionIndex = 0
-	m.ViewportOverride = m.generateMapString()
-	m.Viewport.SetContent(m.ViewportOverride)
+	m.syncViewportDimensions()
+	m.Viewport.SetContent(m.generateMapString())
 	m.Viewport.GotoTop()
+	m.ensureViewStack()
+	if m.ViewStack.Top().Name() != "map" {
+		m.ViewStack.Push(newMapLayer(m))
+	}
 	return m, nil
 }
 
@@ -489,9 +492,8 @@ type ConfigCommand struct{}
 
 func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	if len(args) == 0 {
-		m.ViewportOverride = m.renderConfigString()
-		m.Viewport.SetContent(m.ViewportOverride)
-		m.Viewport.GotoTop()
+		m.ensureViewStack()
+		m.ViewStack.Push(NewTextViewLayer(m, "config", "Configuration", m.renderConfigString(), ""))
 		return m, nil
 	}
 
@@ -845,10 +847,9 @@ func (c *ConfigCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 		m.Notification += fmt.Sprintf(" (saved to %s)", savedPath)
 	}
 
-	if m.ViewportOverride != "" && strings.Contains(m.ViewportOverride, "Configuration") {
-
-		m.ViewportOverride = m.renderConfigString()
-		m.Viewport.SetContent(m.ViewportOverride)
+	if m.ViewStack != nil && m.ViewStack.Top() != nil && m.ViewStack.Top().Name() == "config" {
+		m.ViewStack.Pop()
+		m.ViewStack.Push(NewTextViewLayer(m, "config", "Configuration", m.renderConfigString(), ""))
 	}
 
 	return m, nil
@@ -947,9 +948,8 @@ func (c *HelpCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 	s.WriteString("  Use ↑/↓ or PgUp/PgDn to scroll through the conversation.\n")
 	s.WriteString("  Press ESC to exit /map or /help views.\n")
 
-	m.ViewportOverride = s.String()
-	m.Viewport.SetContent(m.ViewportOverride)
-	m.Viewport.GotoTop()
+	m.ensureViewStack()
+	m.ViewStack.Push(NewTextViewLayer(m, "help", "Help", s.String(), ""))
 	return m, nil
 }
 
@@ -1008,9 +1008,8 @@ func (c *SandboxCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		m.ViewportOverride = s.String()
-		m.Viewport.SetContent(m.ViewportOverride)
-		m.Viewport.GotoTop()
+		m.ensureViewStack()
+		m.ViewStack.Push(NewTextViewLayer(m, "sandbox", "Sandbox Security Perimeter", s.String(), ""))
 		return m, nil
 	}
 
@@ -1025,7 +1024,8 @@ func (c *SandboxCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 				m.Notification += fmt.Sprintf(" (saved to %s)", savedPath)
 			}
 		}
-		if m.ViewportOverride != "" && strings.Contains(m.ViewportOverride, "Please Sandbox Security Perimeter") {
+		if m.ViewStack != nil && m.ViewStack.Top() != nil && m.ViewStack.Top().Name() == "sandbox" {
+			m.ViewStack.Pop()
 			return c.Execute(m, nil)
 		}
 		return m, nil
@@ -1061,11 +1061,11 @@ func (c *VersionCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 type ConfirmToolCommand struct{}
 
 func (c *ConfirmToolCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
-	if !m.AwaitingToolConfirmation {
+	if !m.hasActiveOverlay("confirm_tool") {
 		m.Notification = "No tool execution is pending confirmation."
 		return m, nil
 	}
-	m.AwaitingToolConfirmation = false
+	m.ViewStack.Pop()
 	m.IsThinking = true
 	return m, m.executeToolsCmd()
 }
@@ -1073,11 +1073,11 @@ func (c *ConfirmToolCommand) Execute(m *Model, args []string) (tea.Model, tea.Cm
 type CancelToolCommand struct{}
 
 func (c *CancelToolCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
-	if !m.AwaitingToolConfirmation {
+	if !m.hasActiveOverlay("confirm_tool") {
 		m.Notification = "No tool execution is pending confirmation."
 		return m, nil
 	}
-	m.AwaitingToolConfirmation = false
+	m.ViewStack.Pop()
 	m.IsThinking = true
 	return m, m.cancelToolsCmd()
 }
@@ -1181,8 +1181,9 @@ func (c *SessionCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 			m.Notification = fmt.Sprintf("Failed to list sessions: %v", err)
 			return m, nil
 		}
+		var content string
 		if len(sessions) == 0 {
-			m.ViewportOverride = "--- Sessions ---\nNo saved sessions found."
+			content = "--- Sessions ---\nNo saved sessions found."
 		} else {
 			var sb strings.Builder
 			sb.WriteString("--- Active Sessions ---\n")
@@ -1197,10 +1198,10 @@ func (c *SessionCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 				}
 				sb.WriteString(fmt.Sprintf("%s%-16s (head: %s)\n", marker, id, shortHead))
 			}
-			m.ViewportOverride = sb.String()
+			content = sb.String()
 		}
-		m.Viewport.SetContent(m.ViewportOverride)
-		m.Viewport.GotoTop()
+		m.ensureViewStack()
+		m.ViewStack.Push(NewTextViewLayer(m, "sessions", "Active Sessions", content, ""))
 		return m, nil
 
 	case "switch":
@@ -1312,9 +1313,8 @@ func (c *WorktreeCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) 
 			}
 		}
 		sb.WriteString("\nCommands:\n  /worktree list           List all worktrees\n  /worktree remove <name>  Remove worktree checkout\n  /config worktree on|off  Toggle isolation\n")
-		m.ViewportOverride = sb.String()
-		m.Viewport.SetContent(m.ViewportOverride)
-		m.Viewport.GotoTop()
+		m.ensureViewStack()
+		m.ViewStack.Push(NewTextViewLayer(m, "worktree", "Worktree Status", sb.String(), ""))
 		return m, nil
 	}
 
@@ -1347,9 +1347,8 @@ func (c *WorktreeCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) 
 			}
 			sb.WriteString(fmt.Sprintf("%s%-16s %-24s %s%s\n", marker, wt.SessionID, wt.Branch, wt.Path, primaryTag))
 		}
-		m.ViewportOverride = sb.String()
-		m.Viewport.SetContent(m.ViewportOverride)
-		m.Viewport.GotoTop()
+		m.ensureViewStack()
+		m.ViewStack.Push(NewTextViewLayer(m, "worktree", "Active Git Worktrees", sb.String(), ""))
 		return m, nil
 
 	case "remove", "rm", "delete":
@@ -1426,9 +1425,8 @@ func (c *MemoriesCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) 
 			}
 		}
 
-		m.ViewportOverride = sb.String()
-		m.Viewport.SetContent(m.ViewportOverride)
-		m.Viewport.GotoTop()
+		m.ensureViewStack()
+		m.ViewStack.Push(NewTextViewLayer(m, "memories_stats", "Memory Diagnostic Telemetry", sb.String(), ""))
 		return m, nil
 
 	case "inspect", "show", "get":
@@ -1462,9 +1460,15 @@ func (c *MemoriesCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) 
 		m.MemoryDeck = []storage.Memory{*mem}
 		m.MemoryDeckIndex = 0
 		m.MemoryDetailCard = mem
-		m.ViewportOverride = ""
 		m.Viewport.SetContent(m.renderMemoriesView())
 		m.Viewport.GotoTop()
+		m.ensureViewStack()
+		if m.ViewStack.Top().Name() != "memories" {
+			m.ViewStack.Push(newMemoriesDeckLayer(m))
+		}
+		if m.ViewStack.Top().Name() != "memory_card" {
+			m.ViewStack.Push(newMemoryCardOverlay(m, mem))
+		}
 		return m, nil
 
 	default:
@@ -1488,9 +1492,12 @@ func (c *MemoriesCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) 
 		m.MemoryDeckIndex = 0
 		m.MemoryDetailCard = nil
 		m.MemoryDeckFilter = filter.Query
-		m.ViewportOverride = ""
 		m.Viewport.SetContent(m.renderMemoriesView())
 		m.Viewport.GotoTop()
+		m.ensureViewStack()
+		if m.ViewStack.Top().Name() != "memories" {
+			m.ViewStack.Push(newMemoriesDeckLayer(m))
+		}
 		return m, nil
 	}
 }

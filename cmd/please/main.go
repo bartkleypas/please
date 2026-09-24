@@ -71,6 +71,9 @@ func main() {
 		case "init":
 			runInit(os.Args[2:])
 			return
+		case "vault":
+			runVault(os.Args[2:])
+			return
 		}
 	}
 

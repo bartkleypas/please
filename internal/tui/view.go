@@ -43,20 +43,64 @@ func (m Model) renderFooterHelp(leftHelp string) string {
 	}
 
 	right := sandboxBadge + " " + ctxBadge
-	left := helpStyle.Render(leftHelp)
-
 	if m.Width <= 0 {
-		return left + "  " + right
+		return helpStyle.Render(leftHelp) + "  " + right
 	}
 
-	gap := m.Width - lipgloss.Width(left) - lipgloss.Width(right) - 2
-	if gap < 2 {
-		gap = 2
+	rightWidth := lipgloss.Width(right)
+	maxLeftWidth := m.Width - rightWidth - 2
+	if maxLeftWidth > 10 && lipgloss.Width(leftHelp) > maxLeftWidth {
+		runes := []rune(leftHelp)
+		if len(runes) > maxLeftWidth-1 {
+			leftHelp = string(runes[:maxLeftWidth-1]) + "…"
+		}
+	}
+
+	left := helpStyle.Render(leftHelp)
+	gap := m.Width - lipgloss.Width(left) - rightWidth
+	if gap < 1 {
+		gap = 1
 	}
 	return left + strings.Repeat(" ", gap) + right
 }
 
+// syncViewportDimensions dynamically sizes the viewport to fit the terminal window
+// exactly according to the active view layer (chat vs map vs search).
+func (m *Model) syncViewportDimensions() {
+	if m.Width <= 0 || m.Height <= 0 {
+		return
+	}
+	m.Viewport.Width = m.Width - 4
+	m.TextInput.SetWidth(m.Width - 4)
+
+	activeView := "chat"
+	if m.ViewStack != nil && m.ViewStack.Top() != nil {
+		activeView = m.ViewStack.Top().Name()
+	}
+
+	if activeView == "map" || m.ViewMode == ModeMap {
+		if m.Searching {
+			// Title (2) + History borders (2) + Spacing (1) + Search box (5) + Spacing (1) + Footer (1) = 12
+			m.Viewport.Height = m.Height - 12
+		} else {
+			// Title (2) + History borders (2) + Spacing (1) + Footer (1) = 6
+			m.Viewport.Height = m.Height - 6
+		}
+	} else if activeView == "memories" || activeView == "memory_card" || m.ViewMode == ModeMemories {
+		m.Viewport.Height = m.Height - 6
+	} else {
+		// Chat mode: Title (2) + History borders (2) + Spacing (1) + Input box (5) + Spacing (1) + Footer (1) = 12
+		m.Viewport.Height = m.Height - 12
+	}
+
+	if m.Viewport.Height < 4 {
+		m.Viewport.Height = 4
+	}
+}
+
 func (m Model) View() string {
+	(&m).syncViewportDimensions()
+
 	if m.PersonaSetupMode {
 		s := titleStyle.Render(" PLEASE - New Persona ") + "\n\n"
 		s += "Define a new system prompt to switch personas.\n"
@@ -77,10 +121,22 @@ func (m Model) View() string {
 		return s
 	}
 
+	if m.ViewStack != nil && m.ViewStack.Top() != nil {
+		top := m.ViewStack.Top()
+		if !top.IsOverlay() && top.Name() != "chat" && top.Name() != "map" && top.Name() != "memories" {
+			return top.View(m.Width, m.Height)
+		}
+	}
+
+	activeView := "chat"
+	if m.ViewStack != nil && m.ViewStack.Top() != nil {
+		activeView = m.ViewStack.Top().Name()
+	}
+
 	titleText := " PLEASE - Narrative Graph "
 	if m.RemoteURL != "" {
 		titleText = fmt.Sprintf(" PLEASE - Connected (%s) 🟢 ", m.RemoteURL)
-	} else if m.ViewMode == ModeMemories {
+	} else if activeView == "memories" || activeView == "memory_card" {
 		titleText = " PLEASE - Memory Vault"
 	}
 	s := titleStyle.Render(titleText) + "\n\n"
@@ -91,35 +147,15 @@ func (m Model) View() string {
 
 	s += historyBoxStyle.Render(m.Viewport.View())
 
-	if m.AwaitingPruneConfirmation {
-		s += "\n" + warningStyle.Render("PRUNE BRANCH: This will hide this node and all descendants.") + "\n"
-		s += markStyle.Render("Confirm pruning? (y/n)") + "\n"
-	} else if m.AwaitingCompactConfirmation {
-		s += "\n" + warningStyle.Render(fmt.Sprintf("COMPACT BRANCH: Summarize %d nodes into a Supernode?", len(m.CompactTargetIDs))) + "\n"
-		s += markStyle.Render("Confirm compaction? (y/n)") + "\n"
+	if m.ViewStack != nil && m.ViewStack.Top() != nil && m.ViewStack.Top().IsOverlay() {
+		for _, layer := range m.ViewStack.layers {
+			if aware, ok := layer.(interface{ setModel(*Model) }); ok {
+				aware.setModel(&m)
+			}
+		}
+		s += "\n" + m.ViewStack.Top().View(m.Width, m.Height)
 	} else if m.IsCompressing {
 		s += "\n" + botStyle.Render("Compressing narrative into Supernode...") + "\n"
-	} else if m.AwaitingToolConfirmation {
-		s += "\n" + markStyle.Render("Tool Call Confirmation Required:") + "\n"
-		hasRedirection := false
-		dangerChars := []string{">", "|", "&", "<"}
-
-		for _, call := range m.PendingToolCalls {
-			args := string(call.Function.Arguments)
-			for _, char := range dangerChars {
-				if strings.Contains(args, char) {
-					hasRedirection = true
-					break
-				}
-			}
-			s += fmt.Sprintf(" - %s(%s)\n", call.Function.Name, args)
-		}
-
-		if hasRedirection {
-			s += "\n" + warningStyle.Render("CAUTION: Shell redirection, piping, or chaining detected!") + "\n"
-		}
-
-		s += "\n" + markStyle.Render("Execute these tools? (y/n)") + "\n"
 	} else if m.IsThinking {
 		spinner := spinnerFrames[m.SpinnerFrame%len(spinnerFrames)]
 		msg := "Thinking..."
@@ -135,14 +171,14 @@ func (m Model) View() string {
 	m.TextInput.FocusedStyle.Prompt = lipgloss.NewStyle()
 
 	// Footer Rendering
-	switch m.ViewMode {
-	case ModeMap:
+	switch activeView {
+	case "map":
 		if m.Searching {
 			s += "\n\n" + inputBoxStyle.Render(m.SearchInput.View())
-		} else if !m.AwaitingPruneConfirmation && !m.AwaitingCompactConfirmation && !m.IsCompressing {
-			s += "\n\n" + m.renderFooterHelp("h/l: fold/unfold • j/k: move • g/G: top/end • /: search • c: compact • d: prune • esc: chat")
+		} else if (m.ViewStack == nil || !m.ViewStack.Top().IsOverlay()) && !m.IsCompressing {
+			s += "\n\n" + m.renderFooterHelp("↑/↓ or j/k: move • enter/space to jump • esc: chat")
 		}
-	case ModeMemories:
+	case "memories", "memory_card":
 		if m.MemoryDetailCard != nil {
 			s += "\n\n" + m.renderFooterHelp("esc/backspace/q: back to deck • d/x: prune • ↑/↓: scroll")
 		} else {
@@ -157,10 +193,8 @@ func (m Model) View() string {
 			s += "\n" + markStyle.Render(fmt.Sprintf("🖼️  Pending attachments: %s", strings.Join(filenames, ", "))) + "\n"
 		}
 		s += "\n\n" + inputBoxStyle.Render(m.TextInput.View())
-		if m.AwaitingToolConfirmation {
+		if m.hasActiveOverlay("confirm_tool") {
 			s += "\n\n" + m.renderFooterHelp("(Press y/n to confirm/deny, or type a message to bypass)")
-		} else if m.ViewportOverride != "" {
-			s += "\n\n" + m.renderFooterHelp("(ESC: return to chat • ↑/↓ or PgUp/PgDn to scroll • /q to exit)")
 		} else {
 			s += "\n\n" + m.renderFooterHelp("(/q to exit • /map for graph • /help for more)")
 		}
