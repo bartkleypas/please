@@ -176,7 +176,7 @@ func (m Model) View() string {
 		if m.Searching {
 			s += "\n\n" + inputBoxStyle.Render(m.SearchInput.View())
 		} else if (m.ViewStack == nil || !m.ViewStack.Top().IsOverlay()) && !m.IsCompressing {
-			s += "\n\n" + m.renderFooterHelp("↑/↓ or j/k: move • esc: chat")
+			s += "\n\n" + m.renderFooterHelp("↑/↓ or j/k: move • enter/space to jump • esc: chat")
 		}
 	case "memories", "memory_card":
 		if m.MemoryDetailCard != nil {
