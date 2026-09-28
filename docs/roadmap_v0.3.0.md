@@ -151,23 +151,43 @@ v0.3.0 elevates multi-agent capabilities to a first-class internal engine featur
 ### Pillar 4: Pluggable Context Shaping (`ContextShaper`)
 
 #### The Problem
-The current Context Resonance algorithm ([docs/context_resonance.md](context_resonance.md)) hardcodes an exponential decay formula directly into `service.go`. Exploring alternative decay functions or fixed-window strategies requires branch forks (`kbartley/pluggable-decay`) and risky engine modifications.
+The current Context Resonance algorithm ([docs/context_resonance.md](context_resonance.md)) hardcodes an exponential decay formula directly into `service.go`. More critically, it suffers from three structural flaws:
+1. **The Wall-Clock Flaw ("Lunch Break Amnesia")**: The formula relies on $\Delta t = \text{time.Since(node.Timestamp)}$. Walking away for a 45-minute lunch or resuming a session the next day aggressively decays the conversation's resonance score, despite zero tokens or tool calls having occurred.
+2. **The "Shivering Token" KV-Cache Invalidation**: Because $\Delta t$ and floating-point scores fluctuate continuously, older node token counts continuously shift across turns. This invalidates prefix-based KV caches (Ollama/llama.cpp, vLLM, OpenAI prompt caching), forcing full prompt re-computation on every single turn.
+3. **Symmetric Decay on Asymmetric Data**: Tool observations and spoken dialogue have radically different entropy curves. Tool outputs are transient telemetry that should drop off a steep cliff to lightweight receipts. Spoken dialogue (`node.Content`) contains user objectives and conversational contracts; decaying it exponentially to zero causes the model to lose its original grounding.
 
 #### The Architectural Contract
-v0.3.0 decouples prompt construction from storage by introducing the `ContextShaper` interface:
+v0.3.0 completely retires wall-clock time from context shaping, relying exclusively on **Topological / Step Distance ($\Delta d$)** and **Token Capacity Pressure (Fill Ratio)**.
+
+Prompt construction is decoupled from storage by introducing the `ContextShaper` interface:
 
 ```go
 type ContextShaper interface {
-    // ShapeContext filters, compacts, and formats DAG nodes into an LLM prompt sequence
+    // ShapeContext filters, compacts, and formats DAG nodes into a cache-stable LLM prompt sequence
     ShapeContext(ctx context.Context, path []*graph.Node, budget int) ([]domain.Message, error)
 }
 ```
 
-* **Standard Implementations**:
-  1. `ResonanceShaper`: The existing exponential token-decay algorithm with dynamic capacity zones.
-  2. `SlidingWindowShaper`: Classical $K$-turn sliding window for predictable token constraints.
-  3. `SummaryCompactingShaper`: Aggressively summarizes ancestor turns into compact synthesis blocks.
-* Configurable via `ClientConfig` / `ServerConfig` (`context_shaper: "resonance" | "window" | "compact"`).
+#### Monotonic Prefix Invariance (KV-Cache Optimization)
+To guarantee near-instant prefill and stable prompt caching:
+* **PINNED Genesis Root**: System prompt (`RoleSystem`) and initial user goal nodes are pinned at 100% fidelity. Token prefix $0 \dots N$ is invariant.
+* **The Frozen Asymptote (Stable Floor)**: As historical nodes age out of the active window, they settle onto a discrete, deterministic baseline representation. **Once a node hits this floor, its rendered text is frozen**—it never shrinks by further characters on subsequent turns, keeping the token prefix cache-valid.
+* **Active Working Window**: Only the newest turns at the tail of the DAG mutate, ensuring that only new tokens are prefilled by the inference engine.
+
+#### Standard Shaper Implementations (`exponential | sigmoid | window | compact`)
+Configurable via `ClientConfig` / `ServerConfig` (`context_shaper: "sigmoid" | "window" | "compact" | "exponential"`):
+
+1. **`sigmoid` (Recommended Default)**:
+   * Uses an S-curve: $S(d) = \frac{1}{1 + e^{k(d - d_0)}}$ with an active plateau (100% fidelity for recent turns), smooth transition horizon, and a stable non-zero floor.
+   * Eliminates abrupt sliding-window cliffs while preserving full context on immediate iterations.
+2. **`window`**:
+   * Classical $K$-turn sliding window.
+   * Maximum predictability and zero mathematical overhead; optimal for low-memory local models.
+3. **`compact`**:
+   * Hierarchical compaction. Distant dialogue turns are rolled into frozen synthetic summary blocks (`RoleSummary`).
+   * Ideal for long-horizon autonomous tasks.
+4. **`exponential` (Legacy Resonance Refactored)**:
+   * Refactored version of the original resonance formula, stripped of wall-clock time and driven strictly by topological step distance ($\Delta d$) and token fill ratio.
 
 ---
 
