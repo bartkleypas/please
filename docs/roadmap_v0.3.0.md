@@ -137,10 +137,11 @@ v0.3.0 elevates multi-agent capabilities to a first-class internal engine featur
   * An assistant turn can invoke a native delegation tool with a structured goal, session label, and tool permissions.
 * **Sub-Session Actor Provisioning**:
   * The daemon provisions a child [`SessionActor`](../internal/server/session_actor.go) with its own isolated Git worktree ([ADR 007](../decisions/007-multi-session-daemon-branch-concurrency.md)).
-  * The child session executes autonomously up to its turn limit.
+  * **Execution Lifecycle (Single Turn, Bounded Steps)**: By default, delegated subagents execute as a **single Turn** seeded by the task prompt (`RoleUser`). Autonomous iteration within that turn is bounded strictly by a **Step Limit** (`max_steps`, formalizing the previously overloaded `maxDepth` loop), terminating when the model yields with no further tool calls or exhausts its step budget.
+  * *(Future Extension: Synthetic Multi-Turn Loops)*: Multi-turn subagent execution (bounded by a separate `turn_limit`) is reserved for supervisor/evaluator topologies where an automated harness injects synthetic follow-up turns (e.g., test-failure reflexion loops or parent-child clarification dialogue).
 * **Structured Perception Feedback**:
   * The child session's final synthesis is returned to the parent agent as a `ToolObservation`.
-  * The parent agent never ingests the raw intermediate trial-and-error noise of the subagent, preserving parent context tokens.
+  * The parent agent never ingests the raw intermediate trial-and-error noise of the subagent's internal Steps, preserving parent context tokens.
 * **Memory Hierarchy Scoping**:
   * Child sessions read from `ScopeWorkspace` memories, but isolate private hypotheses to `ScopeSession`.
   * Promoted findings can be committed back to `ScopeWorkspace`.
