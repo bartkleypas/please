@@ -14,11 +14,13 @@ import (
 // dimensions and refreshing the wrapped chat history.
 func (m *Model) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.Width = msg.Width
-	m.Viewport.Width = msg.Width - 4    // Account for borders (2) and padding(2)
-	m.Viewport.Height = msg.Height - 14 // Increased offset for textarea height
-	m.TextInput.SetWidth(msg.Width - 4)
+	m.Height = msg.Height
 	m.TextInput.SetHeight(3) // Multi-line input
+	m.syncViewportDimensions()
 	m.updateViewportContent()
+	if m.ViewStack != nil {
+		m.ViewStack.Update(msg)
+	}
 	return m, nil
 }
 
@@ -34,65 +36,19 @@ func (m *Model) handleKeyEvent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
-	// 1. Let modal interceptors consume standard keys first
-	if newM, cmd, handled := m.handleModalKeys(msg); handled {
-		return newM, cmd
-	}
+	m.ensureViewStack()
 
-	var cmd tea.Cmd
-
-	// 2. Delegate key handling based on active ViewMode
-	switch m.ViewMode {
-	case ModeChat:
-		var cCmd tea.Cmd
-		var handled bool
-		m, cCmd, handled = m.handleChatKeys(msg)
-		if handled {
-			return m, cCmd
-		}
-		cmd = tea.Batch(cmd, cCmd)
-	case ModeMap:
-		return m.handleMapKeys(msg)
-	case ModeMemories:
-		return m.handleMemoriesKeys(msg)
-	}
-
-	// 3. Handle global and generic view overrides
-	if m.ViewportOverride != "" {
-		switch msg.String() {
-		case "esc":
-			m.ViewportOverride = ""
-			m.updateViewportContent()
-			return m, nil
+	for _, layer := range m.ViewStack.layers {
+		if aware, ok := layer.(interface{ setModel(*Model) }); ok {
+			aware.setModel(m)
 		}
 	}
-
-	switch msg.String() {
-	case "enter":
-		return m.handleEnterKey()
+	cmd, handled := m.ViewStack.Update(msg)
+	if handled {
+		return m, cmd
 	}
 
-	var tiCmd tea.Cmd
-	m.TextInput, tiCmd = m.TextInput.Update(msg)
-	return m, tea.Batch(cmd, tiCmd)
-}
-
-// handleModalKeys checks if there is any active modal or overlay state that needs
-// to intercept key events before they propagate to normal view mode handlers.
-func (m *Model) handleModalKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
-	if newM, cmd, handled := m.handlePacingKeys(msg); handled {
-		return newM, cmd, true
-	}
-	if newM, cmd, handled := m.handleCompactionConfirmKeys(msg); handled {
-		return newM, cmd, true
-	}
-	if newM, cmd, handled := m.handlePruneConfirmKeys(msg); handled {
-		return newM, cmd, true
-	}
-	if newM, cmd, handled := m.handleToolConfirmKeys(msg); handled {
-		return newM, cmd, true
-	}
-	return m, nil, false
+	return m, nil
 }
 
 func (m *Model) handlePacingKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
@@ -101,66 +57,6 @@ func (m *Model) handlePacingKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 		case "esc", "enter", "space":
 			newM, cmd := m.skipPacing()
 			return newM.(*Model), cmd, true
-		}
-	}
-	return m, nil, false
-}
-
-func (m *Model) handleCompactionConfirmKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
-	if m.AwaitingCompactConfirmation {
-		switch msg.String() {
-		case "y", "Y":
-			m.AwaitingCompactConfirmation = false
-			m.IsCompressing = true
-			return m, m.runCompaction(), true
-		case "n", "N", "esc":
-			m.AwaitingCompactConfirmation = false
-			m.CompactTargetIDs = nil
-			return m, nil, true
-		}
-		return m, nil, true
-	}
-	return m, nil, false
-}
-
-func (m *Model) handlePruneConfirmKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
-	if m.AwaitingPruneConfirmation {
-		switch msg.String() {
-		case "y", "Y":
-			m.AwaitingPruneConfirmation = false
-			err := m.Manager.PruneBranch(m.PruneTargetID)
-			if err != nil {
-				m.Notification = fmt.Sprintf("Prune failed: %v", err)
-			} else {
-				m.Notification = "Branch pruned."
-			}
-			m.syncMapSelection()
-			return m, nil, true
-		case "n", "N", "esc":
-			m.AwaitingPruneConfirmation = false
-			m.PruneTargetID = ""
-			return m, nil, true
-		}
-		return m, nil, true
-	}
-	return m, nil, false
-}
-
-func (m *Model) handleToolConfirmKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
-	if m.AwaitingToolConfirmation && m.TextInput.Value() == "" {
-		switch msg.String() {
-		case "y", "Y":
-			m.AwaitingToolConfirmation = false
-			m.IsThinking = true
-			return m, m.executeToolsCmd(), true
-		case "n", "N":
-			m.AwaitingToolConfirmation = false
-			m.IsThinking = true
-			return m, m.cancelToolsCmd(), true
-		case "esc":
-			m.AwaitingToolConfirmation = false
-			m.PendingToolCalls = nil
-			return m, nil, true
 		}
 	}
 	return m, nil, false
@@ -233,6 +129,7 @@ func (m *Model) handleSearchKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 		case "enter":
 			m.SearchQuery = m.SearchInput.Value()
 			m.Searching = false
+			m.syncViewportDimensions()
 			m.ViewportOverride = m.generateMapString()
 			m.Viewport.SetContent(m.ViewportOverride)
 			return m, nil, true
@@ -240,6 +137,7 @@ func (m *Model) handleSearchKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 			m.Searching = false
 			m.SearchInput.Reset()
 			m.SearchQuery = ""
+			m.syncViewportDimensions()
 			m.ViewportOverride = m.generateMapString()
 			m.Viewport.SetContent(m.ViewportOverride)
 			return m, nil, true
@@ -257,29 +155,8 @@ func (m *Model) handleMapKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 		return newM, cmd
 	}
 
-	switch msg.String() {
-	case "up", "k":
-		if m.MapSelectionIndex > 0 {
-			m.MapSelectionIndex--
-			m.syncMapSelection()
-		}
-	case "down", "j":
-		if m.MapSelectionIndex < len(m.MapNodeIDs)-1 {
-			m.MapSelectionIndex++
-			m.syncMapSelection()
-		}
-	case "h":
-		m.ascendOrCollapseMap()
-	case "l":
-		m.descendOrUnfoldMap()
-	case "g":
-		// Snap to Root
-		if len(m.MapNodeIDs) > 0 {
-			m.MapSelectionIndex = 0
-			m.syncMapSelection()
-		}
-	case "G":
-		// Snap to current active Leaf node
+	// 'G' snaps to current active leaf node
+	if msg.String() == "G" {
 		for i, id := range m.MapNodeIDs {
 			if id == m.CurrentID {
 				m.MapSelectionIndex = i
@@ -287,6 +164,25 @@ func (m *Model) handleMapKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 				break
 			}
 		}
+		return m, nil
+	}
+
+	nav := &ListNavigator{
+		Cursor:   m.MapSelectionIndex,
+		Total:    len(m.MapNodeIDs),
+		PageSize: 5,
+	}
+	if nav.HandleKey(msg.String()) {
+		m.MapSelectionIndex = nav.Cursor
+		m.syncMapSelection()
+		return m, nil
+	}
+
+	switch msg.String() {
+	case "h":
+		m.ascendOrCollapseMap()
+	case "l":
+		m.descendOrUnfoldMap()
 	case "v":
 		m.AuditMode = !m.AuditMode
 		if m.AuditMode {
@@ -310,7 +206,16 @@ func (m *Model) handleMapKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 			rangeIDs := m.getCompactionRange(targetID)
 			if len(rangeIDs) > 0 {
 				m.CompactTargetIDs = rangeIDs
-				m.AwaitingCompactConfirmation = true
+				m.ensureViewStack()
+				m.ViewStack.Push(NewCompactConfirmOverlay(m.ViewStack, len(rangeIDs), func() tea.Cmd {
+					m.IsCompressing = true
+					return m.runCompaction()
+				}, func() tea.Cmd {
+					m.CompactTargetIDs = nil
+					m.CompactDirective = ""
+					m.Notification = "Compaction cancelled."
+					return nil
+				}))
 				return m, nil
 			} else {
 				m.Notification = "Nothing to compress here."
@@ -319,11 +224,29 @@ func (m *Model) handleMapKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 	case "d", "delete":
 		if m.MapSelectionIndex >= 0 && m.MapSelectionIndex < len(m.MapNodeIDs) {
 			m.PruneTargetID = m.MapNodeIDs[m.MapSelectionIndex]
-			m.AwaitingPruneConfirmation = true
+			targetID := m.PruneTargetID
+			m.ensureViewStack()
+			m.ViewStack.Push(NewPruneConfirmOverlay(m.ViewStack, targetID, func() tea.Cmd {
+				m.PruneTargetID = ""
+				if err := m.Manager.PruneBranch(targetID); err != nil {
+					m.Notification = fmt.Sprintf("Prune failed: %v", err)
+				} else {
+					m.Notification = fmt.Sprintf("Branch %s pruned.", targetID)
+					m.syncMapSelection()
+					m.ViewportOverride = m.generateMapString()
+					m.Viewport.SetContent(m.ViewportOverride)
+				}
+				return nil
+			}, func() tea.Cmd {
+				m.PruneTargetID = ""
+				m.Notification = "Prune cancelled."
+				return nil
+			}))
 			return m, nil
 		}
 	case "/":
 		m.Searching = true
+		m.syncViewportDimensions()
 		m.SearchInput.Focus()
 		return m, nil
 	case "enter":
@@ -331,13 +254,21 @@ func (m *Model) handleMapKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 			targetID := m.MapNodeIDs[m.MapSelectionIndex]
 			if node, err := m.Manager.GetNode(targetID); err == nil {
 				m.navigateToNode(node)
+				m.ViewMode = ModeChat
+				m.syncViewportDimensions()
+				if m.ViewStack != nil && m.ViewStack.Top() != nil && m.ViewStack.Top().Name() == "map" {
+					m.ViewStack.Pop()
+				}
 				return m, nil
 			}
 		}
 	case "esc":
 		m.ViewMode = ModeChat
-		m.ViewportOverride = ""
+		m.syncViewportDimensions()
 		m.updateViewportContent()
+		if m.ViewStack != nil && m.ViewStack.Top() != nil && m.ViewStack.Top().Name() == "map" {
+			m.ViewStack.Pop()
+		}
 		return m, nil
 	}
 
@@ -384,25 +315,21 @@ func (m *Model) handleMemoriesKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 	}
 
 	// 2. Navigating the Card Deck
+	if len(m.MemoryDeck) > 0 {
+		nav := &ListNavigator{
+			Cursor:   m.MemoryDeckIndex,
+			Total:    len(m.MemoryDeck),
+			PageSize: 5,
+			Wrap:     true,
+		}
+		if nav.HandleKey(msg.String()) {
+			m.MemoryDeckIndex = nav.Cursor
+			m.Viewport.SetContent(m.renderMemoriesView())
+			return m, nil
+		}
+	}
+
 	switch msg.String() {
-	case "up", "k":
-		if len(m.MemoryDeck) > 0 {
-			m.MemoryDeckIndex--
-			if m.MemoryDeckIndex < 0 {
-				m.MemoryDeckIndex = len(m.MemoryDeck) - 1
-			}
-			m.Viewport.SetContent(m.renderMemoriesView())
-		}
-		return m, nil
-	case "down", "j":
-		if len(m.MemoryDeck) > 0 {
-			m.MemoryDeckIndex++
-			if m.MemoryDeckIndex >= len(m.MemoryDeck) {
-				m.MemoryDeckIndex = 0
-			}
-			m.Viewport.SetContent(m.renderMemoriesView())
-		}
-		return m, nil
 	case "enter", "space":
 		if len(m.MemoryDeck) > 0 && m.MemoryDeckIndex >= 0 && m.MemoryDeckIndex < len(m.MemoryDeck) {
 			m.MemoryDetailCard = &m.MemoryDeck[m.MemoryDeckIndex]
@@ -434,8 +361,10 @@ func (m *Model) handleMemoriesKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 		m.MemoryDetailCard = nil
 		m.MemoryDeck = nil
 		m.MemoryDeckFilter = ""
-		m.ViewportOverride = ""
 		m.updateViewportContent()
+		if m.ViewStack != nil && m.ViewStack.Top() != nil && m.ViewStack.Top().Name() == "memories" {
+			m.ViewStack.Pop()
+		}
 		return m, nil
 	}
 
@@ -532,13 +461,15 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 
 	// Handle Dialogue Intervention:
 	// If the user submits a message while tool execution is pending,
-	// cancel the pending tools and proceed with the new message.
-	if m.AwaitingToolConfirmation {
+	// cancel the pending tools, pop the confirmation overlay, and proceed with the new message.
+	if m.hasActiveOverlay("confirm_tool") {
+		if m.ViewStack != nil && m.ViewStack.Top().Name() == "confirm_tool" {
+			m.ViewStack.Pop()
+		}
 		for _, call := range m.PendingToolCalls {
 			result := "Error: Tool call cancelled by user."
 			_ = m.Manager.UpdateAssistantObservations(m.InterleavingNodeID, call.ID, result)
 		}
-		m.AwaitingToolConfirmation = false
 		m.PendingToolCalls = nil
 		m.Notification = "Pending tools cancelled."
 	}

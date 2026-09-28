@@ -1653,3 +1653,50 @@ func TestCompactRangeWithDirective_LegacyFallback(t *testing.T) {
 		t.Errorf("expected 0 memories in store, got %d", len(memStore.memories))
 	}
 }
+
+func TestParseMemoryLine_NamespacedAndSnakeCase(t *testing.T) {
+	cases := []struct {
+		input       string
+		expectedKey string
+		expectedCat string
+		expectedCnt string
+	}{
+		{
+			input:       "- key: arch:storage:wal-mode | category: architecture | content: SQLite WAL mode is mandatory.",
+			expectedKey: "arch:storage:wal-mode",
+			expectedCat: "architecture",
+			expectedCnt: "SQLite WAL mode is mandatory.",
+		},
+		{
+			input:       "- key: constraint:hermetic-build | category: constraint | content: Zero CGo required.",
+			expectedKey: "constraint:hermetic-build",
+			expectedCat: "constraint",
+			expectedCnt: "Zero CGo required.",
+		},
+		{
+			input:       "- key: sqlite_wal | category: architecture | content: Fallback flat key.",
+			expectedKey: "sqlite_wal",
+			expectedCat: "architecture",
+			expectedCnt: "Fallback flat key.",
+		},
+		{
+			input:       "key: `arch:ops:gatekeeper` | category: **architecture** | content: \"Validation gate.\"",
+			expectedKey: "arch:ops:gatekeeper",
+			expectedCat: "architecture",
+			expectedCnt: "Validation gate.",
+		},
+	}
+
+	for _, tc := range cases {
+		k, c, cnt := parseMemoryLine(tc.input)
+		if k != tc.expectedKey {
+			t.Errorf("input %q: expected key %q, got %q", tc.input, tc.expectedKey, k)
+		}
+		if c != tc.expectedCat {
+			t.Errorf("input %q: expected category %q, got %q", tc.input, tc.expectedCat, c)
+		}
+		if cnt != tc.expectedCnt {
+			t.Errorf("input %q: expected content %q, got %q", tc.input, tc.expectedCnt, cnt)
+		}
+	}
+}

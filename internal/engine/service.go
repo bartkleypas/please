@@ -904,7 +904,7 @@ SUMMARY:
 <milestone paragraph>
 
 MEMORIES:
-- key: <unique_snake_case_key> | category: <architecture|convention|preference|invariant|fact|constraint|workflow> | content: <concise durable fact>
+- key: <namespaced_key_e.g._domain:topic:slug> | category: <architecture|convention|preference|invariant|fact|constraint|workflow> | content: <concise durable fact>
 
 If no enduring memories or decisions exist, output:
 MEMORIES:
@@ -1097,6 +1097,7 @@ func parseCompactionOutput(raw string, sourceNodeID string) (string, []storage.M
 
 // parseMemoryLine parses key, category, and content from a memory specification line.
 func parseMemoryLine(line string) (string, string, string) {
+	line = strings.TrimLeft(line, "-*• \t")
 	cleaned := line
 	for _, field := range []string{"key", "category", "content", "Key", "Category", "Content"} {
 		for _, delim := range []string{
@@ -1145,19 +1146,19 @@ func parseMemoryLine(line string) (string, string, string) {
 		}
 	}
 
-	key = strings.Trim(key, ",|; \t\"'`")
+	key = strings.Trim(key, ",|; \t\"'`*:")
 	key = strings.ToLower(key)
 	key = strings.ReplaceAll(key, " ", "_")
 	var validKey strings.Builder
 	for _, r := range key {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '-' || r == ':' || r == '.' {
 			validKey.WriteRune(r)
 		}
 	}
 	key = validKey.String()
 
-	category = strings.Trim(category, ",|; \t\"'`")
-	content = strings.Trim(content, " \t\"'`")
+	category = strings.Trim(category, ",|; \t\"'`*")
+	content = strings.Trim(content, " \t\"'`*")
 
 	return key, category, content
 }

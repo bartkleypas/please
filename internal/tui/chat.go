@@ -151,7 +151,6 @@ func (m *Model) isThoughtExpanded(nodeID string) bool {
 }
 
 func (m *Model) updateViewportWithNode(node *graph.Node) {
-	m.ViewportOverride = ""
 	line := m.renderNode(node)
 	m.ChatHistoryBuffer += line
 	m.Viewport.SetContent(m.ChatHistoryBuffer)
@@ -239,8 +238,7 @@ func (m *Model) syncMapSelection() {
 		selectedID = m.MapNodeIDs[m.MapSelectionIndex]
 	}
 
-	m.ViewportOverride = m.generateMapString()
-	m.Viewport.SetContent(m.ViewportOverride)
+	m.Viewport.SetContent(m.generateMapString())
 
 	// Re-locate selected node in updated map slice to prevent cursor jumping
 	if selectedID != "" {
@@ -303,8 +301,9 @@ func (m *Model) navigateToNode(node *graph.Node) {
 		m.PendingImages = nil
 		m.Notification = fmt.Sprintf("Jumped to %s", node.ID)
 	}
-	m.ViewMode = ModeChat
-	m.ViewportOverride = ""
+	if m.ViewStack != nil && m.ViewStack.Top() != nil && m.ViewStack.Top().Name() != "chat" {
+		m.ViewStack.Pop()
+	}
 	m.updateViewportContent()
 }
 
@@ -313,7 +312,9 @@ func (m *Model) updateViewportContent() {
 }
 
 func (m *Model) updateViewportContentPreservingOffset(savedOffset int) {
-	m.ViewportOverride = "" // Clear override when refreshing chat history
+	if m.Manager == nil {
+		return
+	}
 	var s strings.Builder
 
 	path, err := m.Manager.GetPath(m.CurrentID)

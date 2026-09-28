@@ -26,12 +26,11 @@ func (m *Model) handleCompactionFinished(msg compactionFinishedMsg) (tea.Model, 
 		if m.SessionID != "" && m.Manager != nil && m.Manager.Storage != nil {
 			_ = m.Manager.Storage.SaveSessionHead(m.SessionID, m.CurrentID)
 		}
-		if m.ViewMode == ModeChat {
+		if m.ViewStack == nil || m.ViewStack.Top() == nil || m.ViewStack.Top().Name() == "chat" {
 			m.navigateToNode(msg.node)
 		} else {
 			m.syncMapSelection()
-			m.ViewportOverride = m.generateMapString()
-			m.Viewport.SetContent(m.ViewportOverride)
+			m.Viewport.SetContent(m.generateMapString())
 		}
 	}
 

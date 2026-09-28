@@ -36,6 +36,7 @@ type Model struct {
 	Width             int
 	Height            int
 	ViewMode          ViewMode
+	ViewStack         *ViewStack
 	CurrentID         string
 	PendingUserNodeID string
 	TextInput         textarea.Model
@@ -76,18 +77,15 @@ type Model struct {
 	CollapsedNodes    map[string]bool
 
 	// Deletion state
-	AwaitingPruneConfirmation bool
-	PruneTargetID             string
+	PruneTargetID string
 
 	// Compaction state
-	AwaitingCompactConfirmation bool
-	CompactTargetIDs            []string
-	CompactDirective            string
-	IsCompressing               bool
+	CompactTargetIDs []string
+	CompactDirective string
+	IsCompressing    bool
 
 	// Tool handling fields
-	PendingToolCalls         []domain.ToolCall
-	AwaitingToolConfirmation bool
+	PendingToolCalls []domain.ToolCall
 
 	// Animation state
 	LastActivity time.Time
@@ -187,7 +185,20 @@ func NewModel(cfg *config.Config, g *graph.Graph, s storage.Storage, p providers
 		DefaultFoldThoughts: true,
 	}
 
+	m.ensureViewStack()
 	return m
+}
+
+// ensureViewStack initializes the ViewStack if nil, anchored with the root chat layer.
+func (m *Model) ensureViewStack() {
+	if m.ViewStack == nil {
+		m.ViewStack = NewViewStack(newChatLayer(m))
+	}
+}
+
+// hasActiveOverlay returns true if the current top layer on ViewStack is an overlay matching the given name.
+func (m *Model) hasActiveOverlay(name string) bool {
+	return m.ViewStack != nil && m.ViewStack.Top() != nil && m.ViewStack.Top().Name() == name
 }
 
 // ContextStats calculates the estimated active context size and returns the token count, limit, percentage, and theme color
