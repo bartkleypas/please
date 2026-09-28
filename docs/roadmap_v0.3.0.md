@@ -62,10 +62,10 @@ flowchart TD
     end
 
     subgraph Shaping["Pillar 4: Pluggable Context Shaping"]
-        History[Active DAG Path] --> Shaper["ContextShaper Interface"]
-        Shaper --> ResShaper["ResonanceShaper (Decay)"]
+        History[Active DAG Path] --> Shaper["ContextShaper Interface<br/>(Pure Read-Only Projection)"]
+        Shaper --> SigShaper["SigmoidShaper (Default)"]
         Shaper --> WinShaper["WindowShaper (Sliding)"]
-        Shaper --> CompShaper["CompactingShaper"]
+        Shaper --> ResShaper["ResonanceShaper (Exp Decay)"]
         Shaper --> PromptOut["Reconstructed LLM Context"]
     end
 
@@ -174,8 +174,8 @@ To guarantee near-instant prefill and stable prompt caching:
 * **The Frozen Asymptote (Stable Floor)**: As historical nodes age out of the active window, they settle onto a discrete, deterministic baseline representation. **Once a node hits this floor, its rendered text is frozen**—it never shrinks by further characters on subsequent turns, keeping the token prefix cache-valid.
 * **Active Working Window**: Only the newest turns at the tail of the DAG mutate, ensuring that only new tokens are prefilled by the inference engine.
 
-#### Standard Shaper Implementations (`exponential | sigmoid | window | compact`)
-Configurable via `ClientConfig` / `ServerConfig` (`context_shaper: "sigmoid" | "window" | "compact" | "exponential"`):
+#### Standard Shaper Implementations (`sigmoid | window | exponential`)
+Configurable via `ClientConfig` / `ServerConfig` (`context_shaper: "sigmoid" | "window" | "exponential"`):
 
 1. **`sigmoid` (Recommended Default)**:
    * Uses an S-curve: $S(d) = \frac{1}{1 + e^{k(d - d_0)}}$ with an active plateau (100% fidelity for recent turns), smooth transition horizon, and a stable non-zero floor.
@@ -183,11 +183,11 @@ Configurable via `ClientConfig` / `ServerConfig` (`context_shaper: "sigmoid" | "
 2. **`window`**:
    * Classical $K$-turn sliding window.
    * Maximum predictability and zero mathematical overhead; optimal for low-memory local models.
-3. **`compact`**:
-   * Hierarchical compaction. Distant dialogue turns are rolled into frozen synthetic summary blocks (`RoleSummary`).
-   * Ideal for long-horizon autonomous tasks.
-4. **`exponential` (Legacy Resonance Refactored)**:
+3. **`exponential` (Legacy Resonance Refactored)**:
    * Refactored version of the original resonance formula, stripped of wall-clock time and driven strictly by topological step distance ($\Delta d$) and token fill ratio.
+
+> [!NOTE]
+> **Why `compact` is NOT a `ContextShaper`**: Compaction (Supernodes & memory harvesting via `CompactRangeWithDirective`) is a **graph-mutating lifecycle event** (Pillar 2) that writes to SQLite `nodes` and `memories`. In contrast, `ContextShaper` is strictly a **pure, read-only projection** ($\text{DAG Path} \longrightarrow \text{Messages}$). Shapers project whatever the graph contains—including pre-existing `RoleSummary` Supernodes—with zero side effects or storage mutations.
 
 ---
 
