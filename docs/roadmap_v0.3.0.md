@@ -35,24 +35,29 @@ The core domain model has outgrown its original implicit assumptions. Specifical
 
 **The Purpose of v0.3.0**: Move from reactive bug-driven refactoring to proactive domain alignment under four unified architectural pillars.
 
+### The North Star: A Self-Hosting Development Partner
+The ultimate litmus test for v0.3.0 is **dogfooding and trust on local hardware**. By the conclusion of this milestone, the `please` harness and local model execution stack (running on standard developer hardware) must be fast, stable, and memory-efficient enough to make meaningful, regular contributions to the `please` repository itself: performing workspace indexing, codebase research, architectural inspection, and surgical code refactors directly alongside the developer.
+
 ---
 
 ## 2. The Four Architectural Pillars
 
 ```mermaid
 flowchart TD
-    subgraph Execution["Pillar 1: Execution Lifecycle"]
-        Human[Human Intent] --> Turn[Conversational Turn]
-        Turn --> Step1["Step 1 (Cognitive Hop)<br/>Thought + ToolCall"]
-        Step1 --> Exec1["Execution Host<br/>Tool Dispatch"]
-        Exec1 --> Step2["Step 2 (Cognitive Hop)<br/>Observation + Synthesis"]
-        Step2 --> Yield["Yield Control / Bell"]
+    subgraph Execution["Pillar 1: Lifecycle Consolidation"]
+        Human[Human Intent] --> Turn["Conversational Turn<br/>(The Singular Unit of Reality)"]
+        Turn --> Harness["SessionHarness Execution Loop<br/>(Thought ➔ Tool Calls ➔ Observations)"]
+        Harness --> Consent{"Interactive<br/>Consent Gate?"}
+        Consent -- Yes --> YieldConsent["Yield: AwaitingConsent 🔔"]
+        YieldConsent --> Resume["Human Approval ➔ Resume"]
+        Resume --> Harness
+        Consent -- No --> Completed["Turn Complete ➔ Final Yield & Bell 🔔"]
     end
 
-    subgraph Memory["Pillar 2: Three-Tier Memory Model"]
-        L1["L1: Working Context Window<br/>• Transient prompt scratchpad<br/>• Fitted via ContextShaper"]
-        L2["L2: Vault Sensory Telemetry<br/>• Hot: Raw observations<br/>• Cold: Eviction to Audit Receipts"]
-        L3["L3: Semantic Cybernetic Store<br/>• SQLite 'memories' table<br/>• Durable facts & rules via FTS5"]
+    subgraph Memory["Pillar 2: Three-Tier Memory Architecture (The Token Heavyweight)"]
+        L1["L1: Working Context Window<br/>• Transient prompt scratchpad<br/>• Pure mathematical projection"]
+        L2["L2: Vault Sensory Telemetry<br/>• Hot: Raw observations on active playhead<br/>• Cold: Eviction to Immutable Audit Receipts"]
+        L3["L3: Semantic Cybernetic Store<br/>• SQLite 'memories' table<br/>• Durable facts, preferences & rules via FTS5"]
     end
 
     subgraph Orchestration["Pillar 3: Native Delegated Multi-Agent"]
@@ -76,42 +81,49 @@ flowchart TD
 
 ---
 
-### Pillar 1: Formal Execution Lifecycle (The Step vs. The Turn)
+### Pillar 1: Execution Lifecycle Consolidation (The Unified Conversational Turn)
 
 #### The Problem
-The engine currently blurs the boundary between single LLM predictions and composite user interactions. This forces complex workarounds like mutating assistant nodes in-place (`UpdateAssistantObservations`), tracking `InterleavingNodeID` in TUI state, and ambiguity in acoustic bell timing.
+The codebase currently suffers from **accidental duplication of the execution loop**:
+1. The interactive TUI maintains its own tool-dispatching state machine (`executeToolsCmd`, `PendingToolCalls`, and `InterleavingNodeID` in `tools_handlers.go`).
+2. The engine daemon runs an independent execution loop in `SessionHarness`.
+3. Historical nodes hack in-flight execution state into metadata (`segments`), while old `RoleTool` node paths linger from earlier prototypes.
+
+Attempting to invent a heavy new domain noun (like formalizing a `Step` entity) would only create new semantic friction and drag another swath of code along for the ride.
 
 #### The Architectural Contract
-v0.3.0 formally separates the hierarchy into two explicit domain primitives:
-* **Step (Cognitive Hop)**: The atomic unit of model execution.
-  * Inputs: Reconstructed context history.
-  * Execution: Model streams tokens, optional thinking block, and optional `ToolCalls`.
-  * Outputs: Intermediate state appended to the turn.
-* **Turn (Conversational Unit)**: The outer lifecycle initiated by a user or upstream actor.
-  * Comprises `1..N` sequential Steps.
-  * Bounded by a configurable max step limit or explicit yield condition (`TurnComplete` or interactive human-in-the-loop gate).
-  * State lifecycle: `Pending` $\rightarrow$ `Stepping` $\rightarrow$ `AwaitingConsent` $\rightarrow$ `Completed`.
-  * Acoustic telemetry ([ADR 013](../decisions/013-acoustic-theatrics-phonic-staging-and-talon-tap-telemetry.md)) and session head updates fire strictly on Turn boundaries, never intermediate Step transitions.
+v0.3.0 recognizes that **the Conversational Turn is the singular unit of conversational reality**:
+* **The Turn Invariant**: A Turn is initiated when an actor speaks (`RoleUser`). The model performs whatever work is necessary—thinking, calling tools, receiving telemetry, and synthesizing answers—until it yields control back to the human.
+* **Elimination of Parallel Runners**:
+  * Retire the separate tool-dispatching loop in the TUI (`tools_handlers.go`).
+  * Make `SessionHarness` the **single authoritative execution runner** across all modes (standalone TUI, headless daemon, and ACP).
+  * The TUI becomes a pure reactive consumer of harness events (`token`, `thought`, `tool_call`, `tool_result`, `yield`).
+* **Clean State Transitions (Phonic Staging)**:
+  * A Turn moves through clean, observable states:
+    $$\text{State}_{\text{Running}} \longrightarrow \text{State}_{\text{AwaitingConsent}} \text{ (Interactive Yield 🔔)} \longrightarrow \text{State}_{\text{Running}} \longrightarrow \text{State}_{\text{Completed}} \text{ (Terminal Yield 🔔)}$$
+  * Acoustic bells and UI yields fire strictly when human attention is required, never during autonomous tool loops.
+* **Zero Metadata Segment Hacks**: Assistant nodes cleanly represent the completed conversational turn without synthetic JSON string slicing in node metadata.
 
 ---
 
 ### Pillar 2: Three-Tier Memory Architecture (Perception vs. Recall)
 
 #### The Problem
-Currently, reading a 100 KB file writes 100 KB into SQLite `nodes.observations` forever. A 20-turn session can inflate the database to 50x the size of the repository being worked on. We are keeping a 1:1 copy of temporary host filesystem state in an append-only transaction ledger.
+Pillar 2 is where the bulk of real-world tokens and performance degradation land. Currently, reading a 100 KB file writes 100 KB into SQLite `nodes.observations` forever. A 20-turn session can inflate the database to 50x the size of the repository being worked on, turning the SQLite vault into a bloated, immutable duplicate of temporary host filesystem state.
 
 #### The Architectural Contract
-v0.3.0 establishes an explicit three-tier memory model:
+v0.3.0 establishes an explicit, three-tier memory hierarchy that cleanly separates transient perception from permanent recall:
 
 | Tier | Name | Storage Subsystem | Mutability & Lifecycle | Purpose |
 | :--- | :--- | :--- | :--- | :--- |
-| **L1** | **Working Context Window** | RAM / In-Flight Prompt Buffer | Reconstructed per Step; ephemeral | The immediate attention span fitted to `num_ctx`. |
+| **L1** | **Working Context Window** | RAM / In-Flight Prompt Buffer | Reconstructed per generation; ephemeral | The immediate attention span fitted to `num_ctx` via pure mathematical projection. |
 | **L2** | **Sensory Observation Vault** | SQLite `nodes.observations` | Tiered retention: Hot $\rightarrow$ Cold (Receipts) | Operational audit trail and replay history. Distant ancestors decay into lightweight **Observation Receipts**. |
 | **L3** | **Cybernetic Semantic Store** | SQLite `memories` table | Durable, explicit UPSERT, FTS5 indexed | Long-term knowledge, user preferences, and workspace architectural constraints. |
 
 #### L2 Observation Compaction (Decay at Rest)
-* **Hot Tier (Recent turns / Active Playhead)**: Full raw observation telemetry retained to allow exact context reconstruction during active iterations.
-* **Cold Tier (Ancestor turns beyond resonance grace horizon)**: Replaced with compact **Observation Receipts**:
+To keep the SQLite vault lightweight and prefill caching fast:
+* **Hot Tier (Active Playhead & Immediate Turns)**: Full raw observation telemetry is retained so active reasoning iterations have exact sensory context.
+* **Cold Tier (Ancestor Turns beyond Grace Horizon)**: Raw payloads are evicted and replaced with lightweight, immutable **Observation Receipts**:
   ```json
   {
     "tool": "read_file",
@@ -122,7 +134,7 @@ v0.3.0 establishes an explicit three-tier memory model:
     "retained_excerpt": "package engine..."
   }
   ```
-* Dramatically reduces SQLite vault growth while keeping replay and lineage verification 100% intact.
+* Once an observation is compacted into a receipt, its token size drops by 90%+, and its text is **frozen forever**, preserving KV-cache prefix invariance for all future turns.
 
 ---
 
@@ -193,11 +205,11 @@ Configurable via `ClientConfig` / `ServerConfig` (`context_shaper: "sigmoid" | "
 
 ## 3. Milestones & Delivery Phases
 
-### Phase 1: Lifecycle Formalization & Pluggable Context Shaping
-* [ ] **RFC / ADR 019**: Formalize the Step vs. Turn execution model and `ContextShaper` interface.
-* [ ] Extract `ContextShaper` interface into `internal/engine/shaper.go` and implement `ResonanceShaper`.
-* [ ] Deprecate in-place observation mutation in favor of formal Step progression in `SessionHarness`.
-* [ ] Add configuration hooks for selectable context shapers.
+### Phase 1: Lifecycle Consolidation & Pluggable Context Shaping
+* [ ] **RFC / ADR 019**: Consolidate the Conversational Turn onto `SessionHarness` and formalize the `ContextShaper` interface.
+* [ ] Extract `ContextShaper` interface into `internal/engine/shaper.go` and implement `SigmoidShaper`, `WindowShaper`, and `ResonanceShaper`.
+* [ ] Retire redundant tool-dispatching loops in the TUI (`executeToolsCmd`), making Bubble Tea a pure reactive consumer of harness events.
+* [ ] Add configuration hooks for selectable context shapers (`context_shaper: "sigmoid" | "window" | "exponential"`).
 
 ### Phase 2: Observation Compaction & Vault Hygiene
 * [ ] **RFC / ADR 020**: Define Observation Receipt schema and vault compaction mechanics.
@@ -216,6 +228,7 @@ Configurable via `ClientConfig` / `ServerConfig` (`context_shaper: "sigmoid" | "
 ## 4. Architectural Verification & Quality Standards
 
 Every phase in the v0.3.0 roadmap must conform to the project's established conventions:
+* **The Bootstrapping Litmus Test**: The local model execution stack (Ollama / local inference) must successfully perform indexing, research, and surgical code edits directly against the `please` repository without context exhaustion or state corruption.
 * **Hermetic Fast Tests**: All unit tests run in `< 2s` with `go test -count=1 ./...`.
 * **Zero Cross-Tier Coupling**: Respect the 4-tier stratification in [ADR 018](../decisions/018-package-stratification-and-domain-decoupling.md) (Domain $\rightarrow$ Infra $\rightarrow$ Engine $\rightarrow$ Presentation).
 * **Deterministic Replay**: `please context` and `please inspect` must continue to provide 100% transparent prompt auditability.
