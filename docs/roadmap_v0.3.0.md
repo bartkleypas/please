@@ -25,15 +25,15 @@ Through versions `v0.1.x` and `v0.2.x`, `Please` established robust systems foun
 * Bubble Tea ViewStack focus architecture ([ADR 017](../decisions/017-tui-viewstack-and-hierarchical-focus-architecture.md)).
 * Four-tier domain package stratification ([ADR 018](../decisions/018-package-stratification-and-domain-decoupling.md)).
 
-While these tactical extractions successfully decoupled packages and stabilized concurrency, development has recently experienced friction characterized by **"meandering intent"**—encountering surface-level bugs that unravel into deeper refactors.
+While these tactical extractions successfully decoupled packages and stabilized concurrency, the presentation and execution layers suffered from **divergent wheels**: the interactive TUI unintentionally re-invented tool dispatching and streaming state machines that already have a canonical, battle-tested definition in `SessionHarness`.
 
 ### The Root Cause
-The core domain model has outgrown its original implicit assumptions. Specifically, three concepts have been conflated across the engine:
-1. **The Turn Boundary**: The code uses "turn" interchangeably to describe an individual LLM round-trip, an intermediate tool invocation, and an entire human-to-agent conversational exchange.
-2. **Context vs. Memory**: The system currently writes 100% of raw sensory tool outputs (e.g. 50 KB file reads or verbose command stdout) into immutable SQLite rows forever, treating transient perception as permanent history while forcing prompt decay algorithms to masquerade as memory management.
-3. **Agentic Workflows**: Multi-agent scenarios are technically possible via external scripts calling the CLI, but lack first-class engine representation, parent-child DAG lineage, and structured perception delegation.
+The root architectural friction stems from three specific misalignments across the codebase:
+1. **Dual Execution Machines**: The TUI and daemon run parallel tool execution loops rather than the TUI being a pure, reactive presentation layer over `SessionHarness`.
+2. **Sensory Telemetry Bloat**: The vault persists 100% of transient filesystem perception into SQLite rows forever, treating ephemeral tool output as immutable historical fact.
+3. **Missing Native Delegation**: Multi-agent collaboration exists only via external CLI scripting, lacking first-class engine representation, parent-child DAG tracking, and structured perception feedback.
 
-**The Purpose of v0.3.0**: Move from reactive bug-driven refactoring to proactive domain alignment under four unified architectural pillars.
+**The Purpose of v0.3.0**: Move from dual-maintenance friction to proactive architectural consolidation under four unified pillars.
 
 ### The North Star: A Self-Hosting Development Partner
 The ultimate litmus test for v0.3.0 is **dogfooding and trust on local hardware**. By the conclusion of this milestone, the `please` harness and local model execution stack (running on standard developer hardware) must be fast, stable, and memory-efficient enough to make meaningful, regular contributions to the `please` repository itself: performing workspace indexing, codebase research, architectural inspection, and surgical code refactors directly alongside the developer.
