@@ -1,7 +1,7 @@
 ---
 type: Planning
 title: "Please v0.3.0 Roadmap: Unified Execution Lifecycle & Memory Architecture"
-description: "Authoritative architectural roadmap for Please v0.3.0 unifying turn/step boundaries, the three-tier memory model, delegated agent topologies, and pluggable context shaping."
+description: "Authoritative architectural roadmap for Please v0.3.0 unifying turn lifecycle convergence, pluggable context shaping, three-tier memory with observation compaction, and native delegated multi-agent topologies."
 tags:
   - please
   - roadmap
@@ -10,7 +10,7 @@ tags:
   - memory
   - execution
   - multi-agent
-timestamp: "2026-09-28T13:45:00-07:00"
+timestamp: "2026-09-29T12:25:00-07:00"
 ---
 
 # 🦉 Please v0.3.0 Roadmap: Unified Execution Lifecycle & Memory Architecture
@@ -25,15 +25,12 @@ Through versions `v0.1.x` and `v0.2.x`, `Please` established robust systems foun
 * Bubble Tea ViewStack focus architecture ([ADR 017](../decisions/017-tui-viewstack-and-hierarchical-focus-architecture.md)).
 * Four-tier domain package stratification ([ADR 018](../decisions/018-package-stratification-and-domain-decoupling.md)).
 
-While these tactical extractions successfully decoupled packages and stabilized concurrency, the presentation and execution layers suffered from **divergent wheels**: the interactive TUI unintentionally re-invented tool dispatching and streaming state machines that already have a canonical, battle-tested definition in `SessionHarness`.
+While these modular extractions successfully decoupled packages and stabilized concurrency, the platform accumulated **dual execution paths** and **unbounded sensory persistence** as it rapidly expanded to support standalone TUI operation, multi-client daemon streaming, and IDE protocols:
+1. **Execution Path Divergence**: The TUI and headless daemon maintained separate tool-dispatching, streaming, and state management loops rather than the TUI acting as a pure, reactive presentation layer over `SessionHarness`.
+2. **Sensory Telemetry Bloat**: Transient host perception (large file reads, verbose command stdout) is persisted indefinitely in SQLite rows without a retention policy, treating temporary perception as immutable historical fact.
+3. **Ad-Hoc Agent Coordination**: Multi-agent exploration remains reliant on external shell scripting rather than native, structured sub-session delegation.
 
-### The Root Cause
-The root architectural friction stems from three specific misalignments across the codebase:
-1. **Dual Execution Machines**: The TUI and daemon run parallel tool execution loops rather than the TUI being a pure, reactive presentation layer over `SessionHarness`.
-2. **Sensory Telemetry Bloat**: The vault persists 100% of transient filesystem perception into SQLite rows forever, treating ephemeral tool output as immutable historical fact.
-3. **Missing Native Delegation**: Multi-agent collaboration exists only via external CLI scripting, lacking first-class engine representation, parent-child DAG tracking, and structured perception feedback.
-
-**The Purpose of v0.3.0**: Move from dual-maintenance friction to proactive architectural consolidation under four unified pillars.
+**The Purpose of v0.3.0**: Move from dual-maintenance friction to architectural convergence under four sequentially ordered pillars.
 
 ### The North Star: A Self-Hosting Development Partner
 The ultimate litmus test for v0.3.0 is **dogfooding and trust on local hardware**. By the conclusion of this milestone, the `please` harness and local model execution stack (running on standard developer hardware) must be fast, stable, and memory-efficient enough to make meaningful, regular contributions to the `please` repository itself: performing workspace indexing, codebase research, architectural inspection, and surgical code refactors directly alongside the developer.
@@ -42,9 +39,11 @@ The ultimate litmus test for v0.3.0 is **dogfooding and trust on local hardware*
 
 ## 2. The Four Architectural Pillars
 
+The four pillars are sequenced along their causal dependencies: unifying execution first, stabilizing prompt projections second, compacting storage third, and composing multi-agent sessions last.
+
 ```mermaid
 flowchart TD
-    subgraph Execution["Pillar 1: Lifecycle Consolidation"]
+    subgraph P1["Pillar 1: Lifecycle Convergence"]
         Human[Human Intent] --> Turn["Conversational Turn<br/>(The Singular Unit of Reality)"]
         Turn --> Harness["SessionHarness Execution Loop<br/>(Thought ➔ Tool Calls ➔ Observations)"]
         Harness --> Consent{"Interactive<br/>Consent Gate?"}
@@ -54,19 +53,7 @@ flowchart TD
         Consent -- No --> Completed["Turn Complete ➔ Final Yield & Bell 🔔"]
     end
 
-    subgraph Memory["Pillar 2: Three-Tier Memory Architecture (The Token Heavyweight)"]
-        L1["L1: Working Context Window<br/>• Transient prompt scratchpad<br/>• Pure mathematical projection"]
-        L2["L2: Vault Sensory Telemetry<br/>• Hot: Raw observations on active playhead<br/>• Cold: Eviction to Immutable Audit Receipts"]
-        L3["L3: Semantic Cybernetic Store<br/>• SQLite 'memories' table<br/>• Durable facts, preferences & rules via FTS5"]
-    end
-
-    subgraph Orchestration["Pillar 3: Native Delegated Multi-Agent"]
-        ParentAgent["Lead SessionActor"] -->|spawn_subagent| ChildAgent["Child Sub-Session"]
-        ChildAgent -->|Isolated Worktree| TaskExec["Sub-Task Execution"]
-        TaskExec -->|Synthesized Finding| ParentAgent
-    end
-
-    subgraph Shaping["Pillar 4: Pluggable Context Shaping"]
+    subgraph P2["Pillar 2: Pluggable Context Shaping"]
         History[Active DAG Path] --> Shaper["ContextShaper Interface<br/>(Pure Read-Only Projection)"]
         Shaper --> SigShaper["SigmoidShaper (Default)"]
         Shaper --> WinShaper["WindowShaper (Sliding)"]
@@ -74,14 +61,27 @@ flowchart TD
         Shaper --> PromptOut["Reconstructed LLM Context"]
     end
 
-    Execution --> Memory
-    Execution --> Orchestration
-    Memory --> Shaping
+    subgraph P3["Pillar 3: Three-Tier Memory Architecture & Vault Compaction"]
+        L1["L1: Working Context Window<br/>• Transient prompt scratchpad<br/>• Pure mathematical projection"]
+        L2["L2: Vault Sensory Telemetry<br/>• Hot: Raw observations on active playhead<br/>• Cold: Eviction to Immutable Audit Receipts"]
+        L3["L3: Semantic Cybernetic Store<br/>• SQLite 'memories' table<br/>• Durable facts, preferences & rules via FTS5"]
+    end
+
+    subgraph P4["Pillar 4: Native Delegated Multi-Agent"]
+        ParentAgent["Lead SessionActor"] -->|spawn_subagent| ChildAgent["Child Sub-Session"]
+        ChildAgent -->|Isolated Worktree| TaskExec["Sub-Task Execution"]
+        TaskExec -->|Synthesized Finding| ParentAgent
+    end
+
+    P1 -->|Provides Prompt History| P2
+    P1 -->|Persists Turn Results| P3
+    P2 -->|Stable KV Prefixes| P4
+    P3 -->|Lightweight Vault| P4
 ```
 
 ---
 
-### Pillar 1: Execution Lifecycle Consolidation (The Unified Conversational Turn)
+### Pillar 1: Execution Lifecycle Convergence (The Unified Conversational Turn)
 
 #### The Problem
 The codebase currently suffers from **accidental duplication of the execution loop**:
@@ -106,61 +106,7 @@ v0.3.0 recognizes that **the Conversational Turn is the singular unit of convers
 
 ---
 
-### Pillar 2: Three-Tier Memory Architecture (Perception vs. Recall)
-
-#### The Problem
-Pillar 2 is where the bulk of real-world tokens and performance degradation land. Currently, reading a 100 KB file writes 100 KB into SQLite `nodes.observations` forever. A 20-turn session can inflate the database to 50x the size of the repository being worked on, turning the SQLite vault into a bloated, immutable duplicate of temporary host filesystem state.
-
-#### The Architectural Contract
-v0.3.0 establishes an explicit, three-tier memory hierarchy that cleanly separates transient perception from permanent recall:
-
-| Tier | Name | Storage Subsystem | Mutability & Lifecycle | Purpose |
-| :--- | :--- | :--- | :--- | :--- |
-| **L1** | **Working Context Window** | RAM / In-Flight Prompt Buffer | Reconstructed per generation; ephemeral | The immediate attention span fitted to `num_ctx` via pure mathematical projection. |
-| **L2** | **Sensory Observation Vault** | SQLite `nodes.observations` | Tiered retention: Hot $\rightarrow$ Cold (Receipts) | Operational audit trail and replay history. Distant ancestors decay into lightweight **Observation Receipts**. |
-| **L3** | **Cybernetic Semantic Store** | SQLite `memories` table | Durable, explicit UPSERT, FTS5 indexed | Long-term knowledge, user preferences, and workspace architectural constraints. |
-
-#### L2 Observation Compaction (Decay at Rest)
-To keep the SQLite vault lightweight and prefill caching fast:
-* **Hot Tier (Active Playhead & Immediate Turns)**: Full raw observation telemetry is retained so active reasoning iterations have exact sensory context.
-* **Cold Tier (Ancestor Turns beyond Grace Horizon)**: Raw payloads are evicted and replaced with lightweight, immutable **Observation Receipts**:
-  ```json
-  {
-    "tool": "read_file",
-    "path": "internal/engine/service.go",
-    "summary": "Read lines 1-250 (9.2 KB, hash: e3b0c442)",
-    "bytes": 9420,
-    "lines": 250,
-    "retained_excerpt": "package engine..."
-  }
-  ```
-* Once an observation is compacted into a receipt, its token size drops by 90%+, and its text is **frozen forever**, preserving KV-cache prefix invariance for all future turns.
-
----
-
-### Pillar 3: Native Delegated Multi-Agent Topologies
-
-#### The Problem
-Multi-agent operations are currently only achievable via external shell orchestration. External scripts lack parent-child DAG tracking, cannot share memory scopes safely, and cannot return structured observations directly into an active reasoning loop.
-
-#### The Architectural Contract
-v0.3.0 elevates multi-agent capabilities to a first-class internal engine feature:
-* **The Delegation Tool (`spawn_subagent`)**:
-  * An assistant turn can invoke a native delegation tool with a structured goal, session label, and tool permissions.
-* **Sub-Session Actor Provisioning**:
-  * The daemon provisions a child [`SessionActor`](../internal/server/session_actor.go) with its own isolated Git worktree ([ADR 007](../decisions/007-multi-session-daemon-branch-concurrency.md)).
-  * **Execution Lifecycle (Single Turn, Bounded Steps)**: By default, delegated subagents execute as a **single Turn** seeded by the task prompt (`RoleUser`). Autonomous iteration within that turn is bounded strictly by a **Step Limit** (`max_steps`, formalizing the previously overloaded `maxDepth` loop), terminating when the model yields with no further tool calls or exhausts its step budget.
-  * *(Future Extension: Synthetic Multi-Turn Loops)*: Multi-turn subagent execution (bounded by a separate `turn_limit`) is reserved for supervisor/evaluator topologies where an automated harness injects synthetic follow-up turns (e.g., test-failure reflexion loops or parent-child clarification dialogue).
-* **Structured Perception Feedback**:
-  * The child session's final synthesis is returned to the parent agent as a `ToolObservation`.
-  * The parent agent never ingests the raw intermediate trial-and-error noise of the subagent's internal Steps, preserving parent context tokens.
-* **Memory Hierarchy Scoping**:
-  * Child sessions read from `ScopeWorkspace` memories, but isolate private hypotheses to `ScopeSession`.
-  * Promoted findings can be committed back to `ScopeWorkspace`.
-
----
-
-### Pillar 4: Pluggable Context Shaping (`ContextShaper`)
+### Pillar 2: Pluggable Context Shaping (`ContextShaper`)
 
 #### The Problem
 The current Context Resonance algorithm ([docs/context_resonance.md](context_resonance.md)) hardcodes an exponential decay formula directly into `service.go`. More critically, it suffers from three structural flaws:
@@ -199,13 +145,67 @@ Configurable via `ClientConfig` / `ServerConfig` (`context_shaper: "sigmoid" | "
    * Refactored version of the original resonance formula, stripped of wall-clock time and driven strictly by topological step distance ($\Delta d$) and token fill ratio.
 
 > [!NOTE]
-> **Why `compact` is NOT a `ContextShaper`**: Compaction (Supernodes & memory harvesting via `CompactRangeWithDirective`) is a **graph-mutating lifecycle event** (Pillar 2) that writes to SQLite `nodes` and `memories`. In contrast, `ContextShaper` is strictly a **pure, read-only projection** ($\text{DAG Path} \longrightarrow \text{Messages}$). Shapers project whatever the graph contains—including pre-existing `RoleSummary` Supernodes—with zero side effects or storage mutations.
+> **Why `compact` is NOT a `ContextShaper`**: Compaction (Supernodes & memory harvesting via `CompactRangeWithDirective`) is a **graph-mutating lifecycle event** (Pillar 3) that writes to SQLite `nodes` and `memories`. In contrast, `ContextShaper` is strictly a **pure, read-only projection** ($\text{DAG Path} \longrightarrow \text{Messages}$). Shapers project whatever the graph contains—including pre-existing `RoleSummary` Supernodes—with zero side effects or storage mutations.
+
+---
+
+### Pillar 3: Three-Tier Memory Architecture & Vault Compaction
+
+#### The Problem
+Pillar 3 is where the bulk of real-world tokens and performance degradation land. Currently, reading a 100 KB file writes 100 KB into SQLite `nodes.observations` forever. A 20-turn session can inflate the database to 50x the size of the repository being worked on, turning the SQLite vault into a bloated, immutable duplicate of temporary host filesystem state.
+
+#### The Architectural Contract
+v0.3.0 establishes an explicit, three-tier memory hierarchy that cleanly separates transient perception from permanent recall:
+
+| Tier | Name | Storage Subsystem | Mutability & Lifecycle | Purpose |
+| :--- | :--- | :--- | :--- | :--- |
+| **L1** | **Working Context Window** | RAM / In-Flight Prompt Buffer | Reconstructed per generation; ephemeral | The immediate attention span fitted to `num_ctx` via pure mathematical projection. |
+| **L2** | **Sensory Observation Vault** | SQLite `nodes.observations` | Tiered retention: Hot $\rightarrow$ Cold (Receipts) | Operational audit trail and replay history. Distant ancestors decay into lightweight **Observation Receipts**. |
+| **L3** | **Cybernetic Semantic Store** | SQLite `memories` table | Durable, explicit UPSERT, FTS5 indexed | Long-term knowledge, user preferences, and workspace architectural constraints. |
+
+#### L2 Observation Compaction (Decay at Rest)
+To keep the SQLite vault lightweight and prefill caching fast:
+* **Hot Tier (Active Playhead & Immediate Turns)**: Full raw observation telemetry is retained so active reasoning iterations have exact sensory context.
+* **Cold Tier (Ancestor Turns beyond Grace Horizon)**: Raw payloads are evicted and replaced with lightweight, immutable **Observation Receipts**:
+  ```json
+  {
+    "tool": "read_file",
+    "path": "internal/engine/service.go",
+    "summary": "Read lines 1-250 (9.2 KB, hash: e3b0c442)",
+    "bytes": 9420,
+    "lines": 250,
+    "retained_excerpt": "package engine..."
+  }
+  ```
+* Once an observation is compacted into a receipt, its token size drops by 90%+, and its text is **frozen forever**, preserving KV-cache prefix invariance for all future turns.
+
+---
+
+### Pillar 4: Native Delegated Multi-Agent Topologies
+
+#### The Problem
+Multi-agent operations are currently only achievable via external shell orchestration. External scripts lack parent-child DAG tracking, cannot share memory scopes safely, and cannot return structured observations directly into an active reasoning loop.
+
+#### The Architectural Contract
+v0.3.0 elevates multi-agent capabilities to a first-class internal engine feature:
+* **The Delegation Tool (`spawn_subagent`)**:
+  * An assistant turn can invoke a native delegation tool with a structured goal, session label, and tool permissions.
+* **Sub-Session Actor Provisioning**:
+  * The daemon provisions a child [`SessionActor`](../internal/server/session_actor.go) with its own isolated Git worktree ([ADR 007](../decisions/007-multi-session-daemon-branch-concurrency.md)).
+  * **Execution Lifecycle (Single Turn, Bounded Steps)**: By default, delegated subagents execute as a **single Turn** seeded by the task prompt (`RoleUser`). Autonomous iteration within that turn is bounded strictly by a **Step Limit** (`max_steps`, formalizing the previously overloaded `maxDepth` loop), terminating when the model yields with no further tool calls or exhausts its step budget.
+  * *(Future Extension: Synthetic Multi-Turn Loops)*: Multi-turn subagent execution (bounded by a separate `turn_limit`) is reserved for supervisor/evaluator topologies where an automated harness injects synthetic follow-up turns (e.g., test-failure reflexion loops or parent-child clarification dialogue).
+* **Structured Perception Feedback**:
+  * The child session's final synthesis is returned to the parent agent as a `ToolObservation`.
+  * The parent agent never ingests the raw intermediate trial-and-error noise of the subagent's internal Steps, preserving parent context tokens.
+* **Memory Hierarchy Scoping**:
+  * Child sessions read from `ScopeWorkspace` memories, but isolate private hypotheses to `ScopeSession`.
+  * Promoted findings can be committed back to `ScopeWorkspace`.
 
 ---
 
 ## 3. Milestones & Delivery Phases
 
-### Phase 1: Lifecycle Consolidation & Pluggable Context Shaping
+### Phase 1: Lifecycle Convergence & Pluggable Context Shaping
 * [ ] **RFC / ADR 019**: Consolidate the Conversational Turn onto `SessionHarness` and formalize the `ContextShaper` interface.
 * [ ] Extract `ContextShaper` interface into `internal/engine/shaper.go` and implement `SigmoidShaper`, `WindowShaper`, and `ResonanceShaper`.
 * [ ] Retire redundant tool-dispatching loops in the TUI (`executeToolsCmd`), making Bubble Tea a pure reactive consumer of harness events.
