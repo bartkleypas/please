@@ -187,4 +187,10 @@ All updates and modifications to this knowledge bundle are tracked chronological
     *   Established `SessionHarness` (`internal/engine/harness.go`) as the sole authoritative execution pipeline across all presentation layers (standalone TUI, headless daemon, and ACP).
     *   Deprecated redundant TUI tool-dispatching loops (`executeToolsCmd`, `tools_handlers.go`), in-flight state tracking (`PendingToolCalls`, `InterleavingNodeID`), and synthetic metadata segment slicing (`node.Metadata["segments"]`).
     *   Standardized the Conversational Turn as the singular unit of reality, binding acoustic yield telemetry strictly to human attention states (`AwaitingConsent 🔔` and `TurnComplete 🔔`).
+*   **Cache-Stable Context Shaping & Pure Prompt Projections ([ADR 020](decisions/020-cache-stable-context-shaping-and-pure-prompt-projections.md))**:
+    *   Formalized the `ContextShaper` domain interface as a pure, read-only mathematical projection ($\text{DAG Path} \longrightarrow \text{Messages}$) with zero storage side effects.
+    *   Completely retired wall-clock time (`time.Since`, `deltaMinutes`) from context calculations, eliminating "lunch-break amnesia" in favor of pure topological step distance ($\Delta d$) and token capacity pressure.
+    *   Established the Monotonic Prefix Invariance contract (PINNED Genesis root + frozen historical asymptote), eliminating token shivering and unlocking near-instant KV-cache prefill reuse across local inference engines.
+    *   Specified standard projection strategies: `sigmoid` (recommended default with active plateau and stable floor), `window` (strict K-turn sliding window), and `exponential` (legacy resonance refactored without wall-clock decay).
+
 
