@@ -205,20 +205,26 @@ v0.3.0 elevates multi-agent capabilities to a first-class internal engine featur
 
 ## 3. Milestones & Delivery Phases
 
-### Phase 1: Lifecycle Convergence & Pluggable Context Shaping
-* [ ] **RFC / ADR 019**: Consolidate the Conversational Turn onto `SessionHarness` and formalize the `ContextShaper` interface.
-* [ ] Extract `ContextShaper` interface into `internal/engine/shaper.go` and implement `SigmoidShaper`, `WindowShaper`, and `ResonanceShaper`.
-* [ ] Retire redundant tool-dispatching loops in the TUI (`executeToolsCmd`), making Bubble Tea a pure reactive consumer of harness events.
-* [ ] Add configuration hooks for selectable context shapers (`context_shaper: "sigmoid" | "window" | "exponential"`).
+### Phase 1: Lifecycle Convergence & Canonical Harness Standardization
+* [ ] **RFC / ADR 019**: Consolidate the Conversational Turn onto `SessionHarness` as the singular execution pipeline.
+* [ ] Retire redundant tool-dispatching loops in the TUI (`executeToolsCmd`, `tools_handlers.go`), transforming Bubble Tea into a pure reactive consumer of harness events.
+* [ ] Eliminate in-flight metadata segment hacking (`node.Metadata["segments"]`) and unify observation pairing.
+* [ ] Verify 100% test passage across interactive TUI, headless daemon, and ACP execution surfaces.
 
-### Phase 2: Observation Compaction & Vault Hygiene
-* [ ] **RFC / ADR 020**: Define Observation Receipt schema and vault compaction mechanics.
+### Phase 2: Cache-Stable Context Shaping & Pure Prompt Projections
+* [ ] **RFC / ADR 020**: Formalize the pure read-only `ContextShaper` interface and monotonic prefix stability rules.
+* [ ] Extract `ContextShaper` interface into `internal/engine/shaper.go` and implement `SigmoidShaper`, `WindowShaper`, and `ResonanceShaper` (refactored without wall-clock time).
+* [ ] Add configuration hooks for selectable context shapers (`context_shaper: "sigmoid" | "window" | "exponential"`).
+* [ ] Benchmark KV-cache prefix retention across Ollama and local backends.
+
+### Phase 3: Observation Compaction & Vault Hygiene
+* [ ] **RFC / ADR 021**: Define Observation Receipt schema and vault compaction mechanics (Decay at Rest).
 * [ ] Implement `CompactNodeObservations` in `SQLiteStorage` with content-hash receipt generation.
 * [ ] Connect observation compaction to the background GC cycle (`please gc`) and `/compact` commands.
 * [ ] Add telemetry metrics to `please inspect` showing raw vs. receipt byte savings.
 
-### Phase 3: First-Class Sub-Session Delegation
-* [ ] **RFC / ADR 021**: Define the Delegated Agent Protocol and tool specification.
+### Phase 4: First-Class Sub-Session Delegation
+* [ ] **RFC / ADR 022**: Define the Delegated Agent Protocol and tool specification.
 * [ ] Implement `spawn_subagent` tool in `internal/tools/delegate.go`.
 * [ ] Wire subagent provisioning through `SessionHarness` and daemon `SessionActor` registry.
 * [ ] Validate end-to-end multi-agent living scenarios in `internal/engine/scenarios_test.go` ([ADR 015](../decisions/015-living-scenarios-and-test-subsystem-decomposition.md)).

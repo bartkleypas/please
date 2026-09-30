@@ -178,3 +178,13 @@ All updates and modifications to this knowledge bundle are tracked chronological
     *   **Operator Ergonomics**: Added interactive `/bell` slash command (`/bell`, `/bell on`, `/bell off`) and `/config bell <on|off>` dynamic toggle with ephemeral status notifications in [internal/tui/commands.go](internal/tui/commands.go).
     *   **Hermetic Testing**: Designed injectable `BellWriter` redirected during test execution, ensuring 100% silent, hermetic CI runs that assert on escape sequence emission without ringing developer terminals.
 
+## 2026-09-30
+
+*   **v0.3.0 Strategic Architecture Roadmap ([docs/roadmap_v0.3.0.md](docs/roadmap_v0.3.0.md))**:
+    *   Formulated the strategic v0.3.0 roadmap anchored to a core Self-Hosting North Star: establishing the `please` local execution stack as a dependable development partner capable of indexing, researching, and surgically editing its own codebase.
+    *   Structured four sequentially ordered architectural pillars: Lifecycle Convergence (Pillar 1), Cache-Stable Context Shaping (Pillar 2), Three-Tier Memory & Vault Compaction (Pillar 3), and Native Delegated Multi-Agent Topologies (Pillar 4).
+*   **Execution Lifecycle Convergence & Canonical Harness Standardization ([ADR 019](decisions/019-lifecycle-convergence-and-canonical-harness-standardization.md))**:
+    *   Established `SessionHarness` (`internal/engine/harness.go`) as the sole authoritative execution pipeline across all presentation layers (standalone TUI, headless daemon, and ACP).
+    *   Deprecated redundant TUI tool-dispatching loops (`executeToolsCmd`, `tools_handlers.go`), in-flight state tracking (`PendingToolCalls`, `InterleavingNodeID`), and synthetic metadata segment slicing (`node.Metadata["segments"]`).
+    *   Standardized the Conversational Turn as the singular unit of reality, binding acoustic yield telemetry strictly to human attention states (`AwaitingConsent 🔔` and `TurnComplete 🔔`).
+
