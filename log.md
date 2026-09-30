@@ -192,5 +192,9 @@ All updates and modifications to this knowledge bundle are tracked chronological
     *   Completely retired wall-clock time (`time.Since`, `deltaMinutes`) from context calculations, eliminating "lunch-break amnesia" in favor of pure topological step distance ($\Delta d$) and token capacity pressure.
     *   Established the Monotonic Prefix Invariance contract (PINNED Genesis root + frozen historical asymptote), eliminating token shivering and unlocking near-instant KV-cache prefill reuse across local inference engines.
     *   Specified standard projection strategies: `sigmoid` (recommended default with active plateau and stable floor), `window` (strict K-turn sliding window), and `exponential` (legacy resonance refactored without wall-clock decay).
+*   **Tiered Sensory Storage, Observation Compaction & Vault Hygiene ([ADR 021](decisions/021-tiered-sensory-storage-and-observation-compaction.md))**:
+    *   Formalized the complete Three-Tier Memory Architecture: Working Prompt Buffer (L1 in RAM), Sensory Observation Vault (L2 in SQLite `nodes`), and Cybernetic Semantic Store (L3 in SQLite `memories`).
+    *   Introduced Observation Compaction (Decay at Rest): evicting raw file and command payloads on cold ancestor turns into lightweight, immutable Observation Receipts (saving 90%+ vault bytes while preserving provenance, tool names, paths, lines, and content hashes).
+    *   Wired observation compaction into explicit turn compaction (`/compact`), background GC cycles (`please gc`), and in-flight horizon checks, preserving full AES-256-GCM vault encryption.
 
 
