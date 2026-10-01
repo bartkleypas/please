@@ -204,5 +204,11 @@ All updates and modifications to this knowledge bundle are tracked chronological
     *   **Deterministic Smart Receipts**: Formatted in-context tool observations into deterministic, immutable receipts (`obs_<hash>`) capturing provenance, status codes, line counts, and 1-line error banners, slashing prompt token overhead by 90%+ while preserving KV-cache prefix invariance.
     *   **Out-of-Band Telemetry Storage**: Retained raw command execution stdout/stderr out-of-band in a compressed SQLite `observation_blobs` table, while anchoring file reads directly to the host filesystem.
     *   **The Dereference Primitive (`inspect_receipt`)**: Introduced a sensory inspection tool enabling agents to page exact telemetry lines or regex-filtered slices from past receipts on-demand into their current forward pass without intermediate token bloat.
+*   **Native Delegated Multi-Agent Topologies & Worktree Isolation ([ADR 022](decisions/022-native-delegated-multi-agent-topologies.md))**:
+    *   **In-Engine Delegation Tool (`spawn_subagent`)**: Established native delegation allowing an active parent agent to dispatch focused research, benchmarking, or refactoring tasks out-of-band.
+    *   **Physical Sandboxing via Git Worktrees**: Leveraged `worktree.Manager` ([ADR 007](decisions/007-multi-session-daemon-branch-concurrency.md)) to provision isolated worktree branches (`subsession/<parent>/<sub>`), protecting the human operator's checkout from speculative edits, failed builds, and dirty git indexes.
+    *   **Execution Lifecycle (Single Turn, Bounded Steps)**: Formalized child subagent lifecycle as a single conversational turn bounded strictly by `max_steps` (default 10, max 25), with termination upon clean yield or step budget exhaustion.
+    *   **Context Shielding (Synthesized Perception)**: Shielded the parent's context window from subagent intermediate tool noise; the child's internal steps reside in its own DAG, returning only a high-level `ToolObservation` synthesis to the parent.
+    *   **Memory Scoping & Anti-Recursion**: Permitted read-only access to `ScopeWorkspace` memories with session-private writes (`ScopeSession`), and enforced a strict delegation depth ceiling of 1 (subagents cannot invoke `spawn_subagent`).
 
 
