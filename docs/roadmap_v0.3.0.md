@@ -160,24 +160,27 @@ v0.3.0 establishes an explicit, three-tier memory hierarchy that cleanly separat
 | Tier | Name | Storage Subsystem | Mutability & Lifecycle | Purpose |
 | :--- | :--- | :--- | :--- | :--- |
 | **L1** | **Working Context Window** | RAM / In-Flight Prompt Buffer | Reconstructed per generation; ephemeral | The immediate attention span fitted to `num_ctx` via pure mathematical projection. |
-| **L2** | **Sensory Observation Vault** | SQLite `nodes.observations` | Tiered retention: Hot $\rightarrow$ Cold (Receipts) | Operational audit trail and replay history. Distant ancestors decay into lightweight **Observation Receipts**. |
+| **L2** | **Sensory Observation Vault** | SQLite `nodes` + `observation_blobs` | Out-of-band blobs + in-DAG Smart Receipts | Operational audit trail, causal replay, and on-demand telemetry paging via virtual pointers. |
 | **L3** | **Cybernetic Semantic Store** | SQLite `memories` table | Durable, explicit UPSERT, FTS5 indexed | Long-term knowledge, user preferences, and workspace architectural constraints. |
 
-#### L2 Observation Compaction (Decay at Rest)
-To keep the SQLite vault lightweight and prefill caching fast:
-* **Hot Tier (Active Playhead & Immediate Turns)**: Full raw observation telemetry is retained so active reasoning iterations have exact sensory context.
-* **Cold Tier (Ancestor Turns beyond Grace Horizon)**: Raw payloads are evicted and replaced with lightweight, immutable **Observation Receipts**:
+#### L2 Sensory Storage, Smart Receipts & Virtual Paging
+To maximize forward generative runway, keep the SQLite vault lightweight, and preserve cache prefill:
+* **The Smart Receipt Contract**: In-context prompt sequences carry only deterministic receipts:
   ```json
   {
-    "tool": "read_file",
-    "path": "internal/engine/service.go",
-    "summary": "Read lines 1-250 (9.2 KB, hash: e3b0c442)",
-    "bytes": 9420,
-    "lines": 250,
-    "retained_excerpt": "package engine..."
+    "receipt_id": "obs_94a2f8b1",
+    "tool": "execute_command",
+    "command": "go test ./...",
+    "exit_code": 1,
+    "lines": 142,
+    "bytes": 8420,
+    "summary": "142 lines, 3 test failures",
+    "banner": "FAIL: TestSessionHarness_Compaction (0.12s)",
+    "has_blob": true
   }
   ```
-* Once an observation is compacted into a receipt, its token size drops by 90%+, and its text is **frozen forever**, preserving KV-cache prefix invariance for all future turns.
+* **Out-of-Band Retention**: Host file reads point to disk; transient command telemetry is compressed and stored out-of-band in `observation_blobs`.
+* **On-Demand Paging (`inspect_receipt`)**: If an agent needs to examine exact traces or assertion lines from a past receipt, it invokes `inspect_receipt(receipt_id="obs_94a2f8b1")` to page matching lines into its *current* forward turn—eliminating intermediate token tax without irreversible data loss.
 
 ---
 

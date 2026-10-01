@@ -197,4 +197,12 @@ All updates and modifications to this knowledge bundle are tracked chronological
     *   Introduced Observation Compaction (Decay at Rest): evicting raw file and command payloads on cold ancestor turns into lightweight, immutable Observation Receipts (saving 90%+ vault bytes while preserving provenance, tool names, paths, lines, and content hashes).
     *   Wired observation compaction into explicit turn compaction (`/compact`), background GC cycles (`please gc`), and in-flight horizon checks, preserving full AES-256-GCM vault encryption.
 
+## 2026-10-01
+
+*   **Smart Receipts & Addressable Observation Paging ([ADR 021](decisions/021-tiered-sensory-storage-and-observation-compaction.md))**:
+    *   **Virtual Memory Context Paging**: Recalibrated ADR 021 to resolve the false dilemma between in-context token bloat and irreversible observation amnesia.
+    *   **Deterministic Smart Receipts**: Formatted in-context tool observations into deterministic, immutable receipts (`obs_<hash>`) capturing provenance, status codes, line counts, and 1-line error banners, slashing prompt token overhead by 90%+ while preserving KV-cache prefix invariance.
+    *   **Out-of-Band Telemetry Storage**: Retained raw command execution stdout/stderr out-of-band in a compressed SQLite `observation_blobs` table, while anchoring file reads directly to the host filesystem.
+    *   **The Dereference Primitive (`inspect_receipt`)**: Introduced a sensory inspection tool enabling agents to page exact telemetry lines or regex-filtered slices from past receipts on-demand into their current forward pass without intermediate token bloat.
+
 
