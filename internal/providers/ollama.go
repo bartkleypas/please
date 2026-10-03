@@ -364,9 +364,22 @@ func mapToOllamaMessages(messages []domain.Message) []ollamaMessage {
 			contentStr = "[Conversation Milestone & Summary Context]:\n" + m.Content
 		}
 
+		if contentStr == "" && m.Thought != "" && len(m.ToolCalls) > 0 {
+			firstLine := m.Thought
+			if idx := strings.Index(firstLine, "\n"); idx != -1 {
+				firstLine = strings.TrimSpace(firstLine[:idx])
+			}
+			if len(firstLine) > 120 {
+				firstLine = firstLine[:117] + "..."
+			}
+			contentStr = fmt.Sprintf("[Action Intent: %s]", firstLine)
+		}
+
 		out = append(out, ollamaMessage{
 			Role:       roleStr,
 			Content:    contentStr,
+			Thinking:   m.Thought,
+			Reasoning:  m.Thought,
 			ToolCalls:  tCalls,
 			ToolCallID: m.ToolCallID,
 			Images:     base64Images,

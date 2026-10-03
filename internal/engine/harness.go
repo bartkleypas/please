@@ -220,8 +220,7 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 
 	var asstNode *graph.Node
 	var segments []AssistantSegment
-	var lastToolKey string
-	repeatCount := 0
+	invokedToolArgs := make(map[string]int)
 
 	// Multi-turn tool execution loop
 	for depth := 0; depth < maxDepth; depth++ {
@@ -249,6 +248,21 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 		if err != nil {
 			emit(HarnessEvent{Kind: HarnessEventError, Err: fmt.Errorf("context error: %w", err)})
 			return asstNode, err
+		}
+
+		// Intra-turn working memory continuity:
+		// Attach in-flight thoughts to active assistant messages so reasoning models (Gemma 4, DeepSeek-R1)
+		// maintain continuous awareness of their plan across multi-step tool iterations.
+		if asstNode != nil && len(segments) > 0 {
+			segIdx := 0
+			for mIdx := range messages {
+				if messages[mIdx].Role == domain.RoleAssistant && len(messages[mIdx].ToolCalls) > 0 {
+					if segIdx < len(segments) {
+						messages[mIdx].Thought = segments[segIdx].Thought
+						segIdx++
+					}
+				}
+			}
 		}
 
 		var toolSpecs []domain.ToolSpec
@@ -444,21 +458,16 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 			})
 
 			callKey := fmt.Sprintf("%s:%s", call.Function.Name, string(call.Function.Arguments))
-			if callKey == lastToolKey {
-				repeatCount++
-			} else {
-				lastToolKey = callKey
-				repeatCount = 1
-			}
+			invokedToolArgs[callKey]++
 
 			var result string
 			var execErr error
 			var errStr string
 
-			if repeatCount >= 3 {
-				execErr = fmt.Errorf("loop circuit breaker triggered: tool %q invoked with identical arguments 3 times consecutively", call.Function.Name)
+			if invokedToolArgs[callKey] >= 3 {
+				execErr = fmt.Errorf("loop circuit breaker triggered: tool %q invoked with identical arguments 3 times in this turn", call.Function.Name)
 				errStr = execErr.Error()
-				result = fmt.Sprintf("Error: %s. Please synthesize your final response or adjust parameters.", execErr.Error())
+				result = fmt.Sprintf("Error: %s. You already have this output in your context from an earlier step. Please proceed with your task or synthesize your final response.", execErr.Error())
 			} else {
 				// Check PermissionGate if tool requires human consent
 				requiresGate := false

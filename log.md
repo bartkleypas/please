@@ -237,6 +237,11 @@ All updates and modifications to this knowledge bundle are tracked chronological
     *   Added `isBinaryFile()` detection: skipping SQLite databases (`.db`, `.sqlite`, `.db-wal`), archives, images, compiled binaries, and files containing null bytes in the first 512 bytes.
     *   Automatically skip `.please` internal runtime directories during directory walks.
     *   Replaced error returns with clean truncation footers (`... [truncated: first N shown]`) using `filepath.SkipAll`.
+*   **Intra-Turn Working Memory Continuity & Cumulative Loop Breaker**:
+    *   Attached in-flight reasoning (`Thought`) from intermediate assistant segments to active assistant messages in `SessionHarness.ExecuteTurn` ([harness.go](internal/engine/harness.go)). Solves reasoning model (Gemma 4, DeepSeek-R1) amnesia where empty `content` on intermediate tool calls caused the model to lose track of its plan and re-read identical files in a loop.
+    *   Mapped `m.Thought` to `Thinking` and `Reasoning` fields in [ollama.go](internal/providers/ollama.go) and [openai.go](internal/providers/openai.go).
+    *   Added fallback `[Action Intent: <firstLine>]` when assistant message `content` is empty before tool dispatch.
+    *   Upgraded loop circuit breaker from consecutive repeat checking to cumulative turn-level tracking (`invokedToolArgs map[string]int`), tripping when any tool is invoked with identical arguments 3 times in a single turn.
 
 
 
