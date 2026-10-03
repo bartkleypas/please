@@ -275,7 +275,11 @@ func runInspect(args []string) {
 				if len(firstLine) > 80 {
 					firstLine = firstLine[:80] + "..."
 				}
-				fmt.Printf("        ↳ Observation: %d bytes | Header: %q\n", len(res), firstLine)
+				receiptBadge := ""
+				if receiptID := engine.ExtractReceiptID(res); receiptID != "" {
+					receiptBadge = fmt.Sprintf(" | Receipt: %s", receiptID)
+				}
+				fmt.Printf("        ↳ Observation: %d bytes%s | Header: %q\n", len(res), receiptBadge, firstLine)
 			} else {
 				fmt.Printf("        ↳ Observation: [MISSING / PENDING]\n")
 			}

@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/bartkleypas/please/internal/config"
 	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/graph"
 	"github.com/bartkleypas/please/internal/providers"
+	"github.com/bartkleypas/please/internal/storage"
 	"github.com/bartkleypas/please/internal/tools"
 )
 
@@ -497,6 +499,20 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 				if execErr != nil {
 					errStr = execErr.Error()
 					result = fmt.Sprintf("Error: %s", execErr.Error())
+				}
+			}
+
+			// Save observation blob out-of-band (ADR 021)
+			if h.Manager != nil && h.Manager.Storage != nil {
+				if obsStore, ok := h.Manager.Storage.(storage.ObservationStore); ok && obsStore != nil {
+					receiptID := GenerateReceiptID(call.Function.Name, []byte(result))
+					_ = obsStore.SaveObservationBlob(&storage.ObservationBlob{
+						ReceiptID: receiptID,
+						NodeID:    asstNode.ID,
+						CreatedAt: time.Now(),
+						Tool:      call.Function.Name,
+						Payload:   []byte(result),
+					})
 				}
 			}
 

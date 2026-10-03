@@ -38,6 +38,20 @@ type ToolObservation struct {
 	Result     string `json:"result"`
 }
 
+// SmartReceipt represents an immutable, content-addressed receipt of a tool execution (ADR 021).
+type SmartReceipt struct {
+	ReceiptID string `json:"receipt_id"`
+	Tool      string `json:"tool"`
+	Command   string `json:"command,omitempty"`
+	Path      string `json:"path,omitempty"`
+	ExitCode  int    `json:"exit_code,omitempty"`
+	Lines     int    `json:"lines"`
+	Bytes     int    `json:"bytes"`
+	Summary   string `json:"summary"`
+	Banner    string `json:"banner,omitempty"`
+	HasBlob   bool   `json:"has_blob"`
+}
+
 // Message represents an individual turn or prompt segment prepared for an LLM provider.
 type Message struct {
 	ID           string            `json:"id,omitempty"`

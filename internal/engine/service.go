@@ -94,7 +94,30 @@ func (m *Manager) CloneWithWorkspace(workspaceDir string, primaryWorkspace ...st
 	if memStore, ok := cloned.Storage.(storage.MemoryStore); ok && memStore != nil {
 		cloned.Registry.RegisterMemory(NewMemoryToolsAdapter(memStore), "workspace")
 	}
+	var obsStore tools.ObservationStore
+	if s, ok := cloned.Storage.(tools.ObservationStore); ok {
+		obsStore = s
+	}
+	cloned.Registry.RegisterObservationStore(obsStore, func(receiptID string) (string, error) {
+		return cloned.lookupLegacyObservation(receiptID)
+	})
 	return cloned
+}
+
+// lookupLegacyObservation searches the in-memory graph for historical observations
+// matching receiptID or containing receiptID, providing non-destructive read-through (ADR 021).
+func (m *Manager) lookupLegacyObservation(receiptID string) (string, error) {
+	if m.Graph == nil {
+		return "", fmt.Errorf("no graph available")
+	}
+	for _, n := range m.Graph.Nodes {
+		for _, obs := range n.Observations {
+			if obs.ToolCallID == receiptID || strings.Contains(obs.Result, receiptID) {
+				return obs.Result, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("legacy observation not found for %s", receiptID)
 }
 
 // SetClientContext sets temporary client editor context (e.g. active_file, cursor_line).
@@ -372,6 +395,10 @@ func (m *Manager) CalculateResonanceScore(node *graph.Node, distance int, fillRa
 // preserving any leading pagination banner (e.g. "[Lines 1-64 of 131...]") so the model
 // maintains memory of read ranges and continuation offsets without retaining the full body.
 func formatCompactedToolObservation(toolName string, rawResult string) string {
+	if strings.HasPrefix(rawResult, "[Receipt obs_") {
+		return rawResult
+	}
+
 	banner := ""
 	if idx := strings.Index(rawResult, "\n"); idx != -1 {
 		firstLine := strings.TrimSpace(rawResult[:idx])
@@ -382,7 +409,8 @@ func formatCompactedToolObservation(toolName string, rawResult string) string {
 		banner = ": " + strings.TrimSpace(rawResult)
 	}
 
-	return fmt.Sprintf("[Tool '%s' execution completed%s. Detailed results omitted. Total size: %d bytes.]", toolName, banner, len(rawResult))
+	receiptID := GenerateReceiptID(toolName, []byte(rawResult))
+	return fmt.Sprintf("[Tool '%s' execution completed%s. Detailed results omitted. Total size: %d bytes. Receipt: %s. Use inspect_receipt('%s') to view details.]", toolName, banner, len(rawResult), receiptID, receiptID)
 }
 
 // BuildLLMContext constructs the message history for the LLM, projecting the DAG path into a cache-stable sequence.

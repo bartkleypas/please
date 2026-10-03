@@ -63,6 +63,14 @@ func (r *ToolRegistry) RegisterMemory(store MemoryStore, defaultScope ...string)
 	}
 }
 
+// RegisterObservationStore registers the inspect_receipt sensory tool (ADR 021).
+func (r *ToolRegistry) RegisterObservationStore(store ObservationStore, legacyResolver LegacyObservationResolver) {
+	if store == nil && legacyResolver == nil {
+		return
+	}
+	r.Register(InspectReceiptTool(store, legacyResolver))
+}
+
 // RegisterDefaultTools registers all default tools into the provided registry scoped to workspaceDir.
 // Also actual surface area in the `engine` package.
 func RegisterDefaultTools(registry *ToolRegistry, workspaceDir ...string) {

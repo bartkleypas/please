@@ -16,4 +16,11 @@ func (m *Manager) RegisterDefaultTools(workspaceDir ...string) {
 	if memStore, ok := m.Storage.(storage.MemoryStore); ok && memStore != nil {
 		m.Registry.RegisterMemory(NewMemoryToolsAdapter(memStore), "workspace")
 	}
+	var obsStore tools.ObservationStore
+	if s, ok := m.Storage.(tools.ObservationStore); ok {
+		obsStore = s
+	}
+	m.Registry.RegisterObservationStore(obsStore, func(receiptID string) (string, error) {
+		return m.lookupLegacyObservation(receiptID)
+	})
 }

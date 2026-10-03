@@ -90,6 +90,22 @@ type MemoryStore interface {
 	DiagnoseMemories(scope MemoryScope, sessionID string) (*MemoryDiagnostics, error)
 }
 
+// ObservationBlob holds an out-of-band compressed tool observation payload (ADR 021).
+type ObservationBlob struct {
+	ReceiptID  string    `json:"receipt_id"`
+	NodeID     string    `json:"node_id"`
+	CreatedAt  time.Time `json:"created_at"`
+	Tool       string    `json:"tool"`
+	Compressed bool      `json:"compressed"`
+	Payload    []byte    `json:"payload"`
+}
+
+// ObservationStore defines the interface for persisting and retrieving out-of-band sensory telemetry.
+type ObservationStore interface {
+	SaveObservationBlob(blob *ObservationBlob) error
+	GetObservationBlob(receiptID string) (*ObservationBlob, error)
+}
+
 var timeFormats = []string{
 	time.RFC3339Nano,
 	time.RFC3339,
