@@ -1216,3 +1216,32 @@ func (s *SQLiteStorage) GetObservationBlob(receiptID string) (*ObservationBlob, 
 
 	return &blob, nil
 }
+
+// CleanObservations removes orphaned observation blobs and vacuums the database to reclaim space.
+// Returns the number of deleted observations.
+func (s *SQLiteStorage) CleanObservations() (int64, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	res, err := tx.Exec(`DELETE FROM observation_blobs WHERE node_id NOT IN (SELECT id FROM nodes)`)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete orphaned observations: %w", err)
+	}
+	rowsAffected, _ := res.RowsAffected()
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// Vacuum must be run outside of a transaction
+	_, err = s.db.Exec("VACUUM")
+	if err != nil {
+		return rowsAffected, fmt.Errorf("vacuum failed: %w", err)
+	}
+
+	return rowsAffected, nil
+}
+

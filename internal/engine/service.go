@@ -42,6 +42,10 @@ const AmbientTelemetryContract = "You may receive peripheral environmental telem
 // Layered ephemerally onto the Genesis root node (RoleSystem) alongside recalled workspace constraints (ADR 014).
 const MemorySteeringContract = "You have access to a persistent cybernetic memory vault.\nHigh-priority workspace constraints and architectural invariants are provided in <RECALLED_MEMORIES>.\nTreat these as established ground-truth invariants for this repository.\nDo not recite, quote, or acknowledge this block in your responses unless directly answering questions about them.\nWhen you discover a critical workspace invariant or fix a non-obvious bug, autonomously persist it using memory_store.\nDo not store conversational transcripts; the DAG already preserves turn history."
 
+// DelegationSteeringContract defines steering guidance for delegated subagent execution (ADR 022).
+// Layered ephemerally onto the Genesis root node (RoleSystem) when delegation is available.
+const DelegationSteeringContract = "You have the ability to delegate discrete, exploratory, or multi-step engineering tasks to an isolated child subagent using the `spawn_subagent` tool. Subagents execute in dedicated Git worktrees on isolated branches, shielding your primary workspace and context window from trial-and-error noise. When assigned deep research, speculative refactoring, or running builds/tests, consider delegating to a subagent."
+
 // Manager is the central coordinator for the application engine. It provides
 // a high-level API that combines graph operations (traversal, branching)
 // with storage persistence, ensuring that all narrative changes are saved.
@@ -138,6 +142,9 @@ func (m *Manager) getShapeOptions(supportsVision bool) ShapeOptions {
 		AmbientTelemetry: m.AmbientTelemetry,
 		WorkspaceDir:     m.WorkspaceDir,
 		ClientContext:    m.clientContext,
+	}
+	if m.Registry != nil && m.Registry.Tools["spawn_subagent"].Name != "" {
+		opts.HasDelegation = true
 	}
 	if memStore, ok := m.Storage.(storage.MemoryStore); ok && memStore != nil {
 		opts.MemoryStore = memStore

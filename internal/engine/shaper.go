@@ -37,6 +37,7 @@ type ShapeOptions struct {
 	WorkspaceDir     string
 	ClientContext    map[string]string
 	MemoryStore      storage.MemoryStore
+	HasDelegation    bool
 }
 
 type shapeOptionsKey struct{}
@@ -529,6 +530,17 @@ func projectPathToMessages(
 					if recalledBlock != "" {
 						content += "\n\n" + MemorySteeringContract + "\n\n" + recalledBlock
 					}
+				}
+			}
+		}
+
+		// Layered Genesis Prompt for Subagent Delegation (ADR 022):
+		// Dynamically layer delegation guidance onto the root node (messages[0])
+		// when delegation is available, keeping SQLite storage 100% pure persona.
+		if node.Role == domain.RoleSystem || (i == 0 && node.Role != domain.RoleUser) {
+			if opts.HasDelegation {
+				if !strings.Contains(content, "spawn_subagent") {
+					content += "\n\n" + DelegationSteeringContract
 				}
 			}
 		}

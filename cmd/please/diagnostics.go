@@ -60,6 +60,7 @@ func setupDiagnosticsManager(vaultPath, configPath string) (*engine.Manager, *co
 	if cfg.Server != nil && cfg.Server.Options != nil && cfg.Server.Options.NumCtx != nil {
 		mgr.NumCtx = *cfg.Server.Options.NumCtx
 	}
+	mgr.RegisterDefaultTools(cfg.GetWorkspaceDir())
 	return mgr, cfg, nil
 }
 

@@ -170,7 +170,7 @@ func (r *ToolRegistry) GetToolsForPolicy(policy string) []Tool {
 		case string(domain.SandboxPolicyStandard):
 			fallthrough
 		default:
-			if t.Category != domain.CategoryExecute && t.Name != "execute_command" {
+			if (t.Category != domain.CategoryExecute || t.Name == "spawn_subagent") && t.Name != "execute_command" {
 				filtered = append(filtered, t)
 			}
 		}

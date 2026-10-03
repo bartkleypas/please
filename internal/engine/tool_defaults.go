@@ -23,4 +23,12 @@ func (m *Manager) RegisterDefaultTools(workspaceDir ...string) {
 	m.Registry.RegisterObservationStore(obsStore, func(receiptID string) (string, error) {
 		return m.lookupLegacyObservation(receiptID)
 	})
+	m.RegisterDelegation(NewSubagentOrchestrator(m, nil, nil))
+}
+
+// RegisterDelegation registers the spawn_subagent tool bound to runner into the manager's registry (ADR 022).
+func (m *Manager) RegisterDelegation(runner tools.SubagentRunner) {
+	if m.Registry != nil && runner != nil {
+		m.Registry.RegisterDelegation(runner)
+	}
 }
