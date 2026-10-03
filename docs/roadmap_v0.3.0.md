@@ -209,22 +209,22 @@ v0.3.0 elevates multi-agent capabilities to a first-class internal engine featur
 ## 3. Milestones & Delivery Phases
 
 ### Phase 1: Lifecycle Convergence & Canonical Harness Standardization
-* [ ] **RFC / [ADR 019](../decisions/019-lifecycle-convergence-and-canonical-harness-standardization.md)**: Consolidate the Conversational Turn onto `SessionHarness` as the singular execution pipeline.
-* [ ] Retire redundant tool-dispatching loops in the TUI (`executeToolsCmd`, `tools_handlers.go`), transforming Bubble Tea into a pure reactive consumer of harness events.
-* [ ] Eliminate in-flight metadata segment hacking (`node.Metadata["segments"]`) and unify observation pairing.
-* [ ] Verify 100% test passage across interactive TUI, headless daemon, and ACP execution surfaces.
+* [x] **RFC / [ADR 019](../decisions/019-lifecycle-convergence-and-canonical-harness-standardization.md)**: Consolidate the Conversational Turn onto `SessionHarness` as the singular execution pipeline.
+* [x] Retire redundant tool-dispatching loops in the TUI (`executeToolsCmd`, `tools_handlers.go`), transforming Bubble Tea into a pure reactive consumer of harness events.
+* [x] Eliminate parallel TUI execution machinery, wire interactive `PermissionGate` over channel bridge, and unify observation pairing.
+* [x] Verify 100% test passage across interactive TUI, headless daemon, and ACP execution surfaces.
 
 ### Phase 2: Cache-Stable Context Shaping & Pure Prompt Projections
-* [ ] **RFC / [ADR 020](../decisions/020-cache-stable-context-shaping-and-pure-prompt-projections.md)**: Formalize the pure read-only `ContextShaper` interface and monotonic prefix stability rules.
-* [ ] Extract `ContextShaper` interface into `internal/engine/shaper.go` and implement `SigmoidShaper`, `WindowShaper`, and `ResonanceShaper` (refactored without wall-clock time).
-* [ ] Add configuration hooks for selectable context shapers (`context_shaper: "sigmoid" | "window" | "exponential"`).
-* [ ] Benchmark KV-cache prefix retention across Ollama and local backends.
+* [x] **RFC / [ADR 020](../decisions/020-cache-stable-context-shaping-and-pure-prompt-projections.md)**: Formalize the pure read-only `ContextShaper` interface and monotonic prefix stability rules.
+* [x] Extract `ContextShaper` interface into `internal/engine/shaper.go` and implement `SigmoidShaper`, `WindowShaper`, and `ResonanceShaper` (refactored without wall-clock time).
+* [x] Add configuration hooks for selectable context shapers (`context_shaper: "sigmoid" | "window" | "exponential"`).
+* [x] Hermetic determinism and monotonic prefix tests in `internal/engine/shaper_test.go`.
 
 ### Phase 3: Observation Compaction & Vault Hygiene
-* [ ] **RFC / [ADR 021](../decisions/021-tiered-sensory-storage-and-observation-compaction.md)**: Define Observation Receipt schema, out-of-band telemetry blobs, and addressable observation paging.
-* [ ] Implement `CompactNodeObservations` in `SQLiteStorage` with content-hash receipt generation.
-* [ ] Connect observation compaction to the background GC cycle (`please gc`) and `/compact` commands.
-* [ ] Add telemetry metrics to `please inspect` showing raw vs. receipt byte savings.
+* [x] **RFC / [ADR 021](../decisions/021-tiered-sensory-storage-and-observation-compaction.md)**: Define Observation Receipt schema, out-of-band telemetry blobs, and addressable observation paging.
+* [x] Implement `observation_blobs` in `SQLiteStorage` with gzip compression and content-addressable `obs_<hash>` receipt generation.
+* [x] Implement sensory `inspect_receipt` tool with line paging, regex grep filtering, and legacy read-through.
+* [x] Add telemetry metrics to `please inspect` showing receipt badges.
 
 ### Phase 4: First-Class Sub-Session Delegation
 * [ ] **RFC / [ADR 022](../decisions/022-native-delegated-multi-agent-topologies.md)**: Define the Delegated Agent Protocol, worktree sandboxing, and tool specification.

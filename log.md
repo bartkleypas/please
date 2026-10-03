@@ -211,4 +211,24 @@ All updates and modifications to this knowledge bundle are tracked chronological
     *   **Context Shielding (Synthesized Perception)**: Shielded the parent's context window from subagent intermediate tool noise; the child's internal steps reside in its own DAG, returning only a high-level `ToolObservation` synthesis to the parent.
     *   **Memory Scoping & Anti-Recursion**: Permitted read-only access to `ScopeWorkspace` memories with session-private writes (`ScopeSession`), and enforced a strict delegation depth ceiling of 1 (subagents cannot invoke `spawn_subagent`).
 
+## 2026-10-03
+
+*   **Pillar 1 Implementation: Canonical Harness Convergence & Interactive Permission Gate ([ADR 019](decisions/019-lifecycle-convergence-and-canonical-harness-standardization.md))**:
+    *   Unified all TUI execution onto `LocalHarnessProvider` and `SessionHarness`, retiring redundant TUI state loops (`tools_handlers.go`, `executeToolsCmd`, `PendingToolCalls`, `InterleavingNodeID`).
+    *   Bridged `PermissionGate` to Bubble Tea via `ApprovalReqChan` on `LocalHarnessProvider`, enabling interactive approval modals (`/confirm`, `/cancel`) during harness streaming while preserving presentation agnosticism.
+    *   Updated `handleLLMStreamFinished` and dialogue intervention keys to cancel pending tool approvals cleanly and retain error telemetry in nodes without graph corruption.
+*   **Pillar 2 Implementation: Cache-Stable Context Shaping & Pure Prompt Projections ([ADR 020](decisions/020-cache-stable-context-shaping-and-pure-prompt-projections.md))**:
+    *   Extracted the `ContextShaper` domain interface into [shaper.go](internal/engine/shaper.go) as a pure read-only mathematical projection ($\text{DAG Path} \times \text{Budget} \longrightarrow \text{Prompt Messages}$) with zero storage side effects.
+    *   Completely eliminated wall-clock time (`time.Since`, `deltaMinutes`) from resonance decay, retiring "lunch-break amnesia" in favor of pure topological step distance ($\Delta d$).
+    *   Implemented `SigmoidShaper` (logistic S-curve with active plateau and stable floor), `WindowShaper` (strict $K$-turn boundary), and `ResonanceShaper` (pure topological decay).
+    *   Enforced Monotonic Prefix Invariance: pinned Genesis root + initial user goal and settled historical ancestor nodes onto immutable token baselines, maximizing KV-cache prefill reuse.
+    *   Added `context_shaper` configuration key to `ServerConfig`, v1-to-v2 migration, and hermetic tests in [shaper_test.go](internal/engine/shaper_test.go).
+*   **Pillar 3 Implementation: Tiered Sensory Storage & Smart Receipts ([ADR 021](decisions/021-tiered-sensory-storage-and-observation-compaction.md))**:
+    *   Added compressed out-of-band telemetry storage in SQLite via `observation_blobs` table with automatic gzip compression and non-destructive legacy read-through.
+    *   Defined content-addressable `SmartReceipt` (`obs_<hash>`) with sensory banner extraction in [receipt.go](internal/engine/receipt.go).
+    *   Implemented sensory `inspect_receipt` tool in [receipt.go](internal/tools/receipt.go) providing 1-indexed line paging, regex grep filtering, and fallback resolution.
+    *   Wired `SessionHarness` tool execution loop to persist raw telemetry out-of-band and emit deterministic receipts into historical prompt contexts.
+    *   Updated `please inspect` diagnostic scorecard with receipt identification badges.
+
+
 
