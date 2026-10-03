@@ -112,7 +112,7 @@ func (m *Manager) lookupLegacyObservation(receiptID string) (string, error) {
 	}
 	for _, n := range m.Graph.Nodes {
 		for _, obs := range n.Observations {
-			if obs.ToolCallID == receiptID || strings.Contains(obs.Result, receiptID) {
+			if (obs.Receipt != nil && obs.Receipt.ReceiptID == receiptID) || obs.BlobID == receiptID || obs.ToolCallID == receiptID || strings.Contains(obs.Result, receiptID) {
 				return obs.Result, nil
 			}
 		}
@@ -302,8 +302,8 @@ func (m *Manager) CreateToolNode(parentID string, toolCallID string, content str
 	return node, nil
 }
 
-// UpdateAssistantObservations appends side-channel tool results to an existing assistant node
-func (m *Manager) UpdateAssistantObservations(nodeID string, callID string, result string) error {
+// UpdateAssistantObservationRecord appends a structured tool observation to an existing assistant node
+func (m *Manager) UpdateAssistantObservationRecord(nodeID string, obs domain.ToolObservation) error {
 	node, err := m.Graph.GetNode(nodeID)
 	if err != nil {
 		return err
@@ -313,12 +313,17 @@ func (m *Manager) UpdateAssistantObservations(nodeID string, callID string, resu
 		return fmt.Errorf("observations can only be added to assistant nodes")
 	}
 
-	node.Observations = append(node.Observations, domain.ToolObservation{
+	node.Observations = append(node.Observations, obs)
+
+	return m.Storage.UpdateNodeObservations(nodeID, node.Observations)
+}
+
+// UpdateAssistantObservations appends side-channel tool results to an existing assistant node (backward-compatible)
+func (m *Manager) UpdateAssistantObservations(nodeID string, callID string, result string) error {
+	return m.UpdateAssistantObservationRecord(nodeID, domain.ToolObservation{
 		ToolCallID: callID,
 		Result:     result,
 	})
-
-	return m.Storage.UpdateNodeObservations(nodeID, node.Observations)
 }
 
 func (m *Manager) validateNode(node *graph.Node) error {

@@ -276,7 +276,12 @@ func runInspect(args []string) {
 					firstLine = firstLine[:80] + "..."
 				}
 				receiptBadge := ""
-				if receiptID := engine.ExtractReceiptID(res); receiptID != "" {
+				if matchedObs.Receipt != nil {
+					receiptBadge = fmt.Sprintf(" | Receipt: %s (%s)", matchedObs.Receipt.ReceiptID, matchedObs.Receipt.Summary)
+					if matchedObs.Receipt.Banner != "" {
+						firstLine = matchedObs.Receipt.Banner
+					}
+				} else if receiptID := engine.ExtractReceiptID(res); receiptID != "" {
 					receiptBadge = fmt.Sprintf(" | Receipt: %s", receiptID)
 				}
 				fmt.Printf("        ↳ Observation: %d bytes%s | Header: %q\n", len(res), receiptBadge, firstLine)

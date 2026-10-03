@@ -229,6 +229,10 @@ All updates and modifications to this knowledge bundle are tracked chronological
     *   Implemented sensory `inspect_receipt` tool in [receipt.go](internal/tools/receipt.go) providing 1-indexed line paging, regex grep filtering, and fallback resolution.
     *   Wired `SessionHarness` tool execution loop to persist raw telemetry out-of-band and emit deterministic receipts into historical prompt contexts.
     *   Updated `please inspect` diagnostic scorecard with receipt identification badges.
+*   **Pillar 3 Polish: Strongly Typed Sensory Observation Boundary**:
+    *   Evolved `ToolObservation` in [models.go](internal/domain/models.go) to a dual-nature container holding typed `Receipt *SmartReceipt`, `BlobID string`, `ExitCode *int`, and `Error string`, while keeping `Result string` as the backward-compatible rendered wire projection.
+    *   Replaced string prefix sniffing (`[Receipt obs_...`) in `ContextShaper` and `please inspect` with direct struct access, while maintaining full SQLite and JSON backward compatibility for legacy records.
+    *   Wired `FormatObservationReceipt()` into context compaction, eliminating informal regex contracts across engine subsystems.
 
 
 

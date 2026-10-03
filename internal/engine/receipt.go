@@ -96,3 +96,14 @@ func FormatReceiptString(receipt domain.SmartReceipt) string {
 	return fmt.Sprintf("[Receipt %s: Tool '%s' execution completed (%s).%s]",
 		receipt.ReceiptID, receipt.Tool, receipt.Summary, bannerPart)
 }
+
+// FormatObservationReceipt formats an observation into its receipt representation for prompt contexts.
+// If the observation has a typed SmartReceipt, it formats that receipt directly without string heuristic parsing.
+// Otherwise, it falls back to formatCompactedToolObservation.
+func FormatObservationReceipt(toolName string, obs domain.ToolObservation) string {
+	if obs.Receipt != nil {
+		return FormatReceiptString(*obs.Receipt)
+	}
+	return formatCompactedToolObservation(toolName, obs.Result)
+}
+

@@ -107,7 +107,7 @@ func TestHarness_ObservationBlob_RoundTrip(t *testing.T) {
 		t.Fatalf("expected assistant node returned")
 	}
 
-	// Verify observation blob was saved to SQLite
+	// Verify observation blob was saved to SQLite and structured receipt attached
 	expectedReceiptID := GenerateReceiptID("read_file", []byte(asstNode.Observations[0].Result))
 	blob, err := store.GetObservationBlob(expectedReceiptID)
 	if err != nil {
@@ -116,6 +116,32 @@ func TestHarness_ObservationBlob_RoundTrip(t *testing.T) {
 
 	if blob.ReceiptID != expectedReceiptID {
 		t.Errorf("expected receipt ID %s, got %s", expectedReceiptID, blob.ReceiptID)
+	}
+
+	if asstNode.Observations[0].Receipt == nil {
+		t.Fatalf("expected structured SmartReceipt on observation, got nil")
+	}
+	if asstNode.Observations[0].Receipt.ReceiptID != expectedReceiptID {
+		t.Errorf("expected receipt ID %s, got %s", expectedReceiptID, asstNode.Observations[0].Receipt.ReceiptID)
+	}
+	if asstNode.Observations[0].BlobID != expectedReceiptID {
+		t.Errorf("expected blob ID %s, got %s", expectedReceiptID, asstNode.Observations[0].BlobID)
+	}
+
+	// Verify persistence in SQLite retains structured receipt
+	loadedGraph, _, err := store.LoadGraph()
+	if err != nil || loadedGraph == nil {
+		t.Fatalf("failed to load graph from storage: %v", err)
+	}
+	loadedNode, err := loadedGraph.GetNode(asstNode.ID)
+	if err != nil || loadedNode == nil {
+		t.Fatalf("failed to get node from loaded graph: %v", err)
+	}
+	if len(loadedNode.Observations) == 0 || loadedNode.Observations[0].Receipt == nil {
+		t.Fatalf("expected loaded node to have structured receipt: %+v", loadedNode.Observations)
+	}
+	if loadedNode.Observations[0].Receipt.ReceiptID != expectedReceiptID {
+		t.Errorf("persisted receipt ID mismatch: expected %s, got %s", expectedReceiptID, loadedNode.Observations[0].Receipt.ReceiptID)
 	}
 
 	// Now execute inspect_receipt using manager's registry

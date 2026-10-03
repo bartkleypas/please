@@ -376,15 +376,21 @@ func projectPathToMessages(
 			}
 
 			totalCalls := len(node.ToolCalls)
-			formatObs := func(toolName, rawResult string, callIdx int) string {
+			formatObs := func(toolName string, obs domain.ToolObservation, callIdx int) string {
+				rawResult := obs.Result
+				byteSize := len(rawResult)
+				if obs.Receipt != nil {
+					byteSize = obs.Receipt.Bytes
+				}
+
 				// Turn-boundary compaction: historical turns (distance >= 1) compact large observations
-				if distance >= 1 && len(rawResult) > 1000 {
-					return formatCompactedToolObservation(toolName, rawResult)
+				if distance >= 1 && byteSize > 1000 {
+					return FormatObservationReceipt(toolName, obs)
 				}
 				// Intra-turn rolling scratchpad compaction: on active turn (distance == 0),
 				// compact older observations beyond the last 2 tool calls if they exceed 1000 bytes.
-				if distance == 0 && totalCalls > 2 && callIdx < totalCalls-2 && len(rawResult) > 1000 {
-					return formatCompactedToolObservation(toolName, rawResult)
+				if distance == 0 && totalCalls > 2 && callIdx < totalCalls-2 && byteSize > 1000 {
+					return FormatObservationReceipt(toolName, obs)
 				}
 				if tier == FidelityFull {
 					if fillRatio >= 0.60 && len(rawResult) > 8000 {
@@ -397,7 +403,7 @@ func projectPathToMessages(
 					}
 					return rawResult
 				}
-				return formatCompactedToolObservation(toolName, rawResult)
+				return FormatObservationReceipt(toolName, obs)
 			}
 
 			if len(segments) > 0 {
@@ -426,7 +432,7 @@ func projectPathToMessages(
 						if obs, ok := obsMap[tc.ID]; ok {
 							messages = append(messages, domain.Message{
 								Role:       domain.RoleTool,
-								Content:    formatObs(toolName, obs.Result, j),
+								Content:    formatObs(toolName, obs, j),
 								ToolCallID: tc.ID,
 								Internal:   node.Internal,
 							})
@@ -456,7 +462,7 @@ func projectPathToMessages(
 					if obs, ok := obsMap[tc.ID]; ok {
 						messages = append(messages, domain.Message{
 							Role:       domain.RoleTool,
-							Content:    formatObs(toolName, obs.Result, j),
+							Content:    formatObs(toolName, obs, j),
 							ToolCallID: tc.ID,
 							Internal:   node.Internal,
 						})
@@ -558,12 +564,20 @@ func projectPathToMessages(
 					}
 				}
 				truncatedResult := obs.Result
-				if len(truncatedResult) > 1000 {
-					truncatedResult = formatCompactedToolObservation(toolName, obs.Result)
+				byteSize := len(truncatedResult)
+				if obs.Receipt != nil {
+					byteSize = obs.Receipt.Bytes
+				}
+				if byteSize > 1000 {
+					truncatedResult = FormatObservationReceipt(toolName, obs)
 				}
 				msg.Observations[j] = domain.ToolObservation{
 					ToolCallID: obs.ToolCallID,
 					Result:     truncatedResult,
+					Receipt:    obs.Receipt,
+					BlobID:     obs.BlobID,
+					ExitCode:   obs.ExitCode,
+					Error:      obs.Error,
 				}
 			}
 		} else if tier == FidelityFull {
@@ -580,14 +594,22 @@ func projectPathToMessages(
 					}
 				}
 				truncatedResult := obs.Result
-				if distance == 0 && totalObs > 2 && j < totalObs-2 && len(truncatedResult) > 1000 {
-					truncatedResult = formatCompactedToolObservation(toolName, obs.Result)
+				byteSize := len(truncatedResult)
+				if obs.Receipt != nil {
+					byteSize = obs.Receipt.Bytes
+				}
+				if distance == 0 && totalObs > 2 && j < totalObs-2 && byteSize > 1000 {
+					truncatedResult = FormatObservationReceipt(toolName, obs)
 				} else if fillRatio >= 0.60 && len(truncatedResult) > 8000 {
 					truncatedResult = truncatedResult[:8000] + "... [truncated]"
 				}
 				msg.Observations[j] = domain.ToolObservation{
 					ToolCallID: obs.ToolCallID,
 					Result:     truncatedResult,
+					Receipt:    obs.Receipt,
+					BlobID:     obs.BlobID,
+					ExitCode:   obs.ExitCode,
+					Error:      obs.Error,
 				}
 			}
 		} else if tier == FidelityMedium {
@@ -602,6 +624,10 @@ func projectPathToMessages(
 				msg.Observations[j] = domain.ToolObservation{
 					ToolCallID: obs.ToolCallID,
 					Result:     truncatedResult,
+					Receipt:    obs.Receipt,
+					BlobID:     obs.BlobID,
+					ExitCode:   obs.ExitCode,
+					Error:      obs.Error,
 				}
 			}
 		} else {
@@ -618,7 +644,11 @@ func projectPathToMessages(
 				}
 				msg.Observations[j] = domain.ToolObservation{
 					ToolCallID: obs.ToolCallID,
-					Result:     formatCompactedToolObservation(toolName, obs.Result),
+					Result:     FormatObservationReceipt(toolName, obs),
+					Receipt:    obs.Receipt,
+					BlobID:     obs.BlobID,
+					ExitCode:   obs.ExitCode,
+					Error:      obs.Error,
 				}
 			}
 		}

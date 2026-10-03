@@ -480,7 +480,12 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 					}
 					if !allowed {
 						result = fmt.Sprintf("User denied execution of tool: %s", call.Function.Name)
-						_ = h.Manager.UpdateAssistantObservations(asstNode.ID, call.ID, result)
+						deniedObs := domain.ToolObservation{
+							ToolCallID: call.ID,
+							Result:     result,
+							Error:      result,
+						}
+						_ = h.Manager.UpdateAssistantObservationRecord(asstNode.ID, deniedObs)
 						if latest, err := h.Manager.GetNode(asstNode.ID); err == nil && latest != nil {
 							asstNode = latest
 						}
@@ -502,22 +507,41 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 				}
 			}
 
-			// Save observation blob out-of-band (ADR 021)
+			// Save observation blob out-of-band and construct SmartReceipt (ADR 021)
+			var smartReceipt *domain.SmartReceipt
+			hasBlob := false
+			receiptID := GenerateReceiptID(call.Function.Name, []byte(result))
+
 			if h.Manager != nil && h.Manager.Storage != nil {
 				if obsStore, ok := h.Manager.Storage.(storage.ObservationStore); ok && obsStore != nil {
-					receiptID := GenerateReceiptID(call.Function.Name, []byte(result))
-					_ = obsStore.SaveObservationBlob(&storage.ObservationBlob{
+					saveErr := obsStore.SaveObservationBlob(&storage.ObservationBlob{
 						ReceiptID: receiptID,
 						NodeID:    asstNode.ID,
 						CreatedAt: time.Now(),
 						Tool:      call.Function.Name,
 						Payload:   []byte(result),
 					})
+					if saveErr == nil {
+						hasBlob = true
+					}
 				}
 			}
 
+			var rawArgs map[string]interface{}
+			_ = json.Unmarshal(call.Function.Arguments, &rawArgs)
+			rcpt := CreateSmartReceipt(call.Function.Name, rawArgs, result, hasBlob)
+			smartReceipt = &rcpt
+
+			obsRecord := domain.ToolObservation{
+				ToolCallID: call.ID,
+				Result:     result,
+				Receipt:    smartReceipt,
+				BlobID:     receiptID,
+				Error:      errStr,
+			}
+
 			// Update assistant observations on the unified assistant node
-			_ = h.Manager.UpdateAssistantObservations(asstNode.ID, call.ID, result)
+			_ = h.Manager.UpdateAssistantObservationRecord(asstNode.ID, obsRecord)
 			if latest, err := h.Manager.GetNode(asstNode.ID); err == nil && latest != nil {
 				asstNode = latest
 			}
