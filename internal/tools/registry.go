@@ -71,6 +71,14 @@ func (r *ToolRegistry) RegisterObservationStore(store ObservationStore, legacyRe
 	r.Register(InspectReceiptTool(store, legacyResolver))
 }
 
+// RegisterDelegation registers the spawn_subagent tool bound to runner (ADR 022).
+func (r *ToolRegistry) RegisterDelegation(runner SubagentRunner) {
+	if runner == nil {
+		return
+	}
+	r.Register(SpawnSubagentTool(runner))
+}
+
 // RegisterDefaultTools registers all default tools into the provided registry scoped to workspaceDir.
 // Also actual surface area in the `engine` package.
 func RegisterDefaultTools(registry *ToolRegistry, workspaceDir ...string) {

@@ -227,10 +227,10 @@ v0.3.0 elevates multi-agent capabilities to a first-class internal engine featur
 * [x] Add telemetry metrics to `please inspect` showing receipt badges.
 
 ### Phase 4: First-Class Sub-Session Delegation
-* [ ] **RFC / [ADR 022](../decisions/022-native-delegated-multi-agent-topologies.md)**: Define the Delegated Agent Protocol, worktree sandboxing, and tool specification.
-* [ ] Implement `spawn_subagent` tool in `internal/tools/delegate.go`.
-* [ ] Wire subagent provisioning through `SessionHarness` and daemon `SessionActor` registry.
-* [ ] Validate end-to-end multi-agent living scenarios in `internal/engine/scenarios_test.go` ([ADR 015](../decisions/015-living-scenarios-and-test-subsystem-decomposition.md)).
+* [x] **RFC / [ADR 022](../decisions/022-native-delegated-multi-agent-topologies.md)**: Define the Delegated Agent Protocol, worktree sandboxing, and tool specification.
+* [x] Implement `spawn_subagent` tool in `internal/tools/delegate.go`.
+* [x] Wire subagent provisioning through `SessionHarness` and daemon `SessionActor` registry.
+* [x] Validate end-to-end multi-agent living scenarios in `internal/engine/scenarios_test.go` ([ADR 015](../decisions/015-living-scenarios-and-test-subsystem-decomposition.md)).
 
 ---
 

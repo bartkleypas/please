@@ -80,15 +80,39 @@ type SessionHarness struct {
 	Config         *config.Config
 	OnNodeSaved    func(node *graph.Node)
 	PermissionGate PermissionGate
+	IsSubagent     bool
 }
 
 // NewSessionHarness creates an initialized SessionHarness instance.
 func NewSessionHarness(mgr *Manager, provider providers.Provider, cfg *config.Config) *SessionHarness {
-	return &SessionHarness{
+	h := &SessionHarness{
 		Manager:  mgr,
 		Provider: provider,
 		Config:   cfg,
 	}
+	h.EnableDelegation()
+	return h
+}
+
+// NewSubagentHarness creates an initialized SessionHarness instance for an isolated child subagent (ADR 022).
+// Child subagents have IsSubagent=true, PermissionGate=nil, and cannot recursively spawn further subagents.
+func NewSubagentHarness(mgr *Manager, provider providers.Provider, cfg *config.Config) *SessionHarness {
+	return &SessionHarness{
+		Manager:    mgr,
+		Provider:   provider,
+		Config:     cfg,
+		IsSubagent: true,
+	}
+}
+
+// EnableDelegation registers the spawn_subagent tool into the harness manager's registry (ADR 022).
+// Excluded if this harness is already a child subagent (anti-recursion ceiling = 1).
+func (h *SessionHarness) EnableDelegation() {
+	if h.IsSubagent || h.Manager == nil || h.Manager.Registry == nil || h.Provider == nil {
+		return
+	}
+	orchestrator := NewSubagentOrchestrator(h.Manager, h.Provider, h.Config)
+	h.Manager.Registry.RegisterDelegation(orchestrator)
 }
 
 // ExecuteTurn executes a full multi-turn conversational cycle for a single session.

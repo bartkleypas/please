@@ -241,7 +241,13 @@ All updates and modifications to this knowledge bundle are tracked chronological
     *   Attached in-flight reasoning (`Thought`) from intermediate assistant segments to active assistant messages in `SessionHarness.ExecuteTurn` ([harness.go](internal/engine/harness.go)). Solves reasoning model (Gemma 4, DeepSeek-R1) amnesia where empty `content` on intermediate tool calls caused the model to lose track of its plan and re-read identical files in a loop.
     *   Mapped `m.Thought` to `Thinking` and `Reasoning` fields in [ollama.go](internal/providers/ollama.go) and [openai.go](internal/providers/openai.go).
     *   Added fallback `[Action Intent: <firstLine>]` when assistant message `content` is empty before tool dispatch.
-    *   Upgraded loop circuit breaker from consecutive repeat checking to cumulative turn-level tracking (`invokedToolArgs map[string]int`), tripping when any tool is invoked with identical arguments 3 times in a single turn.
+*   **Pillar 4 Implementation: Native Delegated Multi-Agent Topologies & Worktree Isolation ([ADR 022](decisions/022-native-delegated-multi-agent-topologies.md))**:
+    *   Implemented `spawn_subagent` sensory/exec tool in [delegate.go](internal/tools/delegate.go) with strict input validation, `tool_preset` scoping (`"read_only"` vs `"full"`), and bounded `max_steps` (ceiling 25).
+    *   Implemented `SubagentOrchestrator` in [delegate.go](internal/engine/delegate.go) orchestrating child subagent execution within isolated Git worktree branches (`subsession/sub_<id>`) using `worktree.Manager`.
+    *   Guaranteed context shielding: child subagents execute on their own private DAGs; internal step chatter, intermediate file reads, and failed test outputs never pollute the parent context window. Only a structured `SubagentResult` observation returns to the parent.
+    *   Enforced Anti-Recursion Safety: delegation depth is strictly capped at 1 (`IsSubagent = true`), explicitly omitting `spawn_subagent` from child tool registries.
+    *   Added worktree inspection, git commit tracking, and automatic branch/worktree pruning for clean and read-only tasks.
+    *   Wired `EnableDelegation()` across `SessionHarness` and verified living E2E scenario in [scenarios_test.go](internal/engine/scenarios_test.go) (0.19s).
 
 
 

@@ -20,7 +20,7 @@ timestamp: "2026-10-01T15:00:00-07:00"
 
 ## Status
 
-Proposed
+Accepted
 
 ---
 

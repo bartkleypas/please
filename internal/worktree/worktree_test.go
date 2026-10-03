@@ -180,3 +180,71 @@ func TestWorktree_LifecycleAndIsolation(t *testing.T) {
 		t.Errorf("expected ErrMainSessionProtected when removing main, got %v", err)
 	}
 }
+
+func TestWorktree_SubsessionAndInspectChanges(t *testing.T) {
+	repoDir, configDir := setupTestGitRepo(t)
+	mgr := NewManager(configDir, repoDir)
+
+	subID := "sub_1234abcd"
+	branch := "subsession/" + subID
+	wtDir, actBranch, err := mgr.EnsureWorktreeBranch(subID, branch)
+	if err != nil {
+		t.Fatalf("EnsureWorktreeBranch failed: %v", err)
+	}
+	if actBranch != branch {
+		t.Errorf("expected branch %s, got %s", branch, actBranch)
+	}
+
+	baseCommit, err := mgr.GetHeadCommit(wtDir)
+	if err != nil || baseCommit == "" {
+		t.Fatalf("GetHeadCommit failed: %v, commit=%s", err, baseCommit)
+	}
+
+	// Clean state inspection
+	hasChanges, modFiles, err := mgr.InspectChanges(wtDir, baseCommit)
+	if err != nil {
+		t.Fatalf("InspectChanges failed: %v", err)
+	}
+	if hasChanges || len(modFiles) > 0 {
+		t.Errorf("expected no changes on fresh worktree, got hasChanges=%v files=%v", hasChanges, modFiles)
+	}
+
+	// Modify a file in the worktree
+	subFile := filepath.Join(wtDir, "sub_task.txt")
+	if err := os.WriteFile(subFile, []byte("subagent work"), 0644); err != nil {
+		t.Fatalf("failed to write sub_task.txt: %v", err)
+	}
+
+	hasChanges, modFiles, err = mgr.InspectChanges(wtDir, baseCommit)
+	if err != nil {
+		t.Fatalf("InspectChanges failed: %v", err)
+	}
+	if !hasChanges || len(modFiles) != 1 || modFiles[0] != "sub_task.txt" {
+		t.Errorf("expected 1 modified file (sub_task.txt), got hasChanges=%v files=%v", hasChanges, modFiles)
+	}
+
+	// Commit the file in worktree
+	gitPath, _ := exec.LookPath("git")
+	runGitCmd(t, gitPath, wtDir, "add", "sub_task.txt")
+	runGitCmd(t, gitPath, wtDir, "commit", "-m", "subagent task complete")
+
+	newCommit, _ := mgr.GetHeadCommit(wtDir)
+	if newCommit == baseCommit {
+		t.Errorf("expected new commit after git commit")
+	}
+
+	hasChanges, modFiles, err = mgr.InspectChanges(wtDir, baseCommit)
+	if !hasChanges || len(modFiles) != 1 {
+		t.Errorf("expected committed changes detected against baseCommit")
+	}
+
+	diffStat, err := mgr.GetDiffStat(wtDir, baseCommit)
+	if err != nil || !strings.Contains(diffStat, "sub_task.txt") {
+		t.Errorf("expected diffStat containing sub_task.txt, got %q (err=%v)", diffStat, err)
+	}
+
+	// Clean up worktree and branch
+	if err := mgr.RemoveWorktree(subID, true, true); err != nil {
+		t.Fatalf("RemoveWorktree failed: %v", err)
+	}
+}

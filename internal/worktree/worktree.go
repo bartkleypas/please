@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -134,8 +135,18 @@ func (m *Manager) GetWorktreeDir(sessionID string) (string, error) {
 
 // EnsureWorktree provisions or resolves an isolated Git worktree for the given session.
 // For session "main", it returns the primary repo root and current branch.
-// For named sessions ("alpha", "beta"), it provisions an out-of-tree directory on branch 'please/<sessionID>'.
+// For named sessions ("alpha", "beta"), it provisions an out-of-tree directory on branch 'please/<sessionID>'
+// (or 'subsession/<sessionID>' if sessionID starts with 'sub_').
 func (m *Manager) EnsureWorktree(sessionID string) (worktreeDir string, branch string, err error) {
+	defaultBranch := fmt.Sprintf("please/%s", sessionID)
+	if strings.HasPrefix(sessionID, "sub_") {
+		defaultBranch = fmt.Sprintf("subsession/%s", sessionID)
+	}
+	return m.EnsureWorktreeBranch(sessionID, defaultBranch)
+}
+
+// EnsureWorktreeBranch provisions or resolves an isolated Git worktree for the given session on an explicit branch.
+func (m *Manager) EnsureWorktreeBranch(sessionID, branch string) (worktreeDir string, actualBranch string, err error) {
 	if !m.IsGitAvailable() {
 		return m.primaryWorkspace, "", ErrGitNotAvailable
 	}
@@ -154,7 +165,10 @@ func (m *Manager) EnsureWorktree(sessionID string) (worktreeDir string, branch s
 		return topLevel, currentBranch, nil
 	}
 
-	branch = fmt.Sprintf("please/%s", sessionID)
+	if branch == "" {
+		branch = fmt.Sprintf("please/%s", sessionID)
+	}
+
 	worktreeDir, err = m.GetWorktreeDir(sessionID)
 	if err != nil {
 		return m.primaryWorkspace, "", err
@@ -198,6 +212,15 @@ func (m *Manager) EnsureWorktree(sessionID string) (worktreeDir string, branch s
 
 // RemoveWorktree deletes the worktree checkout and optionally deletes the git branch.
 func (m *Manager) RemoveWorktree(sessionID string, force bool, deleteBranch bool) error {
+	branch := fmt.Sprintf("please/%s", sessionID)
+	if strings.HasPrefix(sessionID, "sub_") {
+		branch = fmt.Sprintf("subsession/%s", sessionID)
+	}
+	return m.RemoveWorktreeBranch(sessionID, branch, force, deleteBranch)
+}
+
+// RemoveWorktreeBranch deletes the worktree checkout and optionally deletes the specified git branch.
+func (m *Manager) RemoveWorktreeBranch(sessionID, branch string, force bool, deleteBranch bool) error {
 	if sessionID == "" || sessionID == "main" {
 		return ErrMainSessionProtected
 	}
@@ -228,14 +251,89 @@ func (m *Manager) RemoveWorktree(sessionID string, force bool, deleteBranch bool
 	// Ensure directory is cleared if git worktree remove left artifacts
 	_ = os.RemoveAll(worktreeDir)
 
-	if deleteBranch {
-		branch := fmt.Sprintf("please/%s", sessionID)
+	if deleteBranch && branch != "" {
 		delBranchCmd := exec.Command(m.gitPath, "-C", topLevel, "branch", "-D", branch)
 		_ = delBranchCmd.Run()
 	}
 
 	_ = m.Prune()
 	return nil
+}
+
+// GetHeadCommit returns the current commit SHA of the worktree checkout.
+func (m *Manager) GetHeadCommit(dir string) (string, error) {
+	if !m.IsGitAvailable() {
+		return "", ErrGitNotAvailable
+	}
+	cmd := exec.Command(m.gitPath, "-C", dir, "rev-parse", "HEAD")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// InspectChanges checks for uncommitted modifications or new commits in the worktree directory.
+// Returns whether changes exist, and a list of modified file paths relative to the worktree.
+func (m *Manager) InspectChanges(dir string, baseCommit string) (hasChanges bool, filesModified []string, err error) {
+	if !m.IsGitAvailable() {
+		return false, nil, ErrGitNotAvailable
+	}
+
+	fileMap := make(map[string]bool)
+
+	// 1. Check uncommitted changes via status --porcelain
+	statusCmd := exec.Command(m.gitPath, "-C", dir, "status", "--porcelain")
+	statusOut, _ := statusCmd.Output()
+	lines := strings.Split(string(statusOut), "\n")
+	for _, l := range lines {
+		l = strings.TrimSpace(l)
+		if len(l) > 3 {
+			filePath := strings.TrimSpace(l[3:])
+			if idx := strings.Index(filePath, " -> "); idx != -1 {
+				filePath = filePath[idx+4:]
+			}
+			fileMap[filePath] = true
+		}
+	}
+
+	// 2. Check committed changes if baseCommit is specified
+	if baseCommit != "" {
+		diffCmd := exec.Command(m.gitPath, "-C", dir, "diff", "--name-only", baseCommit, "HEAD")
+		diffOut, _ := diffCmd.Output()
+		dLines := strings.Split(string(diffOut), "\n")
+		for _, dl := range dLines {
+			dl = strings.TrimSpace(dl)
+			if dl != "" {
+				fileMap[dl] = true
+			}
+		}
+	}
+
+	for f := range fileMap {
+		filesModified = append(filesModified, f)
+	}
+	sort.Strings(filesModified)
+
+	return len(filesModified) > 0, filesModified, nil
+}
+
+// GetDiffStat returns the git diff --stat output comparing the worktree to baseCommit or working copy.
+func (m *Manager) GetDiffStat(dir string, baseCommit string) (string, error) {
+	if !m.IsGitAvailable() {
+		return "", ErrGitNotAvailable
+	}
+	var cmd *exec.Cmd
+	if baseCommit != "" {
+		cmd = exec.Command(m.gitPath, "-C", dir, "diff", "--stat", baseCommit)
+	} else {
+		cmd = exec.Command(m.gitPath, "-C", dir, "diff", "--stat", "HEAD")
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 // Prune cleans up stale worktree administrative files from .git.
