@@ -168,56 +168,6 @@ func (m *Model) updateViewportWithStreaming() {
 	s.WriteString(botStyle.Render(string(domain.RoleAssistant)))
 	s.WriteString(":\n")
 
-	// Render already committed segments during a resumed streaming session
-	if m.InterleavingNodeID != "" {
-		node, err := m.Manager.GetNode(m.InterleavingNodeID)
-		if err == nil {
-			var segments []struct {
-				Content string `json:"content"`
-				Thought string `json:"thought"`
-			}
-			if node.Metadata != nil && node.Metadata["segments"] != "" {
-				_ = json.Unmarshal([]byte(node.Metadata["segments"]), &segments)
-			}
-
-			if len(segments) > 0 {
-				for j, seg := range segments {
-					if seg.Thought != "" {
-						s.WriteString(thoughtStyle.Render(wrapText(seg.Thought, wrapWidth)))
-						s.WriteString("\n")
-					}
-					if j < len(node.ToolCalls) {
-						call := node.ToolCalls[j]
-						s.WriteString(markStyle.Render(fmt.Sprintf("⚒️  Executing %s...", call.Function.Name)))
-						s.WriteString("\n")
-						if j < len(node.Observations) {
-							s.WriteString(helpStyle.Render("  ✅ Observation received."))
-							s.WriteString("\n")
-						}
-					}
-					if seg.Content != "" {
-						s.WriteString(wrapText(seg.Content, wrapWidth))
-						s.WriteString("\n")
-					}
-				}
-			} else {
-				// Fallback if no segments metadata
-				for i, call := range node.ToolCalls {
-					s.WriteString(markStyle.Render(fmt.Sprintf("⚒️  Executing %s...", call.Function.Name)))
-					s.WriteString("\n")
-					if i < len(node.Observations) {
-						s.WriteString(helpStyle.Render("  ✅ Observation received."))
-						s.WriteString("\n")
-					}
-				}
-				if node.Content != "" {
-					s.WriteString(wrapText(node.Content, wrapWidth))
-					s.WriteString("\n")
-				}
-			}
-		}
-	}
-
 	if m.CurrentStreamingThought != "" {
 		s.WriteString(thoughtStyle.Render(wrapText(m.CurrentStreamingThought, wrapWidth)))
 		s.WriteString("\n")

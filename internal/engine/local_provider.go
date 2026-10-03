@@ -12,14 +12,21 @@ import (
 	"github.com/bartkleypas/please/internal/worktree"
 )
 
+// ToolApprovalRequest encapsulates a tool call requiring operator confirmation and a channel for the response.
+type ToolApprovalRequest struct {
+	Call domain.ToolCall
+	Resp chan bool
+}
+
 // LocalHarnessProvider adapts SessionHarness into a Provider interface,
 // allowing the standalone interactive TUI to consume the canonical multi-turn
 // agent lifecycle in-process identically to a remote daemon client.
 type LocalHarnessProvider struct {
-	Harness        *SessionHarness
-	SessionID      string
-	PrimaryManager *Manager
-	mu             sync.RWMutex
+	Harness         *SessionHarness
+	SessionID       string
+	PrimaryManager  *Manager
+	ApprovalReqChan chan ToolApprovalRequest
+	mu              sync.RWMutex
 }
 
 // NewLocalHarnessProvider instantiates a new LocalHarnessProvider.
@@ -27,11 +34,37 @@ func NewLocalHarnessProvider(harness *SessionHarness, sessionID string) *LocalHa
 	if sessionID == "" {
 		sessionID = "main"
 	}
+	approvalChan := make(chan ToolApprovalRequest, 1)
 	p := &LocalHarnessProvider{
-		Harness:        harness,
-		SessionID:      sessionID,
-		PrimaryManager: harness.Manager,
+		Harness:         harness,
+		SessionID:       sessionID,
+		PrimaryManager:  harness.Manager,
+		ApprovalReqChan: approvalChan,
 	}
+
+	if harness != nil && harness.PermissionGate == nil {
+		harness.PermissionGate = func(ctx context.Context, sessionID string, call domain.ToolCall) (bool, error) {
+			resp := make(chan bool, 1)
+			req := ToolApprovalRequest{
+				Call: call,
+				Resp: resp,
+			}
+
+			select {
+			case p.ApprovalReqChan <- req:
+			case <-ctx.Done():
+				return false, ctx.Err()
+			}
+
+			select {
+			case allowed := <-resp:
+				return allowed, nil
+			case <-ctx.Done():
+				return false, ctx.Err()
+			}
+		}
+	}
+
 	p.updateHarnessWorkspace(sessionID)
 	return p
 }

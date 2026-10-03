@@ -48,8 +48,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case syncResultMsg:
 		return m.handleSyncResult(msg)
-	case toolsExecutedMsg:
-		return m.handleToolsExecuted(msg)
+	case toolApprovalReqMsg:
+		return m.handleToolApprovalReq(msg)
 	case exportResultMsg:
 		return m.handleExportResult(msg)
 	case compactionFinishedMsg:

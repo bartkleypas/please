@@ -65,8 +65,9 @@ type Model struct {
 	StreamThoughtChan       <-chan string
 	StreamToolCallChan      <-chan []domain.ToolCall
 	StreamErrChan           <-chan error
+	StreamApprovalReqChan   <-chan engine.ToolApprovalRequest
+	ActiveApprovalResp      chan bool
 	StreamCancel            func() // Cancellation function for the active LLM stream
-	InterleavingNodeID      string // The Assistant node currently receiving observations
 
 	// Interactive Map state
 	MapNodeIDs        []string
@@ -83,9 +84,6 @@ type Model struct {
 	CompactTargetIDs []string
 	CompactDirective string
 	IsCompressing    bool
-
-	// Tool handling fields
-	PendingToolCalls []domain.ToolCall
 
 	// Animation state
 	LastActivity time.Time
@@ -165,6 +163,15 @@ func NewModel(cfg *config.Config, g *graph.Graph, s storage.Storage, p providers
 		sessionID = cfg.GetSession()
 	} else {
 		sessionID = "main"
+	}
+
+	if p != nil {
+		if _, isHarness := p.(*engine.LocalHarnessProvider); !isHarness {
+			if _, isRemote := p.(*providers.RemoteDaemonProvider); !isRemote {
+				harness := engine.NewSessionHarness(mgr, p, cfg)
+				p = engine.NewLocalHarnessProvider(harness, sessionID)
+			}
+		}
 	}
 
 	m := Model{

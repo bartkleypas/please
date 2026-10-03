@@ -13,21 +13,32 @@ import (
 
 func streamResponse(ctx context.Context, provider providers.Provider, messages []domain.Message, tools []domain.ToolSpec, parentID string, activeNodeID string) tea.Cmd {
 	return func() tea.Msg {
+		var approvalChan chan engine.ToolApprovalRequest
+		if lhp, ok := provider.(*engine.LocalHarnessProvider); ok {
+			approvalChan = lhp.ApprovalReqChan
+		}
+
 		contentChan, thoughtChan, toolCallChan, errChan := provider.GenerateResponseStream(ctx, messages, tools)
 		return streamResponseMsg{
-			contentChan:  contentChan,
-			thoughtChan:  thoughtChan,
-			toolCallChan: toolCallChan,
-			errChan:      errChan,
-			parentID:     parentID,
-			activeNodeID: activeNodeID,
+			contentChan:     contentChan,
+			thoughtChan:     thoughtChan,
+			toolCallChan:    toolCallChan,
+			errChan:         errChan,
+			approvalReqChan: approvalChan,
+			parentID:        parentID,
+			activeNodeID:    activeNodeID,
 		}
 	}
 }
 
-func waitForStream(contentChan <-chan string, thoughtChan <-chan string, toolCallChan <-chan []domain.ToolCall, errChan <-chan error, parentID string, activeNodeID string) tea.Cmd {
+func waitForStream(contentChan <-chan string, thoughtChan <-chan string, toolCallChan <-chan []domain.ToolCall, errChan <-chan error, approvalReqChan <-chan engine.ToolApprovalRequest, parentID string, activeNodeID string) tea.Cmd {
 	return func() tea.Msg {
 		select {
+		case req, ok := <-approvalReqChan:
+			if !ok {
+				return waitForStream(contentChan, thoughtChan, toolCallChan, errChan, nil, parentID, activeNodeID)()
+			}
+			return toolApprovalReqMsg{Call: req.Call, Resp: req.Resp, parentID: parentID, activeNodeID: activeNodeID}
 		case content, ok := <-contentChan:
 			if !ok {
 				// Content closed, now wait for potential tool calls or error
@@ -38,7 +49,7 @@ func waitForStream(contentChan <-chan string, thoughtChan <-chan string, toolCal
 		case thought, ok := <-thoughtChan:
 			if !ok {
 				// Thought closed, keep waiting for content
-				return waitForStream(contentChan, nil, toolCallChan, errChan, parentID, activeNodeID)()
+				return waitForStream(contentChan, nil, toolCallChan, errChan, approvalReqChan, parentID, activeNodeID)()
 			}
 			return llmThoughtStreamMsg{thought: thought, parentID: parentID, activeNodeID: activeNodeID}
 
@@ -49,8 +60,13 @@ func waitForStream(contentChan <-chan string, thoughtChan <-chan string, toolCal
 			return llmStreamFinishedMsg{err: err, parentID: parentID, activeNodeID: activeNodeID}
 
 		default:
-			// Priority to content, then thought, then others
+			// Priority to approval request, then content, then thought, then others
 			select {
+			case req, ok := <-approvalReqChan:
+				if !ok {
+					return waitForStream(contentChan, thoughtChan, toolCallChan, errChan, nil, parentID, activeNodeID)()
+				}
+				return toolApprovalReqMsg{Call: req.Call, Resp: req.Resp, parentID: parentID, activeNodeID: activeNodeID}
 			case content, ok := <-contentChan:
 				if !ok {
 					return checkRemainingChannels(toolCallChan, errChan, parentID, activeNodeID)
@@ -58,7 +74,7 @@ func waitForStream(contentChan <-chan string, thoughtChan <-chan string, toolCal
 				return llmStreamMsg{content: content, parentID: parentID, activeNodeID: activeNodeID}
 			case thought, ok := <-thoughtChan:
 				if !ok {
-					return waitForStream(contentChan, nil, toolCallChan, errChan, parentID, activeNodeID)()
+					return waitForStream(contentChan, nil, toolCallChan, errChan, approvalReqChan, parentID, activeNodeID)()
 				}
 				return llmThoughtStreamMsg{thought: thought, parentID: parentID, activeNodeID: activeNodeID}
 			case tc := <-toolCallChan:
@@ -68,6 +84,11 @@ func waitForStream(contentChan <-chan string, thoughtChan <-chan string, toolCal
 			default:
 				// Fallback to blocking select
 				select {
+				case req, ok := <-approvalReqChan:
+					if !ok {
+						return waitForStream(contentChan, thoughtChan, toolCallChan, errChan, nil, parentID, activeNodeID)()
+					}
+					return toolApprovalReqMsg{Call: req.Call, Resp: req.Resp, parentID: parentID, activeNodeID: activeNodeID}
 				case content, ok := <-contentChan:
 					if !ok {
 						return checkRemainingChannels(toolCallChan, errChan, parentID, activeNodeID)
@@ -75,7 +96,7 @@ func waitForStream(contentChan <-chan string, thoughtChan <-chan string, toolCal
 					return llmStreamMsg{content: content, parentID: parentID, activeNodeID: activeNodeID}
 				case thought, ok := <-thoughtChan:
 					if !ok {
-						return waitForStream(contentChan, nil, toolCallChan, errChan, parentID, activeNodeID)()
+						return waitForStream(contentChan, nil, toolCallChan, errChan, approvalReqChan, parentID, activeNodeID)()
 					}
 					return llmThoughtStreamMsg{thought: thought, parentID: parentID, activeNodeID: activeNodeID}
 				case tc := <-toolCallChan:

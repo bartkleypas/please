@@ -462,15 +462,14 @@ func (m *Model) handleEnterKey() (tea.Model, tea.Cmd) {
 	// Handle Dialogue Intervention:
 	// If the user submits a message while tool execution is pending,
 	// cancel the pending tools, pop the confirmation overlay, and proceed with the new message.
-	if m.hasActiveOverlay("confirm_tool") {
+	if m.hasActiveOverlay("confirm_tool") || m.ActiveApprovalResp != nil {
 		if m.ViewStack != nil && m.ViewStack.Top().Name() == "confirm_tool" {
 			m.ViewStack.Pop()
 		}
-		for _, call := range m.PendingToolCalls {
-			result := "Error: Tool call cancelled by user."
-			_ = m.Manager.UpdateAssistantObservations(m.InterleavingNodeID, call.ID, result)
+		if m.ActiveApprovalResp != nil {
+			m.ActiveApprovalResp <- false
+			m.ActiveApprovalResp = nil
 		}
-		m.PendingToolCalls = nil
 		m.Notification = "Pending tools cancelled."
 	}
 

@@ -1,13 +1,9 @@
 package tui
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
-	"github.com/bartkleypas/please/internal/domain"
-	"github.com/bartkleypas/please/internal/engine"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -16,9 +12,9 @@ func (m *Model) handleStreamResponse(streamMsg streamResponseMsg) (tea.Model, te
 	m.StreamThoughtChan = streamMsg.thoughtChan
 	m.StreamToolCallChan = streamMsg.toolCallChan
 	m.StreamErrChan = streamMsg.errChan
-	m.InterleavingNodeID = streamMsg.activeNodeID
+	m.StreamApprovalReqChan = streamMsg.approvalReqChan
 	return m, tea.Batch(
-		waitForStream(m.StreamContentChan, m.StreamThoughtChan, m.StreamToolCallChan, m.StreamErrChan, streamMsg.parentID, streamMsg.activeNodeID),
+		waitForStream(m.StreamContentChan, m.StreamThoughtChan, m.StreamToolCallChan, m.StreamErrChan, m.StreamApprovalReqChan, streamMsg.parentID, streamMsg.activeNodeID),
 		tick(),
 	)
 }
@@ -37,13 +33,13 @@ func (m *Model) handleLLMStream(msg llmStreamMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(
 			cmd,
-			waitForStream(m.StreamContentChan, m.StreamThoughtChan, m.StreamToolCallChan, m.StreamErrChan, msg.parentID, msg.activeNodeID),
+			waitForStream(m.StreamContentChan, m.StreamThoughtChan, m.StreamToolCallChan, m.StreamErrChan, m.StreamApprovalReqChan, msg.parentID, msg.activeNodeID),
 		)
 	}
 
 	m.CurrentStreamingContent += msg.content
 	m.updateViewportWithStreaming()
-	return m, waitForStream(m.StreamContentChan, m.StreamThoughtChan, m.StreamToolCallChan, m.StreamErrChan, msg.parentID, msg.activeNodeID)
+	return m, waitForStream(m.StreamContentChan, m.StreamThoughtChan, m.StreamToolCallChan, m.StreamErrChan, m.StreamApprovalReqChan, msg.parentID, msg.activeNodeID)
 }
 
 // handleLLMThoughtStream appends incoming reasoning chunks to the streaming thought buffer.
@@ -51,7 +47,7 @@ func (m *Model) handleLLMThoughtStream(msg llmThoughtStreamMsg) (tea.Model, tea.
 	m.IsThinking = true
 	m.CurrentStreamingThought += msg.thought
 	m.updateViewportWithStreaming()
-	return m, waitForStream(m.StreamContentChan, m.StreamThoughtChan, m.StreamToolCallChan, m.StreamErrChan, msg.parentID, msg.activeNodeID)
+	return m, waitForStream(m.StreamContentChan, m.StreamThoughtChan, m.StreamToolCallChan, m.StreamErrChan, m.StreamApprovalReqChan, msg.parentID, msg.activeNodeID)
 }
 
 // handleLLMStreamFinished commits the full streamed response to the graph as a new node or updates existing.
@@ -82,163 +78,34 @@ func (m *Model) handleLLMStreamFinished(msg llmStreamFinishedMsg) (tea.Model, te
 		return m, nil
 	}
 
-	if _, ok := m.Provider.(*engine.LocalHarnessProvider); ok || m.RemoteURL != "" {
-		// When driven by a SessionHarness (either remote daemon or in-process LocalHarnessProvider),
-		// the harness autonomously executes tools, records observations, and persists turns.
-		_, lastID, _ := m.Manager.Sync()
-		if m.SessionID != "" && m.Manager != nil && m.Manager.Storage != nil {
-			if headID, err := m.Manager.Storage.GetSessionHead(m.SessionID); err == nil && headID != "" {
-				m.CurrentID = headID
-			} else if lastID != "" {
-				m.CurrentID = lastID
+	// Driven by canonical SessionHarness (in-process LocalHarnessProvider or remote daemon),
+	// which autonomously executes tools, records observations, and persists turns.
+	_, lastID, _ := m.Manager.Sync()
+	if m.SessionID != "" && m.Manager != nil && m.Manager.Storage != nil {
+		if headID, err := m.Manager.Storage.GetSessionHead(m.SessionID); err == nil && headID != "" && headID != msg.parentID {
+			m.CurrentID = headID
+		} else if lastID != "" && lastID != msg.parentID {
+			m.CurrentID = lastID
+			_ = m.Manager.Storage.SaveSessionHead(m.SessionID, m.CurrentID)
+		} else if m.CurrentStreamingContent != "" || m.CurrentStreamingThought != "" {
+			if botNode, err := m.Manager.CreateAssistantNode(msg.parentID, m.CurrentStreamingContent, m.CurrentStreamingThought, msg.toolCalls, false); err == nil {
+				m.CurrentID = botNode.ID
 				_ = m.Manager.Storage.SaveSessionHead(m.SessionID, m.CurrentID)
 			}
-		} else if lastID != "" {
-			m.CurrentID = lastID
 		}
-		m.LastActivity = time.Now()
-		m.CurrentStreamingContent = ""
-		m.CurrentStreamingThought = ""
-		m.InterleavingNodeID = ""
-		m.PendingToolCalls = nil
-		m.updateViewportContent()
-		cmds := []tea.Cmd{tick()}
-		if m.Config.EnableBellOnTurnComplete() {
-			cmds = append(cmds, BellCmd())
+	} else if lastID != "" && lastID != msg.parentID {
+		m.CurrentID = lastID
+	} else if m.CurrentStreamingContent != "" || m.CurrentStreamingThought != "" {
+		if botNode, err := m.Manager.CreateAssistantNode(msg.parentID, m.CurrentStreamingContent, m.CurrentStreamingThought, msg.toolCalls, false); err == nil {
+			m.CurrentID = botNode.ID
 		}
-		return m, tea.Batch(cmds...)
-	}
-
-	// Fallback: If no structured tool calls were emitted by the provider,
-	// check if the model leaked raw tool calls directly into content (e.g. Gemma <call>...</call>)
-	if len(msg.toolCalls) == 0 {
-		if cleanedContent, rawCalls := engine.ExtractContentToolCalls(m.CurrentStreamingContent); len(rawCalls) > 0 {
-			m.CurrentStreamingContent = cleanedContent
-			msg.toolCalls = rawCalls
-		}
-	}
-
-	var activeID string
-	if msg.activeNodeID != "" {
-		// Update existing node
-		node, err := m.Manager.GetNode(msg.activeNodeID)
-		if err != nil {
-			m.Notification = fmt.Sprintf("Error finding node: %v", err)
-			return m, nil
-		}
-		node.Content += m.CurrentStreamingContent
-		node.Thought += m.CurrentStreamingThought
-		node.ToolCalls = append(node.ToolCalls, msg.toolCalls...)
-
-		// Update segments in metadata for causal history reconstruction
-		type AssistantSegment struct {
-			Content string `json:"content"`
-			Thought string `json:"thought"`
-		}
-		var segments []AssistantSegment
-		if node.Metadata == nil {
-			node.Metadata = make(map[string]string)
-		}
-		if segStr, ok := node.Metadata["segments"]; ok && segStr != "" {
-			_ = json.Unmarshal([]byte(segStr), &segments)
-		}
-		segments = append(segments, AssistantSegment{
-			Content: m.CurrentStreamingContent,
-			Thought: m.CurrentStreamingThought,
-		})
-		if len(msg.toolCalls) == 0 {
-			if clean, sig := engine.ExtractSignat(node.Content); sig != "" {
-				node.Content = clean
-				node.Metadata["signat"] = sig
-				if len(segments) > 0 {
-					if lastClean, lastSig := engine.ExtractSignat(segments[len(segments)-1].Content); lastSig != "" {
-						segments[len(segments)-1].Content = lastClean
-					}
-				}
-			}
-		}
-		if segJSON, err := json.Marshal(segments); err == nil {
-			node.Metadata["segments"] = string(segJSON)
-		}
-
-		// Re-persist existing node state (SaveNode is now INSERT OR REPLACE)
-		if err := m.Manager.Storage.SaveNode(node); err != nil {
-			m.Notification = fmt.Sprintf("Error saving node: %v", err)
-		}
-		activeID = msg.activeNodeID
-	} else {
-		// Create assistant node as child of the designated parent (preserving continuity)
-		botNode, err := m.Manager.CreateAssistantNode(msg.parentID, m.CurrentStreamingContent, m.CurrentStreamingThought, msg.toolCalls, false)
-		if err != nil {
-			m.Notification = fmt.Sprintf("Error: %v", err)
-			m.CurrentStreamingContent = ""
-			m.CurrentStreamingThought = ""
-			return m, nil
-		}
-		if len(msg.toolCalls) > 0 {
-			type AssistantSegment struct {
-				Content string `json:"content"`
-				Thought string `json:"thought"`
-			}
-			initialSegs := []AssistantSegment{{
-				Content: m.CurrentStreamingContent,
-				Thought: m.CurrentStreamingThought,
-			}}
-			if botNode.Metadata == nil {
-				botNode.Metadata = make(map[string]string)
-			}
-			if segBytes, err := json.Marshal(initialSegs); err == nil {
-				botNode.Metadata["segments"] = string(segBytes)
-				_ = m.Manager.Storage.SaveNode(botNode)
-			}
-		}
-		activeID = botNode.ID
-	}
-
-	m.CurrentID = activeID
-	if m.SessionID != "" && m.Manager != nil && m.Manager.Storage != nil {
-		_ = m.Manager.Storage.SaveSessionHead(m.SessionID, m.CurrentID)
 	}
 	m.LastActivity = time.Now()
-	m.updateViewportContent() // Full refresh to show final formatted node
 	m.CurrentStreamingContent = ""
 	m.CurrentStreamingThought = ""
-	m.InterleavingNodeID = ""
-
-	if len(msg.toolCalls) > 0 {
-		m.PendingToolCalls = msg.toolCalls
-		m.InterleavingNodeID = activeID // Mark this node for interleaving
-
-		// Check if all tool calls are non-interactive
-		allNonInteractive := true
-		for _, call := range msg.toolCalls {
-			if tool, ok := m.Manager.Registry.Tools[call.Function.Name]; ok {
-				if tool.Interactive {
-					allNonInteractive = false
-					break
-				}
-			} else {
-				// Unknown tools default to interactive for safety
-				allNonInteractive = false
-				break
-			}
-		}
-
-		if allNonInteractive {
-			m.IsThinking = true
-			return m, m.executeToolsCmd()
-		}
-
-		m.ensureViewStack()
-		m.ViewStack.Push(NewToolConfirmOverlay(m.ViewStack, msg.toolCalls, func() tea.Cmd {
-			return m.executeToolsCmd()
-		}, func() tea.Cmd {
-			return m.cancelToolsCmd()
-		}))
-	}
-
+	m.updateViewportContent()
 	cmds := []tea.Cmd{tick()}
-	if (len(msg.toolCalls) == 0 || m.hasActiveOverlay("confirm_tool")) && m.Config.EnableBellOnTurnComplete() {
+	if m.Config.EnableBellOnTurnComplete() {
 		cmds = append(cmds, BellCmd())
 	}
 	return m, tea.Batch(cmds...)
@@ -323,28 +190,4 @@ func (m *Model) skipPacing() (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
-}
-
-func (m *Model) resumeStreamCmd(ctx context.Context, activeNodeID string) tea.Cmd {
-	return func() tea.Msg {
-		messages, err := m.Manager.BuildLLMContext(activeNodeID, m.Config.SupportsVision())
-		if err != nil {
-			return llmStreamFinishedMsg{err: err, activeNodeID: activeNodeID}
-		}
-
-		var tools []domain.ToolSpec
-		if m.Manager.Registry != nil {
-			tools = m.Manager.Registry.GetToolSpecsForPolicy(m.Config.GetSandboxPolicy())
-		}
-
-		contentChan, thoughtChan, toolCallChan, errChan := m.Provider.GenerateResponseStream(ctx, messages, tools)
-		return streamResponseMsg{
-			contentChan:  contentChan,
-			thoughtChan:  thoughtChan,
-			toolCallChan: toolCallChan,
-			errChan:      errChan,
-			parentID:     "", // Parent is irrelevant during interleaving resumption
-			activeNodeID: activeNodeID,
-		}
-	}
 }
