@@ -232,7 +232,11 @@ All updates and modifications to this knowledge bundle are tracked chronological
 *   **Pillar 3 Polish: Strongly Typed Sensory Observation Boundary**:
     *   Evolved `ToolObservation` in [models.go](internal/domain/models.go) to a dual-nature container holding typed `Receipt *SmartReceipt`, `BlobID string`, `ExitCode *int`, and `Error string`, while keeping `Result string` as the backward-compatible rendered wire projection.
     *   Replaced string prefix sniffing (`[Receipt obs_...`) in `ContextShaper` and `please inspect` with direct struct access, while maintaining full SQLite and JSON backward compatibility for legacy records.
-    *   Wired `FormatObservationReceipt()` into context compaction, eliminating informal regex contracts across engine subsystems.
+*   **Sensory Tool Hygiene: Binary File Skipping & Grep Traversal Fix ([internal/tools/sense.go](internal/tools/sense.go))**:
+    *   Fixed bug where `GrepSearchTool` capped directory traversal at 100 total files instead of 100 matching lines, preventing models from grepping across repositories with >100 files.
+    *   Added `isBinaryFile()` detection: skipping SQLite databases (`.db`, `.sqlite`, `.db-wal`), archives, images, compiled binaries, and files containing null bytes in the first 512 bytes.
+    *   Automatically skip `.please` internal runtime directories during directory walks.
+    *   Replaced error returns with clean truncation footers (`... [truncated: first N shown]`) using `filepath.SkipAll`.
 
 
 

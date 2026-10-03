@@ -2,6 +2,7 @@ package tools
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -22,8 +23,37 @@ func SensoryTools(workspaceDir, primaryWorkspaceDir string) []Tool {
 	}
 }
 
+// isBinaryFile reports whether the file at absPath is binary.
+// It checks known binary and database extensions and sniffs the first 512 bytes for null bytes.
+func isBinaryFile(absPath string) bool {
+	ext := strings.ToLower(filepath.Ext(absPath))
+	switch ext {
+	case ".db", ".sqlite", ".sqlite3", ".db-wal", ".db-shm",
+		".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico",
+		".zip", ".tar", ".gz", ".bz2", ".xz", ".7z",
+		".exe", ".bin", ".o", ".a", ".so", ".dylib",
+		".pdf", ".woff", ".woff2", ".ttf", ".eot":
+		return true
+	}
+
+	f, err := os.Open(absPath)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+
+	buf := make([]byte, 512)
+	n, err := f.Read(buf)
+	if err != nil || n == 0 {
+		return false
+	}
+
+	return bytes.IndexByte(buf[:n], 0) != -1
+}
+
 // walkSensoryTree safely traverses a directory tree up to maxEntries, automatically skipping
-// .git, node_modules, vendor, and any directory matching SensitivePathPatterns.
+// .git, node_modules, vendor, .please, and any directory matching SensitivePathPatterns.
+// If maxEntries is <= 0, file count is unbounded.
 func walkSensoryTree(root string, maxEntries int, onFile func(relPath, absPath string) error) error {
 	count := 0
 	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
@@ -33,7 +63,7 @@ func walkSensoryTree(root string, maxEntries int, onFile func(relPath, absPath s
 
 		name := d.Name()
 		if d.IsDir() {
-			if name == ".git" || name == "node_modules" || name == "vendor" {
+			if name == ".git" || name == "node_modules" || name == "vendor" || name == ".please" {
 				return filepath.SkipDir
 			}
 			if _, quarantined := isQuarantinedPath(name); quarantined {
@@ -54,7 +84,7 @@ func walkSensoryTree(root string, maxEntries int, onFile func(relPath, absPath s
 
 		count++
 		if maxEntries > 0 && count > maxEntries {
-			return fmt.Errorf("too many entries found (limit %d)", maxEntries)
+			return filepath.SkipAll
 		}
 
 		return onFile(rel, path)
@@ -286,7 +316,12 @@ func GrepSearchTool(workspaceDir ...string) Tool {
 			}
 
 			var results []string
-			err = walkSensoryTree(safePath, 100, func(relPath, absPath string) error {
+			var hitMatchLimit bool
+			_ = walkSensoryTree(safePath, 0, func(relPath, absPath string) error {
+				if isBinaryFile(absPath) {
+					return nil
+				}
+
 				if includePattern != "" {
 					matched, err := filepath.Match(includePattern, filepath.Base(absPath))
 					if err != nil || !matched {
@@ -303,23 +338,24 @@ func GrepSearchTool(workspaceDir ...string) Tool {
 				for i, line := range lines {
 					if re.MatchString(line) {
 						results = append(results, fmt.Sprintf("%s:%d: %s", relPath, i+1, strings.TrimSpace(line)))
-						if len(results) > 100 {
-							return fmt.Errorf("too many matches found (limit 100)")
+						if len(results) >= 100 {
+							hitMatchLimit = true
+							return filepath.SkipAll
 						}
 					}
 				}
 				return nil
 			})
 
-			if err != nil && !strings.Contains(err.Error(), "too many matches") {
-				return "", fmt.Errorf("grep failed: %w", err)
-			}
-
 			if len(results) == 0 {
 				return "no matches found", nil
 			}
 
-			return strings.Join(results, "\n"), nil
+			output := strings.Join(results, "\n")
+			if hitMatchLimit {
+				output += "\n... [truncated: first 100 matches shown]"
+			}
+			return output, nil
 		},
 	}
 }
@@ -353,19 +389,25 @@ func ListFilesRecursiveTool(workspaceDir ...string) Tool {
 			}
 
 			var results []string
-			err = walkSensoryTree(safePath, 500, func(relPath, absPath string) error {
+			var hitLimit bool
+			_ = walkSensoryTree(safePath, 500, func(relPath, absPath string) error {
 				results = append(results, relPath)
-				if len(results) > 500 {
-					return fmt.Errorf("too many files found (limit 500)")
+				if len(results) >= 500 {
+					hitLimit = true
+					return filepath.SkipAll
 				}
 				return nil
 			})
 
-			if err != nil && !strings.Contains(err.Error(), "too many files") {
-				return "", fmt.Errorf("list_files failed: %w", err)
+			if len(results) == 0 {
+				return "no files found", nil
 			}
 
-			return strings.Join(results, "\n"), nil
+			output := strings.Join(results, "\n")
+			if hitLimit {
+				output += "\n... [truncated: first 500 files shown]"
+			}
+			return output, nil
 		},
 	}
 }
