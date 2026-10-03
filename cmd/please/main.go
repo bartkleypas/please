@@ -241,6 +241,7 @@ func main() {
 	mgr := engine.NewManager(graph, strg)
 	mgr.SignatSteering = cfg.EnableSignatSteering()
 	mgr.AmbientTelemetry = cfg.EnableAmbientTelemetry()
+	mgr.ContextShaperType = cfg.GetContextShaper()
 	mgr.RegisterDefaultTools(cfg.GetWorkspaceDir())
 	webServer := server.NewServerWithProvider(mgr, provider, cfg)
 

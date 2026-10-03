@@ -38,6 +38,7 @@ type ServerConfig struct {
 	AmbientTelemetry  *bool                `json:"ambient_telemetry,omitempty"`
 	WorktreeIsolation *bool                `json:"worktree_isolation,omitempty"`
 	Options           *domain.ModelOptions `json:"options,omitempty"`
+	ContextShaper     string               `json:"context_shaper,omitempty"` // "sigmoid", "window", "resonance"
 }
 
 // ClientConfig holds settings for connecting the TUI to a remote daemon
@@ -84,6 +85,7 @@ type legacyV1Config struct {
 	AmbientTelemetry   *bool                `json:"ambient_telemetry"`
 	BellOnTurnComplete *bool                `json:"bell_on_turn_complete"`
 	Bell               *bool                `json:"bell"`
+	ContextShaper      string               `json:"context_shaper"`
 }
 
 // GetWorkspaceDir returns the resolved absolute workspace directory from ServerConfig.
@@ -425,6 +427,23 @@ func (c *Config) EnableWorktreeIsolation() bool {
 	return false
 }
 
+// GetContextShaper returns the active context shaper curve ("sigmoid", "window", "resonance").
+// Defaults to "sigmoid" if not configured.
+func (s *ServerConfig) GetContextShaper() string {
+	if s == nil || s.ContextShaper == "" {
+		return "sigmoid"
+	}
+	return s.ContextShaper
+}
+
+// GetContextShaper returns the active context shaper curve from ServerConfig, defaulting to "sigmoid".
+func (c *Config) GetContextShaper() string {
+	if c != nil && c.Server != nil {
+		return c.Server.GetContextShaper()
+	}
+	return "sigmoid"
+}
+
 var (
 	testDirOnce sync.Once
 	testAutoDir string
@@ -695,6 +714,7 @@ func migrateConfig(data []byte) (*Config, bool, error) {
 			SignatSteering:   v1.SignatSteering,
 			AmbientTelemetry: v1.AmbientTelemetry,
 			Options:          v1.Options,
+			ContextShaper:    v1.ContextShaper,
 		},
 		Client: &ClientConfig{
 			RemoteURL:          "http://127.0.0.1:8080",
