@@ -336,6 +336,238 @@ func (m *Manager) GetDiffStat(dir string, baseCommit string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// GetDiff returns the unified git diff comparing the worktree to baseCommit or working copy.
+func (m *Manager) GetDiff(dir string, baseCommit string) (string, error) {
+	if !m.IsGitAvailable() {
+		return "", ErrGitNotAvailable
+	}
+	var cmd *exec.Cmd
+	if baseCommit != "" {
+		cmd = exec.Command(m.gitPath, "-C", dir, "diff", baseCommit)
+	} else {
+		cmd = exec.Command(m.gitPath, "-C", dir, "diff", "HEAD")
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// GetBranchDiff returns the unified git diff between HEAD of the primary repository and branch.
+func (m *Manager) GetBranchDiff(branch string) (string, error) {
+	if !m.IsGitAvailable() {
+		return "", ErrGitNotAvailable
+	}
+	topLevel, err := m.GetTopLevel()
+	if err != nil {
+		return "", err
+	}
+	cmd := exec.Command(m.gitPath, "-C", topLevel, "diff", "HEAD..."+branch)
+	out, err := cmd.Output()
+	if err != nil || len(strings.TrimSpace(string(out))) == 0 {
+		cmd2 := exec.Command(m.gitPath, "-C", topLevel, "diff", "HEAD", branch)
+		if out2, err2 := cmd2.Output(); err2 == nil {
+			return strings.TrimSpace(string(out2)), nil
+		}
+		if err != nil {
+			return "", err
+		}
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// ReconcileResult contains the outcome of a branch reconciliation.
+type ReconcileResult struct {
+	Strategy    string   `json:"strategy"`
+	Commit      string   `json:"commit,omitempty"`
+	FilesMerged []string `json:"files_merged,omitempty"`
+	Message     string   `json:"message,omitempty"`
+}
+
+// ReconcileBranch reconciles an isolated subsession branch into the primary workspace.
+// Strategies supported: squash, merge, cherry_pick, discard.
+// Validates that the primary working tree is clean before merging or squash merging.
+// On discard: removes worktree and deletes the branch.
+// On success: executes the git operation, prunes worktree if cleanupWorktree is true,
+// and returns the merge commit SHA and files merged.
+func (m *Manager) ReconcileBranch(branch string, strategy string, cleanupWorktree bool, sessionID string) (*ReconcileResult, error) {
+	if !m.IsGitAvailable() {
+		return nil, ErrGitNotAvailable
+	}
+	if !m.IsGitRepo() {
+		return nil, ErrNotGitRepo
+	}
+
+	topLevel, err := m.GetTopLevel()
+	if err != nil {
+		return nil, err
+	}
+
+	strategy = strings.ToLower(strings.TrimSpace(strategy))
+	if strategy == "" {
+		strategy = "squash"
+	}
+	switch strategy {
+	case "squash", "merge", "cherry_pick", "discard":
+	default:
+		return nil, fmt.Errorf("unsupported reconciliation strategy %q: must be 'squash', 'merge', 'cherry_pick', or 'discard'", strategy)
+	}
+
+	if branch == "" && sessionID != "" {
+		branch = fmt.Sprintf("subsession/%s", sessionID)
+	}
+	if sessionID == "" && branch != "" {
+		if strings.HasPrefix(branch, "subsession/") {
+			sessionID = strings.TrimPrefix(branch, "subsession/")
+		} else if strings.HasPrefix(branch, "please/") {
+			sessionID = strings.TrimPrefix(branch, "please/")
+		}
+	}
+
+	// Strategy: discard
+	if strategy == "discard" {
+		if sessionID != "" {
+			_ = m.RemoveWorktreeBranch(sessionID, branch, true, true)
+		} else if branch != "" && m.branchExists(topLevel, branch) {
+			_ = exec.Command(m.gitPath, "-C", topLevel, "branch", "-D", branch).Run()
+			_ = m.Prune()
+		}
+		return &ReconcileResult{
+			Strategy: "discard",
+			Message:  fmt.Sprintf("Branch %s discarded and worktree cleaned up", branch),
+		}, nil
+	}
+
+	// For merge, squash, cherry_pick: validate that primary workspace is clean
+	statusCmd := exec.Command(m.gitPath, "-C", topLevel, "status", "--porcelain")
+	statusOut, err := statusCmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to check primary workspace status: %w", err)
+	}
+	if len(strings.TrimSpace(string(statusOut))) > 0 {
+		return nil, fmt.Errorf("primary workspace has uncommitted changes; working tree must be clean before reconciling branch %s", branch)
+	}
+
+	// Validate branch exists
+	if !m.branchExists(topLevel, branch) {
+		return nil, fmt.Errorf("branch %q does not exist", branch)
+	}
+
+	// Auto-commit any pending uncommitted changes in child worktree if active
+	if sessionID != "" {
+		wtDir, _ := m.GetWorktreeDir(sessionID)
+		if wtDir != "" && m.isWorktreeValid(wtDir) {
+			cStatus, _ := exec.Command(m.gitPath, "-C", wtDir, "status", "--porcelain").Output()
+			if len(strings.TrimSpace(string(cStatus))) > 0 {
+				_ = exec.Command(m.gitPath, "-C", wtDir, "add", "-A").Run()
+				_ = exec.Command(m.gitPath, "-C", wtDir, "commit", "-m", fmt.Sprintf("Subagent %s automated snapshot before reconcile", sessionID)).Run()
+			}
+		}
+	}
+
+	// Determine modified files prior to merging
+	fileMap := make(map[string]bool)
+	diffCmd := exec.Command(m.gitPath, "-C", topLevel, "diff", "--name-only", "HEAD..."+branch)
+	if dOut, err := diffCmd.Output(); err == nil {
+		for _, f := range strings.Split(strings.TrimSpace(string(dOut)), "\n") {
+			f = strings.TrimSpace(f)
+			if f != "" {
+				fileMap[f] = true
+			}
+		}
+	}
+	if len(fileMap) == 0 {
+		diffCmd2 := exec.Command(m.gitPath, "-C", topLevel, "diff", "--name-only", "HEAD", branch)
+		if dOut2, err := diffCmd2.Output(); err == nil {
+			for _, f := range strings.Split(strings.TrimSpace(string(dOut2)), "\n") {
+				f = strings.TrimSpace(f)
+				if f != "" {
+					fileMap[f] = true
+				}
+			}
+		}
+	}
+
+	// Execute reconciliation strategy
+	switch strategy {
+	case "merge":
+		mergeCmd := exec.Command(m.gitPath, "-C", topLevel, "merge", "--no-ff", "-m", fmt.Sprintf("Merge subagent branch %s", branch), branch)
+		if out, err := mergeCmd.CombinedOutput(); err != nil {
+			_ = exec.Command(m.gitPath, "-C", topLevel, "merge", "--abort").Run()
+			return nil, fmt.Errorf("git merge failed: %w (output: %s)", err, strings.TrimSpace(string(out)))
+		}
+
+	case "squash":
+		squashCmd := exec.Command(m.gitPath, "-C", topLevel, "merge", "--squash", branch)
+		if out, err := squashCmd.CombinedOutput(); err != nil {
+			_ = exec.Command(m.gitPath, "-C", topLevel, "reset", "--hard", "HEAD").Run()
+			return nil, fmt.Errorf("git merge --squash failed: %w (output: %s)", err, strings.TrimSpace(string(out)))
+		}
+		stCheck, _ := exec.Command(m.gitPath, "-C", topLevel, "status", "--porcelain").Output()
+		if len(strings.TrimSpace(string(stCheck))) > 0 {
+			commitCmd := exec.Command(m.gitPath, "-C", topLevel, "commit", "-m", fmt.Sprintf("Squash merge subagent branch %s", branch))
+			if out, err := commitCmd.CombinedOutput(); err != nil {
+				_ = exec.Command(m.gitPath, "-C", topLevel, "reset", "--hard", "HEAD").Run()
+				return nil, fmt.Errorf("git commit after squash failed: %w (output: %s)", err, strings.TrimSpace(string(out)))
+			}
+		}
+
+	case "cherry_pick":
+		branchHead, err := exec.Command(m.gitPath, "-C", topLevel, "rev-parse", branch).Output()
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve commit for branch %s: %w", branch, err)
+		}
+		cpCommit := strings.TrimSpace(string(branchHead))
+		cpCmd := exec.Command(m.gitPath, "-C", topLevel, "cherry-pick", cpCommit)
+		if out, err := cpCmd.CombinedOutput(); err != nil {
+			_ = exec.Command(m.gitPath, "-C", topLevel, "cherry-pick", "--abort").Run()
+			return nil, fmt.Errorf("git cherry-pick failed: %w (output: %s)", err, strings.TrimSpace(string(out)))
+		}
+	}
+
+	headCommit, err := m.GetHeadCommit(topLevel)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get head commit after reconciliation: %w", err)
+	}
+
+	if len(fileMap) == 0 {
+		treeCmd := exec.Command(m.gitPath, "-C", topLevel, "diff-tree", "--no-commit-id", "--name-only", "-r", headCommit)
+		if tOut, err := treeCmd.Output(); err == nil {
+			for _, f := range strings.Split(strings.TrimSpace(string(tOut)), "\n") {
+				f = strings.TrimSpace(f)
+				if f != "" {
+					fileMap[f] = true
+				}
+			}
+		}
+	}
+
+	var filesMerged []string
+	for f := range fileMap {
+		filesMerged = append(filesMerged, f)
+	}
+	sort.Strings(filesMerged)
+
+	// Clean up worktree and branch if requested
+	if cleanupWorktree {
+		if sessionID != "" {
+			_ = m.RemoveWorktreeBranch(sessionID, branch, true, true)
+		} else if branch != "" {
+			_ = exec.Command(m.gitPath, "-C", topLevel, "branch", "-D", branch).Run()
+			_ = m.Prune()
+		}
+	}
+
+	return &ReconcileResult{
+		Strategy:    strategy,
+		Commit:      headCommit,
+		FilesMerged: filesMerged,
+		Message:     fmt.Sprintf("Successfully reconciled branch %s via %s", branch, strategy),
+	}, nil
+}
+
+
 // Prune cleans up stale worktree administrative files from .git.
 func (m *Manager) Prune() error {
 	if !m.IsGitAvailable() || !m.IsGitRepo() {

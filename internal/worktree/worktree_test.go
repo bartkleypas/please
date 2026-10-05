@@ -248,3 +248,255 @@ func TestWorktree_SubsessionAndInspectChanges(t *testing.T) {
 		t.Fatalf("RemoveWorktree failed: %v", err)
 	}
 }
+
+func TestWorktree_ReconcileBranch_Squash(t *testing.T) {
+	repoDir, configDir := setupTestGitRepo(t)
+	mgr := NewManager(configDir, repoDir)
+	gitPath, _ := exec.LookPath("git")
+
+	subID := "sub_reconcile_squash"
+	branch := "subsession/" + subID
+	wtDir, _, err := mgr.EnsureWorktreeBranch(subID, branch)
+	if err != nil {
+		t.Fatalf("EnsureWorktreeBranch failed: %v", err)
+	}
+
+	// Add file in subagent worktree
+	taskFile := filepath.Join(wtDir, "feature.txt")
+	if err := os.WriteFile(taskFile, []byte("feature work"), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+	runGitCmd(t, gitPath, wtDir, "add", "feature.txt")
+	runGitCmd(t, gitPath, wtDir, "commit", "-m", "implement feature")
+
+	// Reconcile via squash with cleanup
+	res, err := mgr.ReconcileBranch(branch, "squash", true, subID)
+	if err != nil {
+		t.Fatalf("ReconcileBranch squash failed: %v", err)
+	}
+
+	if res.Strategy != "squash" {
+		t.Errorf("expected strategy squash, got %s", res.Strategy)
+	}
+	if res.Commit == "" {
+		t.Errorf("expected non-empty commit SHA")
+	}
+	if len(res.FilesMerged) != 1 || res.FilesMerged[0] != "feature.txt" {
+		t.Errorf("expected feature.txt in files merged, got: %v", res.FilesMerged)
+	}
+
+	// Verify primary repo has the file
+	primaryFeature := filepath.Join(repoDir, "feature.txt")
+	if data, err := os.ReadFile(primaryFeature); err != nil || string(data) != "feature work" {
+		t.Errorf("primary repo missing merged content: %v, data=%s", err, string(data))
+	}
+
+	// Verify worktree directory is removed
+	if _, err := os.Stat(wtDir); !os.IsNotExist(err) {
+		t.Errorf("expected worktree directory to be removed after cleanup")
+	}
+
+	// Verify branch is deleted
+	if mgr.branchExists(repoDir, branch) {
+		t.Errorf("expected branch %s to be deleted", branch)
+	}
+}
+
+func TestWorktree_ReconcileBranch_Merge(t *testing.T) {
+	repoDir, configDir := setupTestGitRepo(t)
+	mgr := NewManager(configDir, repoDir)
+	gitPath, _ := exec.LookPath("git")
+
+	subID := "sub_reconcile_merge"
+	branch := "subsession/" + subID
+	wtDir, _, err := mgr.EnsureWorktreeBranch(subID, branch)
+	if err != nil {
+		t.Fatalf("EnsureWorktreeBranch failed: %v", err)
+	}
+
+	taskFile := filepath.Join(wtDir, "merge_test.txt")
+	if err := os.WriteFile(taskFile, []byte("merge content"), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+	runGitCmd(t, gitPath, wtDir, "add", "merge_test.txt")
+	runGitCmd(t, gitPath, wtDir, "commit", "-m", "merge test commit")
+
+	// Reconcile via merge without cleanup
+	res, err := mgr.ReconcileBranch(branch, "merge", false, subID)
+	if err != nil {
+		t.Fatalf("ReconcileBranch merge failed: %v", err)
+	}
+
+	if res.Strategy != "merge" {
+		t.Errorf("expected strategy merge, got %s", res.Strategy)
+	}
+	if res.Commit == "" {
+		t.Errorf("expected non-empty commit SHA")
+	}
+	if len(res.FilesMerged) != 1 || res.FilesMerged[0] != "merge_test.txt" {
+		t.Errorf("expected merge_test.txt in files merged, got: %v", res.FilesMerged)
+	}
+
+	// Verify worktree still exists (cleanupWorktree=false)
+	if _, err := os.Stat(wtDir); os.IsNotExist(err) {
+		t.Errorf("expected worktree directory to still exist when cleanupWorktree=false")
+	}
+
+	// Clean up explicitly
+	_ = mgr.RemoveWorktree(subID, true, true)
+}
+
+func TestWorktree_ReconcileBranch_CherryPick(t *testing.T) {
+	repoDir, configDir := setupTestGitRepo(t)
+	mgr := NewManager(configDir, repoDir)
+	gitPath, _ := exec.LookPath("git")
+
+	subID := "sub_reconcile_cp"
+	branch := "subsession/" + subID
+	wtDir, _, err := mgr.EnsureWorktreeBranch(subID, branch)
+	if err != nil {
+		t.Fatalf("EnsureWorktreeBranch failed: %v", err)
+	}
+
+	taskFile := filepath.Join(wtDir, "cherry.txt")
+	if err := os.WriteFile(taskFile, []byte("cherry pick content"), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+	runGitCmd(t, gitPath, wtDir, "add", "cherry.txt")
+	runGitCmd(t, gitPath, wtDir, "commit", "-m", "cherry commit")
+
+	res, err := mgr.ReconcileBranch(branch, "cherry_pick", true, subID)
+	if err != nil {
+		t.Fatalf("ReconcileBranch cherry_pick failed: %v", err)
+	}
+
+	if res.Strategy != "cherry_pick" {
+		t.Errorf("expected strategy cherry_pick, got %s", res.Strategy)
+	}
+	if res.Commit == "" {
+		t.Errorf("expected non-empty commit SHA")
+	}
+
+	primaryCherry := filepath.Join(repoDir, "cherry.txt")
+	if data, err := os.ReadFile(primaryCherry); err != nil || string(data) != "cherry pick content" {
+		t.Errorf("primary repo missing cherry picked content: %v", err)
+	}
+}
+
+func TestWorktree_ReconcileBranch_Discard(t *testing.T) {
+	repoDir, configDir := setupTestGitRepo(t)
+	mgr := NewManager(configDir, repoDir)
+	gitPath, _ := exec.LookPath("git")
+
+	subID := "sub_reconcile_discard"
+	branch := "subsession/" + subID
+	wtDir, _, err := mgr.EnsureWorktreeBranch(subID, branch)
+	if err != nil {
+		t.Fatalf("EnsureWorktreeBranch failed: %v", err)
+	}
+
+	taskFile := filepath.Join(wtDir, "discard_me.txt")
+	if err := os.WriteFile(taskFile, []byte("will be discarded"), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+	runGitCmd(t, gitPath, wtDir, "add", "discard_me.txt")
+	runGitCmd(t, gitPath, wtDir, "commit", "-m", "discard commit")
+
+	res, err := mgr.ReconcileBranch(branch, "discard", true, subID)
+	if err != nil {
+		t.Fatalf("ReconcileBranch discard failed: %v", err)
+	}
+
+	if res.Strategy != "discard" {
+		t.Errorf("expected strategy discard, got %s", res.Strategy)
+	}
+
+	// Verify file is NOT in primary
+	primaryFile := filepath.Join(repoDir, "discard_me.txt")
+	if _, err := os.Stat(primaryFile); !os.IsNotExist(err) {
+		t.Errorf("discarded file found in primary workspace!")
+	}
+
+	// Verify worktree is removed
+	if _, err := os.Stat(wtDir); !os.IsNotExist(err) {
+		t.Errorf("expected worktree directory to be removed on discard")
+	}
+
+	// Verify branch is deleted
+	if mgr.branchExists(repoDir, branch) {
+		t.Errorf("expected branch %s to be deleted on discard", branch)
+	}
+}
+
+func TestWorktree_ReconcileBranch_DirtyPrimaryValidation(t *testing.T) {
+	repoDir, configDir := setupTestGitRepo(t)
+	mgr := NewManager(configDir, repoDir)
+	gitPath, _ := exec.LookPath("git")
+
+	subID := "sub_dirty_test"
+	branch := "subsession/" + subID
+	wtDir, _, err := mgr.EnsureWorktreeBranch(subID, branch)
+	if err != nil {
+		t.Fatalf("EnsureWorktreeBranch failed: %v", err)
+	}
+
+	subFile := filepath.Join(wtDir, "sub_clean.txt")
+	_ = os.WriteFile(subFile, []byte("sub content"), 0644)
+	runGitCmd(t, gitPath, wtDir, "add", "sub_clean.txt")
+	runGitCmd(t, gitPath, wtDir, "commit", "-m", "sub commit")
+
+	// Dirty the primary workspace with an uncommitted modification
+	dirtyFile := filepath.Join(repoDir, "README.md")
+	_ = os.WriteFile(dirtyFile, []byte("# Dirty Readme\n"), 0644)
+
+	// Attempt reconcile: must fail with actionable error
+	_, err = mgr.ReconcileBranch(branch, "squash", true, subID)
+	if err == nil {
+		t.Fatalf("expected error when reconciling into dirty primary workspace, got nil")
+	}
+	if !strings.Contains(err.Error(), "uncommitted changes") && !strings.Contains(err.Error(), "clean") {
+		t.Errorf("expected actionable error message about dirty workspace, got: %v", err)
+	}
+
+	// Clean up worktree
+	_ = mgr.RemoveWorktree(subID, true, true)
+}
+
+func TestWorktree_GetDiffAndGetBranchDiff(t *testing.T) {
+	repoDir, configDir := setupTestGitRepo(t)
+	mgr := NewManager(configDir, repoDir)
+	gitPath, _ := exec.LookPath("git")
+
+	subID := "sub_diff_test"
+	branch := "subsession/" + subID
+	wtDir, _, err := mgr.EnsureWorktreeBranch(subID, branch)
+	if err != nil {
+		t.Fatalf("EnsureWorktreeBranch failed: %v", err)
+	}
+
+	baseCommit, _ := mgr.GetHeadCommit(wtDir)
+
+	subFile := filepath.Join(wtDir, "diff_sample.txt")
+	_ = os.WriteFile(subFile, []byte("diff line 1\n"), 0644)
+	runGitCmd(t, gitPath, wtDir, "add", "diff_sample.txt")
+	runGitCmd(t, gitPath, wtDir, "commit", "-m", "add diff sample")
+
+	diff, err := mgr.GetDiff(wtDir, baseCommit)
+	if err != nil {
+		t.Fatalf("GetDiff failed: %v", err)
+	}
+	if !strings.Contains(diff, "+diff line 1") {
+		t.Errorf("expected diff to contain '+diff line 1', got: %s", diff)
+	}
+
+	bDiff, err := mgr.GetBranchDiff(branch)
+	if err != nil {
+		t.Fatalf("GetBranchDiff failed: %v", err)
+	}
+	if !strings.Contains(bDiff, "+diff line 1") {
+		t.Errorf("expected branch diff to contain '+diff line 1', got: %s", bDiff)
+	}
+
+	_ = mgr.RemoveWorktree(subID, true, true)
+}
+

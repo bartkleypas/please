@@ -71,12 +71,35 @@ func (r *ToolRegistry) RegisterObservationStore(store ObservationStore, legacyRe
 	r.Register(InspectReceiptTool(store, legacyResolver))
 }
 
-// RegisterDelegation registers the spawn_subagent tool bound to runner (ADR 022).
+// RegisterDelegation registers the spawn_subagent tool bound to runner, as well as
+// reconcile_subagent and inspect_subagent if runner implements SubagentReconciler/SubagentAuditor (ADR 022).
 func (r *ToolRegistry) RegisterDelegation(runner SubagentRunner) {
 	if runner == nil {
 		return
 	}
 	r.Register(SpawnSubagentTool(runner))
+	if rec, ok := runner.(SubagentReconciler); ok {
+		r.Register(ReconcileSubagentTool(rec))
+	}
+	if aud, ok := runner.(SubagentAuditor); ok {
+		r.Register(InspectSubagentTool(aud))
+	}
+}
+
+// RegisterReconciliation registers the reconcile_subagent tool bound to reconciler.
+func (r *ToolRegistry) RegisterReconciliation(reconciler SubagentReconciler) {
+	if reconciler == nil {
+		return
+	}
+	r.Register(ReconcileSubagentTool(reconciler))
+}
+
+// RegisterAuditor registers the inspect_subagent tool bound to auditor.
+func (r *ToolRegistry) RegisterAuditor(auditor SubagentAuditor) {
+	if auditor == nil {
+		return
+	}
+	r.Register(InspectSubagentTool(auditor))
 }
 
 // RegisterDefaultTools registers all default tools into the provided registry scoped to workspaceDir.
@@ -170,7 +193,7 @@ func (r *ToolRegistry) GetToolsForPolicy(policy string) []Tool {
 		case string(domain.SandboxPolicyStandard):
 			fallthrough
 		default:
-			if (t.Category != domain.CategoryExecute || t.Name == "spawn_subagent") && t.Name != "execute_command" {
+			if (t.Category != domain.CategoryExecute || t.Name == "spawn_subagent" || t.Name == "reconcile_subagent") && t.Name != "execute_command" {
 				filtered = append(filtered, t)
 			}
 		}

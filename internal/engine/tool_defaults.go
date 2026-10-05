@@ -32,3 +32,17 @@ func (m *Manager) RegisterDelegation(runner tools.SubagentRunner) {
 		m.Registry.RegisterDelegation(runner)
 	}
 }
+
+// RegisterReconciliation registers the reconcile_subagent tool into the manager's registry.
+func (m *Manager) RegisterReconciliation(reconciler tools.SubagentReconciler) {
+	if m.Registry != nil && reconciler != nil {
+		m.Registry.RegisterReconciliation(reconciler)
+	}
+}
+
+// RegisterAuditor registers the inspect_subagent tool into the manager's registry.
+func (m *Manager) RegisterAuditor(auditor tools.SubagentAuditor) {
+	if m.Registry != nil && auditor != nil {
+		m.Registry.RegisterAuditor(auditor)
+	}
+}

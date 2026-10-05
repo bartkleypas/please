@@ -25,16 +25,55 @@ type SubagentRequest struct {
 	MaxSteps        int    `json:"max_steps"`
 }
 
+// CandidateMemory defines an atomic piece of knowledge discovered by a child subagent.
+type CandidateMemory struct {
+	Key     string `json:"key"`
+	Content string `json:"content"`
+	Scope   string `json:"scope"`
+}
+
 // SubagentResult defines the structured observation returned to the parent agent.
 type SubagentResult struct {
-	Status        string   `json:"status"` // "completed", "budget_exhausted", "failed", "cancelled"
-	StepsUsed     int      `json:"steps_used"`
-	Summary       string   `json:"summary"`
-	Synthesis     string   `json:"synthesis"`
-	Branch        string   `json:"branch,omitempty"`
-	Commit        string   `json:"commit,omitempty"`
-	FilesModified []string `json:"files_modified,omitempty"`
-	DiffStat      string   `json:"diff_stat,omitempty"`
+	Status            string            `json:"status"` // "completed", "budget_exhausted", "failed", "cancelled"
+	StepsUsed         int               `json:"steps_used"`
+	Summary           string            `json:"summary"`
+	Synthesis         string            `json:"synthesis"`
+	Branch            string            `json:"branch,omitempty"`
+	Commit            string            `json:"commit,omitempty"`
+	FilesModified     []string          `json:"files_modified,omitempty"`
+	DiffStat          string            `json:"diff_stat,omitempty"`
+	CandidateMemories []CandidateMemory `json:"candidate_memories,omitempty"`
+}
+
+// SubagentReconciler defines the contract for reconciling an isolated subagent's changes.
+type SubagentReconciler interface {
+	ReconcileSubagent(ctx context.Context, req ReconcileSubagentRequest) (*ReconcileSubagentResult, error)
+}
+
+// SubagentAuditor defines the contract for forensically inspecting a subagent session.
+type SubagentAuditor interface {
+	InspectSubagent(ctx context.Context, req InspectSubagentRequest) (string, error)
+}
+
+// ReconcileSubagentRequest defines the parameters for subagent reconciliation.
+type ReconcileSubagentRequest struct {
+	SessionID       string `json:"session_id"`
+	Strategy        string `json:"strategy"`
+	CleanupWorktree bool   `json:"cleanup_worktree"`
+}
+
+// ReconcileSubagentResult defines the structured result of subagent reconciliation.
+type ReconcileSubagentResult struct {
+	Strategy    string   `json:"strategy"`
+	Commit      string   `json:"commit,omitempty"`
+	FilesMerged []string `json:"files_merged,omitempty"`
+	Message     string   `json:"message,omitempty"`
+}
+
+// InspectSubagentRequest defines the parameters for inspecting a subagent session.
+type InspectSubagentRequest struct {
+	SessionID string `json:"session_id"`
+	View      string `json:"view"` // "summary", "steps", "diff"
 }
 
 // SpawnSubagentTool creates the delegation tool bound to runner (ADR 022).
@@ -143,6 +182,124 @@ func SpawnSubagentTool(runner SubagentRunner) Tool {
 				return "", fmt.Errorf("failed to format subagent result: %w", err)
 			}
 			return string(jsonBytes), nil
+		},
+	}
+}
+
+// ReconcileSubagentTool creates the reconciliation tool bound to reconciler.
+func ReconcileSubagentTool(reconciler SubagentReconciler) Tool {
+	return Tool{
+		Name:        "reconcile_subagent",
+		Category:    domain.CategoryExecute,
+		Description: "Reconciles an isolated subagent branch into the primary workspace using squash, merge, cherry_pick, or discard. Requires confirmation in standard sandbox policy.",
+		Parameters: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"session_id": map[string]interface{}{
+					"type":        "string",
+					"description": "Identifier of the subagent session to reconcile (e.g. 'sub_1234abcd').",
+				},
+				"strategy": map[string]interface{}{
+					"type":        "string",
+					"enum":        []string{"squash", "merge", "cherry_pick", "discard"},
+					"default":     "squash",
+					"description": "Reconciliation strategy: 'squash' (squash commits into one), 'merge' (merge subsession branch), 'cherry_pick' (cherry-pick latest commit), or 'discard' (drop branch and clean up worktree).",
+				},
+				"cleanup_worktree": map[string]interface{}{
+					"type":        "boolean",
+					"default":     true,
+					"description": "Whether to remove the isolated worktree directory and branch after reconciliation.",
+				},
+			},
+			"required": []string{"session_id"},
+		},
+		Interactive: false,
+		Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
+			if reconciler == nil {
+				return "", errors.New("subagent reconciler not configured")
+			}
+
+			sessionID, _ := args["session_id"].(string)
+			sessionID = strings.TrimSpace(sessionID)
+			if sessionID == "" {
+				return "", errors.New("session_id parameter is required and cannot be empty")
+			}
+
+			strategy := "squash"
+			if s, ok := args["strategy"].(string); ok && strings.TrimSpace(s) != "" {
+				strategy = strings.ToLower(strings.TrimSpace(s))
+			}
+
+			cleanupWorktree := true
+			if cw, ok := args["cleanup_worktree"].(bool); ok {
+				cleanupWorktree = cw
+			}
+
+			req := ReconcileSubagentRequest{
+				SessionID:       sessionID,
+				Strategy:        strategy,
+				CleanupWorktree: cleanupWorktree,
+			}
+
+			res, err := reconciler.ReconcileSubagent(ctx, req)
+			if err != nil {
+				return "", fmt.Errorf("reconciliation failed: %w", err)
+			}
+
+			jsonBytes, err := json.MarshalIndent(res, "", "  ")
+			if err != nil {
+				return "", fmt.Errorf("failed to format reconciliation result: %w", err)
+			}
+			return string(jsonBytes), nil
+		},
+	}
+}
+
+// InspectSubagentTool creates the forensic inspection tool bound to auditor.
+func InspectSubagentTool(auditor SubagentAuditor) Tool {
+	return Tool{
+		Name:        "inspect_subagent",
+		Category:    domain.CategorySensory,
+		Description: "Forensically inspects a child subagent's execution telemetry, step-by-step tool traces, or git diff.",
+		Parameters: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"session_id": map[string]interface{}{
+					"type":        "string",
+					"description": "Identifier of the subagent session to inspect.",
+				},
+				"view": map[string]interface{}{
+					"type":        "string",
+					"enum":        []string{"summary", "steps", "diff"},
+					"default":     "summary",
+					"description": "Inspection view: 'summary' (status, steps, modified files), 'steps' (tabular step execution trace and errors), or 'diff' (git diff of branch changes).",
+				},
+			},
+			"required": []string{"session_id"},
+		},
+		Interactive: false,
+		Function: func(ctx context.Context, args map[string]interface{}) (string, error) {
+			if auditor == nil {
+				return "", errors.New("subagent auditor not configured")
+			}
+
+			sessionID, _ := args["session_id"].(string)
+			sessionID = strings.TrimSpace(sessionID)
+			if sessionID == "" {
+				return "", errors.New("session_id parameter is required and cannot be empty")
+			}
+
+			view := "summary"
+			if v, ok := args["view"].(string); ok && strings.TrimSpace(v) != "" {
+				view = strings.ToLower(strings.TrimSpace(v))
+			}
+
+			req := InspectSubagentRequest{
+				SessionID: sessionID,
+				View:      view,
+			}
+
+			return auditor.InspectSubagent(ctx, req)
 		},
 	}
 }

@@ -105,6 +105,7 @@ func (m *Manager) CloneWithWorkspace(workspaceDir string, primaryWorkspace ...st
 	cloned.Registry.RegisterObservationStore(obsStore, func(receiptID string) (string, error) {
 		return cloned.lookupLegacyObservation(receiptID)
 	})
+	cloned.RegisterDelegation(NewSubagentOrchestrator(cloned, nil, nil))
 	return cloned
 }
 
