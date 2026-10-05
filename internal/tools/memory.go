@@ -102,17 +102,30 @@ func isSecretQuarantined(content string) bool {
 }
 
 // MemoryTools returns the full cybernetic suite of memory tools bound to the provided MemoryStore.
+// If scopes are provided:
+// - single argument: write default scope is set to defaultScope[0], while read default scope remains "workspace".
+// - two arguments: read default scope is defaultScope[0], write default scope is defaultScope[1].
 func MemoryTools(store MemoryStore, defaultScope ...string) []Tool {
-	defScope := "workspace"
-	if len(defaultScope) > 0 && defaultScope[0] != "" {
-		defScope = defaultScope[0]
+	readScope := "workspace"
+	writeScope := "workspace"
+
+	if len(defaultScope) == 1 && defaultScope[0] != "" {
+		writeScope = defaultScope[0]
+		// Read default remains "workspace" so child subagents inherit project knowledge
+	} else if len(defaultScope) >= 2 {
+		if defaultScope[0] != "" {
+			readScope = defaultScope[0]
+		}
+		if defaultScope[1] != "" {
+			writeScope = defaultScope[1]
+		}
 	}
 
 	return []Tool{
-		MemoryRecallTool(store, defScope),
+		MemoryRecallTool(store, readScope),
 		MemoryDiagnoseTool(store),
-		MemoryStoreTool(store, defScope),
-		MemoryDeleteTool(store, defScope),
+		MemoryStoreTool(store, writeScope),
+		MemoryDeleteTool(store, writeScope),
 	}
 }
 

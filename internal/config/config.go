@@ -1135,6 +1135,9 @@ func (c *Config) SaveWorkspace(workspaceDir ...string) error {
 		srvCopy := *toSave.Server
 		if c.Origins == nil || c.Origins["server.encryption_key"] != OriginWorkspace {
 			srvCopy.EncryptionKey = ""
+		} else if srvCopy.EncryptionKey == "" {
+			// If workspace explicitly opted out of global encryption, persist "none"
+			srvCopy.EncryptionKey = "none"
 		}
 		toSave.Server = &srvCopy
 	}
