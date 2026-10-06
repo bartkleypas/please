@@ -159,9 +159,6 @@ func (m Model) View() string {
 	} else if m.IsThinking {
 		spinner := spinnerFrames[m.SpinnerFrame%len(spinnerFrames)]
 		msg := "Thinking..."
-		if m.InterleavingNodeID != "" {
-			msg = "Executing tools..."
-		}
 		s += "\n" + botStyle.Render(fmt.Sprintf("%s %s", spinner, msg)) + "\n"
 	}
 

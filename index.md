@@ -31,6 +31,7 @@ timestamp: "2026-07-05T14:26:05-07:00"
 ## Concepts & Architecture
 
 *   [bootstrap_memory](GEMINI.md) - The bootstrap intent document detailing architectural overview and development conventions.
+*   [v0.3.0_roadmap](docs/roadmap_v0.3.0.md) - Authoritative v0.3.0 strategic roadmap for execution lifecycles, three-tier memory, and delegated agents.
 *   [daemon_protocol](docs/daemon_protocol_spec.md) - Authoritative REST v1 and SSE streaming wire protocol specification for multi-platform clients.
 *   [multi_session_concurrency](decisions/007-multi-session-daemon-branch-concurrency.md) - ADR-007: Multi-session daemon architecture, cursor decoupling, branch-isolated compactions, and Git worktree sandboxing.
 *   [swift_apple_evolution](decisions/004-swift-apple-ecosystem-evolution.md) - ADR-004: Swift port strategy, iPad Mini device targeting, and Intel Mac dev bridge strategy.

@@ -108,6 +108,14 @@ func TestSessionHarness_MultiTurnToolExecution(t *testing.T) {
 	if len(asstNode.Observations) != 1 || !strings.Contains(asstNode.Observations[0].Result, "72°F") {
 		t.Errorf("expected 1 observation containing 72°F, got: %v", asstNode.Observations)
 	}
+	if asstNode.Observations[0].Receipt == nil {
+		t.Errorf("expected structured SmartReceipt on observation, got nil")
+	} else if asstNode.Observations[0].Receipt.Tool != "get_weather" {
+		t.Errorf("expected receipt tool 'get_weather', got: %s", asstNode.Observations[0].Receipt.Tool)
+	}
+	if asstNode.Observations[0].BlobID == "" {
+		t.Errorf("expected non-empty BlobID on observation")
+	}
 
 	// Verify session head was updated
 	headID, err := storage.GetSessionHead("test-session")

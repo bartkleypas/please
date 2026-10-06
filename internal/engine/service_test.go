@@ -152,14 +152,25 @@ func TestManager_ResonanceScoring(t *testing.T) {
 		t.Errorf("expected base score of 20.0 (no decay in grace window), got %f", scoreGrace)
 	}
 
-	// At distance = 3 (outside grace window), it should experience both time and turn decay.
+	// At distance = 3 (outside grace window), it should experience pure turn decay (ADR 020: wall-clock decay retired).
 	// turnsPastGrace = 3 - 3 + 1 = 1.
-	// deltaMinutes = 120.
-	// decay = e^(-0.02 * 120) * e^(-0.3 * 1) = e^(-2.4) * e^(-0.3) = e^(-2.7)
+	// decay = e^(-0.3 * 1)
 	scoreDecayed := mgr.calculateResonanceScore(oldUserNode, 3, 0.90, 10)
-	expectedScore := 20.0 * math.Exp(-0.02*120.0) * math.Exp(-0.3*1.0)
+	expectedScore := 20.0 * math.Exp(-0.3*1.0)
 	if math.Abs(scoreDecayed-expectedScore) > 1e-2 {
 		t.Errorf("expected decayed score around %f, got %f", expectedScore, scoreDecayed)
+	}
+
+	// Verify wall-clock immunity (ADR 020): Node created right now yields identical score to node from 2 hours ago
+	nowNode := &graph.Node{
+		ID:        "now_user",
+		Role:      domain.RoleUser,
+		Content:   "Hello",
+		Timestamp: time.Now(),
+	}
+	scoreNow := mgr.calculateResonanceScore(nowNode, 3, 0.90, 10)
+	if math.Abs(scoreNow-scoreDecayed) > 1e-9 {
+		t.Errorf("expected wall-clock invariant score, got %f vs %f", scoreNow, scoreDecayed)
 	}
 }
 

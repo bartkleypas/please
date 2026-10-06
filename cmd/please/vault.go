@@ -23,6 +23,8 @@ func runVault(args []string) {
 	switch args[0] {
 	case "decrypt":
 		runVaultDecrypt(args[1:])
+	case "clean":
+		runVaultClean(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown vault command: %q\n", args[0])
 		printVaultUsage()
@@ -34,11 +36,14 @@ func printVaultUsage() {
 	fmt.Println("Usage: please vault <command> [options]")
 	fmt.Println("\nCommands:")
 	fmt.Println("  decrypt   Decrypt all encrypted records in a SQLite vault")
+	fmt.Println("  clean     Remove orphaned observations and reclaim vault space")
 	fmt.Println("\nOptions for decrypt:")
 	fmt.Println("  -v, --vault string    Path to vault database (defaults to active workspace or global vault)")
 	fmt.Println("  -o, --out string      Path to output decrypted database (default: decrypt in-place with .bak)")
 	fmt.Println("  -k, --key string      Encryption key (default: from global ~/.please/config.json or env)")
 	fmt.Println("  -c, --config string   Path to custom config.json")
+	fmt.Println("\nOptions for clean:")
+	fmt.Println("  -v, --vault string    Path to vault database (defaults to active workspace or global vault)")
 }
 
 func runVaultDecrypt(args []string) {
@@ -345,4 +350,60 @@ func decryptSQLiteVault(dbPath string, key string) (int, int, error) {
 	_, _ = db.Exec("PRAGMA wal_checkpoint(TRUNCATE);")
 
 	return len(updates), len(memUpdates), nil
+}
+func runVaultClean(args []string) {
+	fs := flag.NewFlagSet("please vault clean", flag.ExitOnError)
+	vaultPath := fs.String("vault", "", "Path to the vault database file")
+	fs.StringVar(vaultPath, "v", "", "Path to the vault database file (shorthand)")
+	_ = fs.Parse(args)
+
+	// 1. Resolve Vault Path
+	targetVault := *vaultPath
+	if targetVault == "" {
+		if wsDir, ok := config.GetWorkspacePleaseDir(); ok {
+			candidate := filepath.Join(wsDir, "vault.db")
+			if _, err := os.Stat(candidate); err == nil {
+				targetVault = candidate
+			}
+		}
+		if targetVault == "" {
+			if globalDir, err := config.GetGlobalPleaseDir(); err == nil {
+				candidate := filepath.Join(globalDir, "vault.db")
+				if _, err := os.Stat(candidate); err == nil {
+					targetVault = candidate
+				}
+			}
+		}
+	}
+
+	if targetVault == "" {
+		fmt.Fprintf(os.Stderr, "Error: no vault database found. Specify one with -v <path>\n")
+		os.Exit(1)
+	}
+
+	absVault, err := filepath.Abs(targetVault)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error resolving vault path: %v\n", err)
+		os.Exit(1)
+	}
+
+	if _, err := os.Stat(absVault); os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "Error: vault file not found: %s\n", absVault)
+		os.Exit(1)
+	}
+
+	// 2. Perform Clean
+	storage, err := storage.NewSQLiteStorage(absVault, "") // Key not needed for vacuum/clean
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error opening vault: %v\n", err)
+		os.Exit(1)
+	}
+
+	deleted, err := storage.CleanObservations()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Clean error: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("🧹 Vault Cleaned! Removed %d orphaned observations and reclaimed space.\n", deleted)
 }

@@ -21,6 +21,7 @@ timestamp: "2026-07-09T14:35:00-07:00"
 For detailed and authoritative documentation, consult these dedicated files instead of relying on this bootstrap anchor:
 *   [Project Index](index.md) - The central directory of packages, concepts, and specifications.
 *   [Technical README](README.md) - Features list, CLI examples, setup, TUI controls table, and testing instructions.
+*   [v0.3.0 Roadmap](docs/roadmap_v0.3.0.md) - Strategic architecture roadmap for execution lifecycle, three-tier memory, and delegated multi-agent topologies.
 *   [Daemon Protocol Spec](docs/daemon_protocol_spec.md) - Authoritative REST v1 and SSE streaming wire protocol specification.
 *   [Context Resonance Spec](docs/context_resonance.md) - Math formula and scoring mechanics for token decay.
 *   [Natural Pacing Spec](docs/natural_pacing.md) - Stream buffering and punctuation-sensitive pacing rules.
@@ -31,7 +32,7 @@ For detailed and authoritative documentation, consult these dedicated files inst
 
 ## 🏗️ Active Design Context & Focus
 
-*   **Current Focus**: Engine daemon (`please serve`), REST v1 / SSE streaming API, remote client protocol (`please connect`), and resilient workspace tool execution.
+*   **Current Focus**: Executing the [v0.3.0 Roadmap](docs/roadmap_v0.3.0.md): formalizing Step vs. Turn execution lifecycles, three-tier memory and observation compaction, pluggable context shaping, and native sub-session agent delegation.
 *   **Go Baseline**: Bubble Tea TUI, DAG conversation graph, SQLite WAL storage, and 20-year internal PKI certs (`please cert generate`) stabilized ([v0.1.10](log.md)).
 *   **Clients**: Standalone Go TUI (`please`), Connected Go TUI (`please connect`), and the external native Apple client ([please-swift](../please-swift/index.md)).
 

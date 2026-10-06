@@ -153,3 +153,68 @@ func TestToolSpecSerialization(t *testing.T) {
 		t.Errorf("expected Interactive to be true")
 	}
 }
+
+func TestToolObservationSerialization(t *testing.T) {
+	exitCode := 0
+	obs := ToolObservation{
+		ToolCallID: "call_abc123",
+		Result:     "All tests passed.\n15 packages ok.",
+		Receipt: &SmartReceipt{
+			ReceiptID: "obs_94a2f8b1",
+			Tool:      "execute_command",
+			Command:   "go test ./...",
+			ExitCode:  0,
+			Lines:     2,
+			Bytes:     34,
+			Summary:   "2 lines, 34 bytes",
+			Banner:    "All tests passed.",
+			HasBlob:   true,
+		},
+		BlobID:   "obs_94a2f8b1",
+		ExitCode: &exitCode,
+		Error:    "",
+	}
+
+	data, err := json.Marshal(obs)
+	if err != nil {
+		t.Fatalf("failed to marshal ToolObservation: %v", err)
+	}
+
+	var roundTrip ToolObservation
+	if err := json.Unmarshal(data, &roundTrip); err != nil {
+		t.Fatalf("failed to unmarshal ToolObservation: %v", err)
+	}
+
+	if roundTrip.ToolCallID != obs.ToolCallID {
+		t.Errorf("expected ToolCallID %s, got %s", obs.ToolCallID, roundTrip.ToolCallID)
+	}
+	if roundTrip.Result != obs.Result {
+		t.Errorf("expected Result %q, got %q", obs.Result, roundTrip.Result)
+	}
+	if roundTrip.Receipt == nil || roundTrip.Receipt.ReceiptID != "obs_94a2f8b1" {
+		t.Errorf("expected Receipt with ID obs_94a2f8b1, got %+v", roundTrip.Receipt)
+	}
+	if roundTrip.BlobID != "obs_94a2f8b1" {
+		t.Errorf("expected BlobID obs_94a2f8b1, got %s", roundTrip.BlobID)
+	}
+	if roundTrip.ExitCode == nil || *roundTrip.ExitCode != 0 {
+		t.Errorf("expected ExitCode 0, got %v", roundTrip.ExitCode)
+	}
+
+	// Verify legacy backward compatibility (only tool_call_id and result in JSON)
+	legacyJSON := `{"tool_call_id":"call_legacy","result":"legacy output"}`
+	var legacyObs ToolObservation
+	if err := json.Unmarshal([]byte(legacyJSON), &legacyObs); err != nil {
+		t.Fatalf("failed to unmarshal legacy observation JSON: %v", err)
+	}
+	if legacyObs.ToolCallID != "call_legacy" || legacyObs.Result != "legacy output" {
+		t.Errorf("legacy unmarshaling failed: %+v", legacyObs)
+	}
+	if legacyObs.Receipt != nil {
+		t.Errorf("expected nil Receipt for legacy observation, got %+v", legacyObs.Receipt)
+	}
+	if legacyObs.BlobID != "" {
+		t.Errorf("expected empty BlobID for legacy observation, got %s", legacyObs.BlobID)
+	}
+}
+

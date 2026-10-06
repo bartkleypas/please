@@ -286,58 +286,60 @@ func TestToolExecutionErrorRetention(t *testing.T) {
 		},
 	})
 
-	// Create an assistant node with pending tool call
-	assistantNode, err := m.Manager.CreateAssistantNode("", "calling tool", "", []domain.ToolCall{
-		{
-			ID:   "call_123",
-			Type: "function",
-			Function: struct {
-				Name      string          `json:"name"`
-				Arguments json.RawMessage `json:"arguments"`
-			}{
-				Name:      "fail_tool",
-				Arguments: json.RawMessage(`{}`),
-			},
-		},
-	}, false)
+	// Create user node to seed the turn
+	userNode, err := m.Manager.CreateNode("", domain.RoleUser, "trigger fail_tool", false)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	m.CurrentID = assistantNode.ID
-	m.InterleavingNodeID = assistantNode.ID
-	m.PendingToolCalls = assistantNode.ToolCalls
-
-	// Trigger execution command
-	cmd := m.executeToolsCmd()
-	msg := cmd() // Run synchronously
-
-	resMsg, ok := msg.(toolsExecutedMsg)
+	lhp, ok := m.Provider.(*engine.LocalHarnessProvider)
 	if !ok {
-		t.Fatalf("expected toolsExecutedMsg, got %T", msg)
-	}
-	if resMsg.err != nil {
-		t.Fatalf("unexpected error inside toolsExecutedMsg: %v", resMsg.err)
+		t.Fatalf("expected LocalHarnessProvider, got %T", m.Provider)
 	}
 
-	// Verify observations in storage / memory
-	node, err := m.Manager.GetNode(assistantNode.ID)
+	// Mock provider returns fail_tool on first generation, then yields on second
+	toolCall := domain.ToolCall{
+		ID:   "call_123",
+		Type: "function",
+		Function: struct {
+			Name      string          `json:"name"`
+			Arguments json.RawMessage `json:"arguments"`
+		}{
+			Name:      "fail_tool",
+			Arguments: json.RawMessage(`{}`),
+		},
+	}
+	hop := 0
+	mockProvider.StreamHandler = func(messages []domain.Message, availableTools []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
+		hop++
+		if hop == 1 {
+			return "", "", []domain.ToolCall{toolCall}, nil
+		}
+		return "Acknowledged failure.", "", nil, nil
+	}
+
+	eventCh := make(chan engine.HarnessEvent, 64)
+	asstNode, err := lhp.Harness.ExecuteTurn(context.Background(), engine.TurnRequest{
+		SessionID:  "main",
+		UserNodeID: userNode.ID,
+		Message:    "trigger fail_tool",
+	}, eventCh)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if len(node.Observations) != 1 {
-		t.Fatalf("expected 1 observation, got %d", len(node.Observations))
+	// Verify observations on the assistant node
+	if len(asstNode.Observations) != 1 {
+		t.Fatalf("expected 1 observation, got %d", len(asstNode.Observations))
 	}
 
-	obs := node.Observations[0]
+	obs := asstNode.Observations[0]
 	if obs.ToolCallID != "call_123" {
 		t.Errorf("expected ToolCallID 'call_123', got '%s'", obs.ToolCallID)
 	}
 
-	expectedResult := "Error: something went wrong\nOutput:\nsome partial output here"
-	if obs.Result != expectedResult {
-		t.Errorf("expected observation result:\n%s\ngot:\n%s", expectedResult, obs.Result)
+	if !strings.Contains(obs.Result, "something went wrong") {
+		t.Errorf("expected observation to contain error, got: %s", obs.Result)
 	}
 }
 

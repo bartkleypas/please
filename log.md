@@ -178,3 +178,76 @@ All updates and modifications to this knowledge bundle are tracked chronological
     *   **Operator Ergonomics**: Added interactive `/bell` slash command (`/bell`, `/bell on`, `/bell off`) and `/config bell <on|off>` dynamic toggle with ephemeral status notifications in [internal/tui/commands.go](internal/tui/commands.go).
     *   **Hermetic Testing**: Designed injectable `BellWriter` redirected during test execution, ensuring 100% silent, hermetic CI runs that assert on escape sequence emission without ringing developer terminals.
 
+## 2026-09-30
+
+*   **v0.3.0 Strategic Architecture Roadmap ([docs/roadmap_v0.3.0.md](docs/roadmap_v0.3.0.md))**:
+    *   Formulated the strategic v0.3.0 roadmap anchored to a core Self-Hosting North Star: establishing the `please` local execution stack as a dependable development partner capable of indexing, researching, and surgically editing its own codebase.
+    *   Structured four sequentially ordered architectural pillars: Lifecycle Convergence (Pillar 1), Cache-Stable Context Shaping (Pillar 2), Three-Tier Memory & Vault Compaction (Pillar 3), and Native Delegated Multi-Agent Topologies (Pillar 4).
+*   **Execution Lifecycle Convergence & Canonical Harness Standardization ([ADR 019](decisions/019-lifecycle-convergence-and-canonical-harness-standardization.md))**:
+    *   Established `SessionHarness` (`internal/engine/harness.go`) as the sole authoritative execution pipeline across all presentation layers (standalone TUI, headless daemon, and ACP).
+    *   Deprecated redundant TUI tool-dispatching loops (`executeToolsCmd`, `tools_handlers.go`), in-flight state tracking (`PendingToolCalls`, `InterleavingNodeID`), and synthetic metadata segment slicing (`node.Metadata["segments"]`).
+    *   Standardized the Conversational Turn as the singular unit of reality, binding acoustic yield telemetry strictly to human attention states (`AwaitingConsent 🔔` and `TurnComplete 🔔`).
+*   **Cache-Stable Context Shaping & Pure Prompt Projections ([ADR 020](decisions/020-cache-stable-context-shaping-and-pure-prompt-projections.md))**:
+    *   Formalized the `ContextShaper` domain interface as a pure, read-only mathematical projection ($\text{DAG Path} \longrightarrow \text{Messages}$) with zero storage side effects.
+    *   Completely retired wall-clock time (`time.Since`, `deltaMinutes`) from context calculations, eliminating "lunch-break amnesia" in favor of pure topological step distance ($\Delta d$) and token capacity pressure.
+    *   Established the Monotonic Prefix Invariance contract (PINNED Genesis root + frozen historical asymptote), eliminating token shivering and unlocking near-instant KV-cache prefill reuse across local inference engines.
+    *   Specified standard projection strategies: `sigmoid` (recommended default with active plateau and stable floor), `window` (strict K-turn sliding window), and `exponential` (legacy resonance refactored without wall-clock decay).
+*   **Tiered Sensory Storage, Observation Compaction & Vault Hygiene ([ADR 021](decisions/021-tiered-sensory-storage-and-observation-compaction.md))**:
+    *   Formalized the complete Three-Tier Memory Architecture: Working Prompt Buffer (L1 in RAM), Sensory Observation Vault (L2 in SQLite `nodes`), and Cybernetic Semantic Store (L3 in SQLite `memories`).
+    *   Introduced Observation Compaction (Decay at Rest): evicting raw file and command payloads on cold ancestor turns into lightweight, immutable Observation Receipts (saving 90%+ vault bytes while preserving provenance, tool names, paths, lines, and content hashes).
+    *   Wired observation compaction into explicit turn compaction (`/compact`), background GC cycles (`please gc`), and in-flight horizon checks, preserving full AES-256-GCM vault encryption.
+
+## 2026-10-01
+
+*   **Smart Receipts & Addressable Observation Paging ([ADR 021](decisions/021-tiered-sensory-storage-and-observation-compaction.md))**:
+    *   **Virtual Memory Context Paging**: Recalibrated ADR 021 to resolve the false dilemma between in-context token bloat and irreversible observation amnesia.
+    *   **Deterministic Smart Receipts**: Formatted in-context tool observations into deterministic, immutable receipts (`obs_<hash>`) capturing provenance, status codes, line counts, and 1-line error banners, slashing prompt token overhead by 90%+ while preserving KV-cache prefix invariance.
+    *   **Out-of-Band Telemetry Storage**: Retained raw command execution stdout/stderr out-of-band in a compressed SQLite `observation_blobs` table, while anchoring file reads directly to the host filesystem.
+    *   **The Dereference Primitive (`inspect_receipt`)**: Introduced a sensory inspection tool enabling agents to page exact telemetry lines or regex-filtered slices from past receipts on-demand into their current forward pass without intermediate token bloat.
+*   **Native Delegated Multi-Agent Topologies & Worktree Isolation ([ADR 022](decisions/022-native-delegated-multi-agent-topologies.md))**:
+    *   **In-Engine Delegation Tool (`spawn_subagent`)**: Established native delegation allowing an active parent agent to dispatch focused research, benchmarking, or refactoring tasks out-of-band.
+    *   **Physical Sandboxing via Git Worktrees**: Leveraged `worktree.Manager` ([ADR 007](decisions/007-multi-session-daemon-branch-concurrency.md)) to provision isolated worktree branches (`subsession/<parent>/<sub>`), protecting the human operator's checkout from speculative edits, failed builds, and dirty git indexes.
+    *   **Execution Lifecycle (Single Turn, Bounded Steps)**: Formalized child subagent lifecycle as a single conversational turn bounded strictly by `max_steps` (default 10, max 25), with termination upon clean yield or step budget exhaustion.
+    *   **Context Shielding (Synthesized Perception)**: Shielded the parent's context window from subagent intermediate tool noise; the child's internal steps reside in its own DAG, returning only a high-level `ToolObservation` synthesis to the parent.
+    *   **Memory Scoping & Anti-Recursion**: Permitted read-only access to `ScopeWorkspace` memories with session-private writes (`ScopeSession`), and enforced a strict delegation depth ceiling of 1 (subagents cannot invoke `spawn_subagent`).
+
+## 2026-10-03
+
+*   **Pillar 1 Implementation: Canonical Harness Convergence & Interactive Permission Gate ([ADR 019](decisions/019-lifecycle-convergence-and-canonical-harness-standardization.md))**:
+    *   Unified all TUI execution onto `LocalHarnessProvider` and `SessionHarness`, retiring redundant TUI state loops (`tools_handlers.go`, `executeToolsCmd`, `PendingToolCalls`, `InterleavingNodeID`).
+    *   Bridged `PermissionGate` to Bubble Tea via `ApprovalReqChan` on `LocalHarnessProvider`, enabling interactive approval modals (`/confirm`, `/cancel`) during harness streaming while preserving presentation agnosticism.
+    *   Updated `handleLLMStreamFinished` and dialogue intervention keys to cancel pending tool approvals cleanly and retain error telemetry in nodes without graph corruption.
+*   **Pillar 2 Implementation: Cache-Stable Context Shaping & Pure Prompt Projections ([ADR 020](decisions/020-cache-stable-context-shaping-and-pure-prompt-projections.md))**:
+    *   Extracted the `ContextShaper` domain interface into [shaper.go](internal/engine/shaper.go) as a pure read-only mathematical projection ($\text{DAG Path} \times \text{Budget} \longrightarrow \text{Prompt Messages}$) with zero storage side effects.
+    *   Completely eliminated wall-clock time (`time.Since`, `deltaMinutes`) from resonance decay, retiring "lunch-break amnesia" in favor of pure topological step distance ($\Delta d$).
+    *   Implemented `SigmoidShaper` (logistic S-curve with active plateau and stable floor), `WindowShaper` (strict $K$-turn boundary), and `ResonanceShaper` (pure topological decay).
+    *   Enforced Monotonic Prefix Invariance: pinned Genesis root + initial user goal and settled historical ancestor nodes onto immutable token baselines, maximizing KV-cache prefill reuse.
+    *   Added `context_shaper` configuration key to `ServerConfig`, v1-to-v2 migration, and hermetic tests in [shaper_test.go](internal/engine/shaper_test.go).
+*   **Pillar 3 Implementation: Tiered Sensory Storage & Smart Receipts ([ADR 021](decisions/021-tiered-sensory-storage-and-observation-compaction.md))**:
+    *   Added compressed out-of-band telemetry storage in SQLite via `observation_blobs` table with automatic gzip compression and non-destructive legacy read-through.
+    *   Defined content-addressable `SmartReceipt` (`obs_<hash>`) with sensory banner extraction in [receipt.go](internal/engine/receipt.go).
+    *   Implemented sensory `inspect_receipt` tool in [receipt.go](internal/tools/receipt.go) providing 1-indexed line paging, regex grep filtering, and fallback resolution.
+    *   Wired `SessionHarness` tool execution loop to persist raw telemetry out-of-band and emit deterministic receipts into historical prompt contexts.
+    *   Updated `please inspect` diagnostic scorecard with receipt identification badges.
+*   **Pillar 3 Polish: Strongly Typed Sensory Observation Boundary**:
+    *   Evolved `ToolObservation` in [models.go](internal/domain/models.go) to a dual-nature container holding typed `Receipt *SmartReceipt`, `BlobID string`, `ExitCode *int`, and `Error string`, while keeping `Result string` as the backward-compatible rendered wire projection.
+    *   Replaced string prefix sniffing (`[Receipt obs_...`) in `ContextShaper` and `please inspect` with direct struct access, while maintaining full SQLite and JSON backward compatibility for legacy records.
+*   **Sensory Tool Hygiene: Binary File Skipping & Grep Traversal Fix ([internal/tools/sense.go](internal/tools/sense.go))**:
+    *   Fixed bug where `GrepSearchTool` capped directory traversal at 100 total files instead of 100 matching lines, preventing models from grepping across repositories with >100 files.
+    *   Added `isBinaryFile()` detection: skipping SQLite databases (`.db`, `.sqlite`, `.db-wal`), archives, images, compiled binaries, and files containing null bytes in the first 512 bytes.
+    *   Automatically skip `.please` internal runtime directories during directory walks.
+    *   Replaced error returns with clean truncation footers (`... [truncated: first N shown]`) using `filepath.SkipAll`.
+*   **Intra-Turn Working Memory Continuity & Cumulative Loop Breaker**:
+    *   Attached in-flight reasoning (`Thought`) from intermediate assistant segments to active assistant messages in `SessionHarness.ExecuteTurn` ([harness.go](internal/engine/harness.go)). Solves reasoning model (Gemma 4, DeepSeek-R1) amnesia where empty `content` on intermediate tool calls caused the model to lose track of its plan and re-read identical files in a loop.
+    *   Mapped `m.Thought` to `Thinking` and `Reasoning` fields in [ollama.go](internal/providers/ollama.go) and [openai.go](internal/providers/openai.go).
+    *   Added fallback `[Action Intent: <firstLine>]` when assistant message `content` is empty before tool dispatch.
+*   **Pillar 4 Implementation: Native Delegated Multi-Agent Topologies & Worktree Isolation ([ADR 022](decisions/022-native-delegated-multi-agent-topologies.md))**:
+    *   Implemented `spawn_subagent` sensory/exec tool in [delegate.go](internal/tools/delegate.go) with strict input validation, `tool_preset` scoping (`"read_only"` vs `"full"`), and bounded `max_steps` (ceiling 25).
+    *   Implemented `SubagentOrchestrator` in [delegate.go](internal/engine/delegate.go) orchestrating child subagent execution within isolated Git worktree branches (`subsession/sub_<id>`) using `worktree.Manager`.
+    *   Guaranteed context shielding: child subagents execute on their own private DAGs; internal step chatter, intermediate file reads, and failed test outputs never pollute the parent context window. Only a structured `SubagentResult` observation returns to the parent.
+    *   Enforced Anti-Recursion Safety: delegation depth is strictly capped at 1 (`IsSubagent = true`), explicitly omitting `spawn_subagent` from child tool registries.
+    *   Added worktree inspection, git commit tracking, and automatic branch/worktree pruning for clean and read-only tasks.
+    *   Wired `EnableDelegation()` across `SessionHarness` and verified living E2E scenario in [scenarios_test.go](internal/engine/scenarios_test.go) (0.19s).
+
+
+

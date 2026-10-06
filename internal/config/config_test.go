@@ -213,6 +213,35 @@ func TestConfig_EnableAmbientTelemetry(t *testing.T) {
 	}
 }
 
+func TestConfig_GetContextShaper(t *testing.T) {
+	// 1. Default fallback to "sigmoid"
+	cfg := &Config{
+		Server: &ServerConfig{},
+	}
+	if cfg.GetContextShaper() != "sigmoid" {
+		t.Errorf("expected default shaper sigmoid, got %s", cfg.GetContextShaper())
+	}
+	if cfg.Server.GetContextShaper() != "sigmoid" {
+		t.Errorf("expected server default shaper sigmoid, got %s", cfg.Server.GetContextShaper())
+	}
+
+	// 2. Explicit window shaper
+	cfg.Server.ContextShaper = "window"
+	if cfg.GetContextShaper() != "window" {
+		t.Errorf("expected window shaper, got %s", cfg.GetContextShaper())
+	}
+
+	// 3. Nil safety
+	var nilConfig *Config
+	if nilConfig.GetContextShaper() != "sigmoid" {
+		t.Errorf("expected nil config to return sigmoid, got %s", nilConfig.GetContextShaper())
+	}
+	var nilServer *ServerConfig
+	if nilServer.GetContextShaper() != "sigmoid" {
+		t.Errorf("expected nil server to return sigmoid, got %s", nilServer.GetContextShaper())
+	}
+}
+
 func TestLoadConfigFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	customPath := filepath.Join(tmpDir, "custom.json")

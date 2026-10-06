@@ -305,9 +305,13 @@ func (m *Model) syncProviderOptions() {
 	if m.Config.Server == nil {
 		return
 	}
-	if op, ok := m.Provider.(*providers.OllamaProvider); ok {
+	target := m.Provider
+	if lhp, ok := m.Provider.(*engine.LocalHarnessProvider); ok {
+		target = lhp.RawProvider()
+	}
+	if op, ok := target.(*providers.OllamaProvider); ok {
 		op.Options = m.Config.Server.Options
-	} else if op, ok := m.Provider.(*providers.OpenAIProvider); ok {
+	} else if op, ok := target.(*providers.OpenAIProvider); ok {
 		op.Options = m.Config.Server.Options
 	}
 }
@@ -1061,25 +1065,37 @@ func (c *VersionCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
 type ConfirmToolCommand struct{}
 
 func (c *ConfirmToolCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
-	if !m.hasActiveOverlay("confirm_tool") {
+	if !m.hasActiveOverlay("confirm_tool") && m.ActiveApprovalResp == nil {
 		m.Notification = "No tool execution is pending confirmation."
 		return m, nil
 	}
-	m.ViewStack.Pop()
+	if m.hasActiveOverlay("confirm_tool") {
+		m.ViewStack.Pop()
+	}
+	if m.ActiveApprovalResp != nil {
+		m.ActiveApprovalResp <- true
+		m.ActiveApprovalResp = nil
+	}
 	m.IsThinking = true
-	return m, m.executeToolsCmd()
+	return m, nil
 }
 
 type CancelToolCommand struct{}
 
 func (c *CancelToolCommand) Execute(m *Model, args []string) (tea.Model, tea.Cmd) {
-	if !m.hasActiveOverlay("confirm_tool") {
+	if !m.hasActiveOverlay("confirm_tool") && m.ActiveApprovalResp == nil {
 		m.Notification = "No tool execution is pending confirmation."
 		return m, nil
 	}
-	m.ViewStack.Pop()
+	if m.hasActiveOverlay("confirm_tool") {
+		m.ViewStack.Pop()
+	}
+	if m.ActiveApprovalResp != nil {
+		m.ActiveApprovalResp <- false
+		m.ActiveApprovalResp = nil
+	}
 	m.IsThinking = true
-	return m, m.cancelToolsCmd()
+	return m, nil
 }
 
 type AttachCommand struct{}

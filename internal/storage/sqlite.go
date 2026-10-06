@@ -1,9 +1,12 @@
 package storage
 
 import (
+	"bytes"
+	"compress/gzip"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -90,6 +93,17 @@ func NewSQLiteStorage(path, key string) (*SQLiteStorage, error) {
 	CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category);
 	CREATE INDEX IF NOT EXISTS idx_memories_scope ON memories(scope);
 	CREATE INDEX IF NOT EXISTS idx_memories_updated_at ON memories(updated_at);
+
+	CREATE TABLE IF NOT EXISTS observation_blobs (
+		receipt_id TEXT PRIMARY KEY,
+		node_id    TEXT NOT NULL,
+		created_at DATETIME NOT NULL,
+		tool       TEXT NOT NULL,
+		compressed BOOLEAN NOT NULL DEFAULT 1,
+		payload    BLOB NOT NULL
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_obs_blobs_node ON observation_blobs(node_id);
 	`
 	if _, err := db.Exec(query); err != nil {
 		return nil, fmt.Errorf("failed to initialize sqlite schema: %w", err)
@@ -1118,3 +1132,116 @@ func (s *SQLiteStorage) DiagnoseMemories(scope MemoryScope, sessionID string) (*
 
 	return diag, nil
 }
+
+// SaveObservationBlob compresses and stores out-of-band telemetry in the observation_blobs table (ADR 021).
+func (s *SQLiteStorage) SaveObservationBlob(blob *ObservationBlob) error {
+	if blob == nil {
+		return fmt.Errorf("cannot save nil observation blob")
+	}
+
+	var payloadToStore []byte
+	isCompressed := blob.Compressed
+
+	if !isCompressed {
+		// Compress with gzip
+		var buf bytes.Buffer
+		gw := gzip.NewWriter(&buf)
+		if _, err := gw.Write(blob.Payload); err != nil {
+			return fmt.Errorf("failed to compress observation blob: %w", err)
+		}
+		if err := gw.Close(); err != nil {
+			return fmt.Errorf("failed to finalize compressed observation blob: %w", err)
+		}
+		payloadToStore = buf.Bytes()
+		isCompressed = true
+	} else {
+		payloadToStore = blob.Payload
+	}
+
+	createdAt := blob.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = time.Now()
+	}
+
+	query := `
+	INSERT OR REPLACE INTO observation_blobs (receipt_id, node_id, created_at, tool, compressed, payload)
+	VALUES (?, ?, ?, ?, ?, ?)
+	`
+	_, err := s.db.Exec(query, blob.ReceiptID, blob.NodeID, createdAt.Format(time.RFC3339Nano), blob.Tool, isCompressed, payloadToStore)
+	if err != nil {
+		return fmt.Errorf("failed to save observation blob: %w", err)
+	}
+	return nil
+}
+
+// GetObservationBlob retrieves and decompresses out-of-band telemetry by receipt_id (ADR 021).
+func (s *SQLiteStorage) GetObservationBlob(receiptID string) (*ObservationBlob, error) {
+	query := `
+	SELECT receipt_id, node_id, created_at, tool, compressed, payload
+	FROM observation_blobs
+	WHERE receipt_id = ?
+	`
+	row := s.db.QueryRow(query, receiptID)
+
+	var blob ObservationBlob
+	var createdAtStr string
+	var compressed bool
+	var rawPayload []byte
+
+	err := row.Scan(&blob.ReceiptID, &blob.NodeID, &createdAtStr, &blob.Tool, &compressed, &rawPayload)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("observation blob not found for receipt %s", receiptID)
+		}
+		return nil, fmt.Errorf("failed to query observation blob: %w", err)
+	}
+
+	blob.CreatedAt = parseFlexibleTimestamp(createdAtStr)
+	blob.Compressed = false
+
+	if compressed {
+		gr, err := gzip.NewReader(bytes.NewReader(rawPayload))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create decompressor for observation blob: %w", err)
+		}
+		defer gr.Close()
+		decompressed, err := io.ReadAll(gr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decompress observation blob: %w", err)
+		}
+		blob.Payload = decompressed
+	} else {
+		blob.Payload = rawPayload
+	}
+
+	return &blob, nil
+}
+
+// CleanObservations removes orphaned observation blobs and vacuums the database to reclaim space.
+// Returns the number of deleted observations.
+func (s *SQLiteStorage) CleanObservations() (int64, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	res, err := tx.Exec(`DELETE FROM observation_blobs WHERE node_id NOT IN (SELECT id FROM nodes)`)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete orphaned observations: %w", err)
+	}
+	rowsAffected, _ := res.RowsAffected()
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// Vacuum must be run outside of a transaction
+	_, err = s.db.Exec("VACUUM")
+	if err != nil {
+		return rowsAffected, fmt.Errorf("vacuum failed: %w", err)
+	}
+
+	return rowsAffected, nil
+}
+

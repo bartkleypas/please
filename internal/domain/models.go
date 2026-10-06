@@ -34,8 +34,26 @@ type ToolCall struct {
 
 // ToolObservation represents the result of a tool execution fed back to the LLM.
 type ToolObservation struct {
-	ToolCallID string `json:"tool_call_id"`
-	Result     string `json:"result"`
+	ToolCallID string        `json:"tool_call_id"`
+	Result     string        `json:"result"`
+	Receipt    *SmartReceipt `json:"receipt,omitempty"`
+	BlobID     string        `json:"blob_id,omitempty"`
+	ExitCode   *int          `json:"exit_code,omitempty"`
+	Error      string        `json:"error,omitempty"`
+}
+
+// SmartReceipt represents an immutable, content-addressed receipt of a tool execution (ADR 021).
+type SmartReceipt struct {
+	ReceiptID string `json:"receipt_id"`
+	Tool      string `json:"tool"`
+	Command   string `json:"command,omitempty"`
+	Path      string `json:"path,omitempty"`
+	ExitCode  int    `json:"exit_code,omitempty"`
+	Lines     int    `json:"lines"`
+	Bytes     int    `json:"bytes"`
+	Summary   string `json:"summary"`
+	Banner    string `json:"banner,omitempty"`
+	HasBlob   bool   `json:"has_blob"`
 }
 
 // Message represents an individual turn or prompt segment prepared for an LLM provider.

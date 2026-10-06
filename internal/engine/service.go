@@ -6,12 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 	"time"
-
-	"path/filepath"
 
 	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/graph"
@@ -45,28 +42,35 @@ const AmbientTelemetryContract = "You may receive peripheral environmental telem
 // Layered ephemerally onto the Genesis root node (RoleSystem) alongside recalled workspace constraints (ADR 014).
 const MemorySteeringContract = "You have access to a persistent cybernetic memory vault.\nHigh-priority workspace constraints and architectural invariants are provided in <RECALLED_MEMORIES>.\nTreat these as established ground-truth invariants for this repository.\nDo not recite, quote, or acknowledge this block in your responses unless directly answering questions about them.\nWhen you discover a critical workspace invariant or fix a non-obvious bug, autonomously persist it using memory_store.\nDo not store conversational transcripts; the DAG already preserves turn history."
 
+// DelegationSteeringContract defines steering guidance for delegated subagent execution (ADR 022).
+// Layered ephemerally onto the Genesis root node (RoleSystem) when delegation is available.
+const DelegationSteeringContract = "You have the ability to delegate discrete, exploratory, or multi-step engineering tasks to an isolated child subagent using the `spawn_subagent` tool. Subagents execute in dedicated Git worktrees on isolated branches, shielding your primary workspace and context window from trial-and-error noise. When assigned deep research, speculative refactoring, or running builds/tests, consider delegating to a subagent."
+
 // Manager is the central coordinator for the application engine. It provides
 // a high-level API that combines graph operations (traversal, branching)
 // with storage persistence, ensuring that all narrative changes are saved.
 type Manager struct {
-	Graph            *graph.Graph
-	Storage          storage.Storage
-	Registry         *tools.ToolRegistry
-	WorkspaceDir     string
-	NumCtx           int
-	SignatSteering   bool
-	AmbientTelemetry bool
-	clientContext    map[string]string
+	Graph             *graph.Graph
+	Storage           storage.Storage
+	Registry          *tools.ToolRegistry
+	WorkspaceDir      string
+	NumCtx            int
+	SignatSteering    bool
+	AmbientTelemetry  bool
+	ContextShaperType string
+	Shaper            ContextShaper
+	clientContext     map[string]string
 }
 
 // NewManager creates a new Manager instance
 func NewManager(g *graph.Graph, s storage.Storage) *Manager {
 	return &Manager{
-		Graph:        g,
-		Storage:      s,
-		Registry:     tools.NewToolRegistry(),
-		WorkspaceDir: ".",
-		NumCtx:       32768,
+		Graph:             g,
+		Storage:           s,
+		Registry:          tools.NewToolRegistry(),
+		WorkspaceDir:      ".",
+		NumCtx:            32768,
+		ContextShaperType: "sigmoid",
 	}
 }
 
@@ -75,14 +79,16 @@ func NewManager(g *graph.Graph, s storage.Storage) *Manager {
 // runtime tuning parameters.
 func (m *Manager) CloneWithWorkspace(workspaceDir string, primaryWorkspace ...string) *Manager {
 	cloned := &Manager{
-		Graph:            m.Graph,
-		Storage:          m.Storage,
-		Registry:         tools.NewToolRegistry(),
-		WorkspaceDir:     workspaceDir,
-		NumCtx:           m.NumCtx,
-		SignatSteering:   m.SignatSteering,
-		AmbientTelemetry: m.AmbientTelemetry,
-		clientContext:    m.clientContext,
+		Graph:             m.Graph,
+		Storage:           m.Storage,
+		Registry:          tools.NewToolRegistry(),
+		WorkspaceDir:      workspaceDir,
+		NumCtx:            m.NumCtx,
+		SignatSteering:    m.SignatSteering,
+		AmbientTelemetry:  m.AmbientTelemetry,
+		ContextShaperType: m.ContextShaperType,
+		Shaper:            m.Shaper,
+		clientContext:     m.clientContext,
 	}
 	prim := m.WorkspaceDir
 	if len(primaryWorkspace) > 0 && primaryWorkspace[0] != "" {
@@ -92,7 +98,31 @@ func (m *Manager) CloneWithWorkspace(workspaceDir string, primaryWorkspace ...st
 	if memStore, ok := cloned.Storage.(storage.MemoryStore); ok && memStore != nil {
 		cloned.Registry.RegisterMemory(NewMemoryToolsAdapter(memStore), "workspace")
 	}
+	var obsStore tools.ObservationStore
+	if s, ok := cloned.Storage.(tools.ObservationStore); ok {
+		obsStore = s
+	}
+	cloned.Registry.RegisterObservationStore(obsStore, func(receiptID string) (string, error) {
+		return cloned.lookupLegacyObservation(receiptID)
+	})
+	cloned.RegisterDelegation(NewSubagentOrchestrator(cloned, nil, nil))
 	return cloned
+}
+
+// lookupLegacyObservation searches the in-memory graph for historical observations
+// matching receiptID or containing receiptID, providing non-destructive read-through (ADR 021).
+func (m *Manager) lookupLegacyObservation(receiptID string) (string, error) {
+	if m.Graph == nil {
+		return "", fmt.Errorf("no graph available")
+	}
+	for _, n := range m.Graph.Nodes {
+		for _, obs := range n.Observations {
+			if (obs.Receipt != nil && obs.Receipt.ReceiptID == receiptID) || obs.BlobID == receiptID || obs.ToolCallID == receiptID || strings.Contains(obs.Result, receiptID) {
+				return obs.Result, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("legacy observation not found for %s", receiptID)
 }
 
 // SetClientContext sets temporary client editor context (e.g. active_file, cursor_line).
@@ -103,6 +133,36 @@ func (m *Manager) SetClientContext(ctx map[string]string) {
 // GetClientContext returns the currently configured client editor context.
 func (m *Manager) GetClientContext() map[string]string {
 	return m.clientContext
+}
+
+// getShapeOptions constructs the ShapeOptions from the manager's current configuration.
+func (m *Manager) getShapeOptions(supportsVision bool) ShapeOptions {
+	opts := ShapeOptions{
+		SupportsVision:   supportsVision,
+		SignatSteering:   m.SignatSteering,
+		AmbientTelemetry: m.AmbientTelemetry,
+		WorkspaceDir:     m.WorkspaceDir,
+		ClientContext:    m.clientContext,
+	}
+	if m.Registry != nil && m.Registry.Tools["spawn_subagent"].Name != "" {
+		opts.HasDelegation = true
+	}
+	if memStore, ok := m.Storage.(storage.MemoryStore); ok && memStore != nil {
+		opts.MemoryStore = memStore
+	}
+	return opts
+}
+
+// GetShaper returns the active ContextShaper, instantiating the default if unset.
+func (m *Manager) GetShaper() ContextShaper {
+	if m.Shaper != nil {
+		return m.Shaper
+	}
+	shaperType := m.ContextShaperType
+	if shaperType == "" {
+		shaperType = "sigmoid"
+	}
+	return NewContextShaper(shaperType, m.getShapeOptions(false))
 }
 
 // CreateNode handles the full lifecycle of creating a new node:
@@ -250,8 +310,8 @@ func (m *Manager) CreateToolNode(parentID string, toolCallID string, content str
 	return node, nil
 }
 
-// UpdateAssistantObservations appends side-channel tool results to an existing assistant node
-func (m *Manager) UpdateAssistantObservations(nodeID string, callID string, result string) error {
+// UpdateAssistantObservationRecord appends a structured tool observation to an existing assistant node
+func (m *Manager) UpdateAssistantObservationRecord(nodeID string, obs domain.ToolObservation) error {
 	node, err := m.Graph.GetNode(nodeID)
 	if err != nil {
 		return err
@@ -261,12 +321,17 @@ func (m *Manager) UpdateAssistantObservations(nodeID string, callID string, resu
 		return fmt.Errorf("observations can only be added to assistant nodes")
 	}
 
-	node.Observations = append(node.Observations, domain.ToolObservation{
+	node.Observations = append(node.Observations, obs)
+
+	return m.Storage.UpdateNodeObservations(nodeID, node.Observations)
+}
+
+// UpdateAssistantObservations appends side-channel tool results to an existing assistant node (backward-compatible)
+func (m *Manager) UpdateAssistantObservations(nodeID string, callID string, result string) error {
+	return m.UpdateAssistantObservationRecord(nodeID, domain.ToolObservation{
 		ToolCallID: callID,
 		Result:     result,
 	})
-
-	return m.Storage.UpdateNodeObservations(nodeID, node.Observations)
 }
 
 func (m *Manager) validateNode(node *graph.Node) error {
@@ -329,83 +394,24 @@ func (m *Manager) SetBookmark(nodeID string, bookmarked bool) error {
 	return nil
 }
 
-// calculateResonanceScore determines the context value of a node based on topological weight, compute cost, conversational distance, and temporal decay.
+// calculateResonanceScore determines the context value of a node based on topological weight, compute cost, and turn distance.
 func (m *Manager) calculateResonanceScore(node *graph.Node, distance int, fillRatio float64, totalPathLen int) float64 {
-	if node.Role == domain.RoleSystem || node.Role == domain.RoleSummary {
-		return math.MaxFloat64
-	}
-
-	// Under 60% context capacity, keep 100% full fidelity across all public historical nodes
-	if fillRatio < 0.60 && !node.Internal {
-		return 100.0
-	}
-
-	weight := 0.7
-	switch node.Role {
-	case domain.RoleUser:
-		weight = 1.0
-	case domain.RoleTool:
-		weight = 0.5
-	}
-
-	if node.Internal {
-		weight = 0.05
-	}
-	if node.Metadata != nil && node.Metadata["bookmarked"] == "true" {
-		weight = 2.0
-	}
-
-	cost := len(node.Content) + len(node.Thought)
-	for _, obs := range node.Observations {
-		cost += len(obs.Result)
-	}
-	if cost == 0 {
-		cost = 1
-	}
-
-	baseScore := weight * 1000.0 / float64(cost)
-	if baseScore > 20.0 {
-		baseScore = 20.0
-	}
-
-	// Dynamic Grace Window based on capacity pressure
-	graceTurns := 3
-	kt := 0.02
-	kd := 0.3
-
-	if fillRatio < 0.85 {
-		// Moderate load (60% - 85%): expand grace turns and slow decay rate
-		graceTurns = int(float64(totalPathLen) * 0.5)
-		if graceTurns < 5 {
-			graceTurns = 5
-		}
-		kt = 0.01
-		kd = 0.1
-	}
-
-	if distance < graceTurns {
-		return baseScore
-	}
-
-	deltaMinutes := time.Since(node.Timestamp).Minutes()
-	if deltaMinutes < 0 {
-		deltaMinutes = 0
-	}
-
-	turnsPastGrace := float64(distance - graceTurns + 1)
-	decayFactor := math.Exp(-kt*deltaMinutes) * math.Exp(-kd*turnsPastGrace)
-	return baseScore * decayFactor
+	return CalculateTopologicalResonanceScore(node, distance, fillRatio, totalPathLen)
 }
 
 // CalculateResonanceScore computes the Context Resonance Score for a node given its distance and context metrics.
 func (m *Manager) CalculateResonanceScore(node *graph.Node, distance int, fillRatio float64, totalPathLen int) float64 {
-	return m.calculateResonanceScore(node, distance, fillRatio, totalPathLen)
+	return CalculateTopologicalResonanceScore(node, distance, fillRatio, totalPathLen)
 }
 
 // formatCompactedToolObservation produces a concise summary of a completed tool observation,
 // preserving any leading pagination banner (e.g. "[Lines 1-64 of 131...]") so the model
 // maintains memory of read ranges and continuation offsets without retaining the full body.
 func formatCompactedToolObservation(toolName string, rawResult string) string {
+	if strings.HasPrefix(rawResult, "[Receipt obs_") {
+		return rawResult
+	}
+
 	banner := ""
 	if idx := strings.Index(rawResult, "\n"); idx != -1 {
 		firstLine := strings.TrimSpace(rawResult[:idx])
@@ -416,333 +422,21 @@ func formatCompactedToolObservation(toolName string, rawResult string) string {
 		banner = ": " + strings.TrimSpace(rawResult)
 	}
 
-	return fmt.Sprintf("[Tool '%s' execution completed%s. Detailed results omitted. Total size: %d bytes.]", toolName, banner, len(rawResult))
+	receiptID := GenerateReceiptID(toolName, []byte(rawResult))
+	return fmt.Sprintf("[Tool '%s' execution completed%s. Detailed results omitted. Total size: %d bytes. Receipt: %s. Use inspect_receipt('%s') to view details.]", toolName, banner, len(rawResult), receiptID, receiptID)
 }
 
-// BuildLLMContext constructs the message history for the LLM, applying Priority Pruning based on the Context Resonance Score.
+// BuildLLMContext constructs the message history for the LLM, projecting the DAG path into a cache-stable sequence.
 func (m *Manager) BuildLLMContext(leafID string, supportsVision bool) ([]domain.Message, error) {
 	path, err := m.GetPath(leafID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Calculate total path cost to determine fill ratio, accounting for ephemeral observation compaction
-	var totalChars int
-	for i, node := range path {
-		distance := len(path) - 1 - i
-		totalChars += len(node.Content) + len(node.Thought)
-		totalObs := len(node.Observations)
-		for j, obs := range node.Observations {
-			obsLen := len(obs.Result)
-			if distance >= 1 && obsLen > 1000 {
-				obsLen = 150 // estimated compacted banner size
-			} else if distance == 0 && totalObs > 2 && j < totalObs-2 && obsLen > 1000 {
-				obsLen = 150
-			}
-			totalChars += obsLen
-		}
-	}
-
-	limit := m.NumCtx
-	if limit <= 0 {
-		limit = 32768
-	}
-	estimatedTokens := int(float64(totalChars) / 3.8)
-	if estimatedTokens < 1 {
-		estimatedTokens = 1
-	}
-	fillRatio := float64(estimatedTokens) / float64(limit)
-
-	var messages []domain.Message
-	for i, node := range path {
-		distance := len(path) - 1 - i
-		v := m.calculateResonanceScore(node, distance, fillRatio, len(path))
-
-		// The active/latest node should always be kept in high fidelity regardless of score
-		if distance == 0 {
-			v = math.MaxFloat64
-		}
-
-		if node.Internal && v <= 0.5 {
-			continue // Drop low fidelity internal nodes entirely
-		}
-
-		if node.Role == domain.RoleAssistant {
-			var segments []AssistantSegment
-			if node.Metadata != nil && node.Metadata["segments"] != "" {
-				_ = json.Unmarshal([]byte(node.Metadata["segments"]), &segments)
-			}
-
-			obsMap := make(map[string]domain.ToolObservation, len(node.Observations))
-			for _, obs := range node.Observations {
-				obsMap[obs.ToolCallID] = obs
-			}
-
-			totalCalls := len(node.ToolCalls)
-			formatObs := func(toolName, rawResult string, callIdx int) string {
-				// Turn-boundary compaction: historical turns (distance >= 1) compact large observations
-				if distance >= 1 && len(rawResult) > 1000 {
-					return formatCompactedToolObservation(toolName, rawResult)
-				}
-				// Intra-turn rolling scratchpad compaction: on active turn (distance == 0),
-				// compact older observations beyond the last 2 tool calls if they exceed 1000 bytes.
-				if distance == 0 && totalCalls > 2 && callIdx < totalCalls-2 && len(rawResult) > 1000 {
-					return formatCompactedToolObservation(toolName, rawResult)
-				}
-				if v > 5.0 {
-					if fillRatio >= 0.60 && len(rawResult) > 8000 {
-						return rawResult[:8000] + "... [truncated]"
-					}
-					return rawResult
-				} else if v > 0.5 {
-					if len(rawResult) > 2000 {
-						return rawResult[:2000] + "... [truncated]"
-					}
-					return rawResult
-				}
-				return formatCompactedToolObservation(toolName, rawResult)
-			}
-
-			if len(segments) > 0 {
-				for j, seg := range segments {
-					var tCalls []domain.ToolCall
-					if j < len(node.ToolCalls) {
-						tCalls = []domain.ToolCall{node.ToolCalls[j]}
-					}
-
-					content := seg.Content
-					if m.SignatSteering && j == len(segments)-1 && len(tCalls) == 0 && node.Metadata != nil && node.Metadata["signat"] != "" {
-						content = content + " " + node.Metadata["signat"]
-					}
-
-					msg := domain.Message{
-						Role:     domain.RoleAssistant,
-						Content:  content,
-						Internal: node.Internal,
-					}
-
-					msg.ToolCalls = tCalls
-					messages = append(messages, msg)
-
-					for _, tc := range tCalls {
-						toolName := tc.Function.Name
-						if obs, ok := obsMap[tc.ID]; ok {
-							messages = append(messages, domain.Message{
-								Role:       domain.RoleTool,
-								Content:    formatObs(toolName, obs.Result, j),
-								ToolCallID: tc.ID,
-								Internal:   node.Internal,
-							})
-						} else {
-							messages = append(messages, domain.Message{
-								Role:       domain.RoleTool,
-								Content:    fmt.Sprintf("[Tool '%s' execution completed.]", toolName),
-								ToolCallID: tc.ID,
-								Internal:   node.Internal,
-							})
-						}
-					}
-				}
-
-				// Defensive fallback: if there are more ToolCalls than segments,
-				// emit them sequentially so the model is never blinded to tool execution results.
-				for j := len(segments); j < len(node.ToolCalls); j++ {
-					tc := node.ToolCalls[j]
-					toolName := tc.Function.Name
-					messages = append(messages, domain.Message{
-						Role:      domain.RoleAssistant,
-						Content:   "",
-						Internal:  node.Internal,
-						ToolCalls: []domain.ToolCall{tc},
-					})
-
-					if obs, ok := obsMap[tc.ID]; ok {
-						messages = append(messages, domain.Message{
-							Role:       domain.RoleTool,
-							Content:    formatObs(toolName, obs.Result, j),
-							ToolCallID: tc.ID,
-							Internal:   node.Internal,
-						})
-					} else {
-						messages = append(messages, domain.Message{
-							Role:       domain.RoleTool,
-							Content:    fmt.Sprintf("[Tool '%s' execution completed.]", toolName),
-							ToolCallID: tc.ID,
-							Internal:   node.Internal,
-						})
-					}
-				}
-
-				continue
-			}
-		}
-
-		var nodeImages []string
-		var metadataText string
-		if len(node.Images) > 0 {
-			var textParts []string
-			for _, imgPath := range node.Images {
-				textParts = append(textParts, fmt.Sprintf("[Attached Image: %s]", filepath.Base(imgPath)))
-			}
-			if len(textParts) > 0 {
-				metadataText = "\n\n" + strings.Join(textParts, "\n")
-			}
-			if supportsVision {
-				nodeImages = node.Images
-			}
-		}
-
-		signatSuffix := ""
-		if m.SignatSteering && len(node.ToolCalls) == 0 && node.Metadata != nil && node.Metadata["signat"] != "" && (node.Role == domain.RoleAssistant || node.Role == domain.RoleSystem) {
-			signatSuffix = " " + node.Metadata["signat"]
-		}
-
-		content := node.Content + signatSuffix + metadataText
-		// Layered Genesis Prompt for Ambient Telemetry (ADR 003 Synthesis):
-		// Dynamically layer the attentional de-weighting contract onto the root node (messages[0])
-		// if ambient_telemetry is enabled, keeping SQLite storage 100% pure persona.
-		if m.AmbientTelemetry && (node.Role == domain.RoleSystem || (i == 0 && node.Role != domain.RoleUser)) {
-			if !strings.Contains(content, "ADDITIONAL_METADATA") && !strings.Contains(content, "peripheral environmental telemetry") {
-				content += "\n\n" + AmbientTelemetryContract
-			}
-		}
-
-		// Layered Genesis Prompt for Signat Steering (ADR 003 refined):
-		// Dynamically layer the signat formatting contract onto the root node (messages[0])
-		// if signat_steering is enabled, keeping SQLite storage 100% pure persona.
-		if m.SignatSteering && (node.Role == domain.RoleSystem || (i == 0 && node.Role != domain.RoleUser)) {
-			if !strings.Contains(content, "signat") && !strings.Contains(content, "emoji signature") {
-				content += "\n\n" + SignatSteeringContract
-			}
-		}
-
-		// Layered Genesis Prompt for Persistent Memory (ADR 014):
-		// Dynamically layer active workspace constraints into the root node prefix (<RECALLED_MEMORIES>)
-		// to guarantee 100% KV-cache hit rates while protecting the reasoning token budget.
-		if node.Role == domain.RoleSystem || (i == 0 && node.Role != domain.RoleUser) {
-			if memStore, ok := m.Storage.(storage.MemoryStore); ok && memStore != nil {
-				if !strings.Contains(content, "RECALLED_MEMORIES") {
-					recalledBlock := m.deriveRecalledMemoriesPrefix(memStore)
-					if recalledBlock != "" {
-						content += "\n\n" + MemorySteeringContract + "\n\n" + recalledBlock
-					}
-				}
-			}
-		}
-
-		// Ephemeral Leaf Telemetry Envelope (ADR 003 Synthesis):
-		// Wrap only the active user turn (distance == 0 && RoleUser) in <USER_REQUEST> and <ADDITIONAL_METADATA>.
-		// Historical user turns (distance > 0) remain 100% clean, un-bumpered user text.
-		if m.AmbientTelemetry && distance == 0 && node.Role == domain.RoleUser {
-			telem := DeriveAmbientTelemetry(m.WorkspaceDir, m.clientContext)
-			content = FormatTelemetryEnvelope(content, telem)
-		}
-
-		msg := domain.Message{
-			ID:         node.ID,
-			ParentID:   node.ParentID,
-			Role:       node.Role,
-			Content:    content,
-			ToolCallID: node.ToolCallID,
-			Internal:   node.Internal,
-			Images:     nodeImages,
-		}
-
-		if distance >= 1 && len(node.Observations) > 0 {
-			// Older turns (distance >= 1): compact large tool observations (ephemeral scratchpad)
-			msg.ToolCalls = node.ToolCalls
-			msg.Observations = make([]domain.ToolObservation, len(node.Observations))
-			for j, obs := range node.Observations {
-				toolName := "unknown_tool"
-				for _, tc := range node.ToolCalls {
-					if tc.ID == obs.ToolCallID {
-						toolName = tc.Function.Name
-						break
-					}
-				}
-				truncatedResult := obs.Result
-				if len(truncatedResult) > 1000 {
-					truncatedResult = formatCompactedToolObservation(toolName, obs.Result)
-				}
-				msg.Observations[j] = domain.ToolObservation{
-					ToolCallID: obs.ToolCallID,
-					Result:     truncatedResult,
-				}
-			}
-		} else if v > 5.0 {
-			// Keep full fidelity observations, but apply intra-turn rolling compaction for distance == 0
-			msg.ToolCalls = node.ToolCalls
-			msg.Observations = make([]domain.ToolObservation, len(node.Observations))
-			totalObs := len(node.Observations)
-			for j, obs := range node.Observations {
-				toolName := "unknown_tool"
-				for _, tc := range node.ToolCalls {
-					if tc.ID == obs.ToolCallID {
-						toolName = tc.Function.Name
-						break
-					}
-				}
-				truncatedResult := obs.Result
-				if distance == 0 && totalObs > 2 && j < totalObs-2 && len(truncatedResult) > 1000 {
-					truncatedResult = formatCompactedToolObservation(toolName, obs.Result)
-				} else if fillRatio >= 0.60 && len(truncatedResult) > 8000 {
-					truncatedResult = truncatedResult[:8000] + "... [truncated]"
-				}
-				msg.Observations[j] = domain.ToolObservation{
-					ToolCallID: obs.ToolCallID,
-					Result:     truncatedResult,
-				}
-			}
-		} else if v > 0.5 {
-			// Medium fidelity: strip thought, truncate observations to 2000 chars
-			msg.ToolCalls = node.ToolCalls
-			msg.Observations = make([]domain.ToolObservation, len(node.Observations))
-			for j, obs := range node.Observations {
-				truncatedResult := obs.Result
-				if len(truncatedResult) > 2000 {
-					truncatedResult = truncatedResult[:2000] + "... [truncated]"
-				}
-				msg.Observations[j] = domain.ToolObservation{
-					ToolCallID: obs.ToolCallID,
-					Result:     truncatedResult,
-				}
-			}
-		} else {
-			// Low fidelity: keep core dialogue, but crush observations with banner retention
-			msg.ToolCalls = node.ToolCalls
-			msg.Observations = make([]domain.ToolObservation, len(node.Observations))
-			for j, obs := range node.Observations {
-				// Search node.ToolCalls to find tool metadata
-				toolName := "unknown_tool"
-				for _, tc := range node.ToolCalls {
-					if tc.ID == obs.ToolCallID {
-						toolName = tc.Function.Name
-						break
-					}
-				}
-				msg.Observations[j] = domain.ToolObservation{
-					ToolCallID: obs.ToolCallID,
-					Result:     formatCompactedToolObservation(toolName, obs.Result),
-				}
-			}
-		}
-
-		messages = append(messages, msg)
-
-		// Unpack assistant observations as subsequent RoleTool messages for standard provider compliance
-		if node.Role == domain.RoleAssistant {
-			for _, obs := range msg.Observations {
-				messages = append(messages, domain.Message{
-					Role:       domain.RoleTool,
-					Content:    obs.Result,
-					ToolCallID: obs.ToolCallID,
-					Internal:   node.Internal,
-				})
-			}
-		}
-	}
-
-	return messages, nil
+	shaper := m.GetShaper()
+	opts := m.getShapeOptions(supportsVision)
+	ctx := WithShapeOptions(context.Background(), opts)
+	return shaper.ShapeContext(ctx, path, m.NumCtx)
 }
 
 // Delegation methods to encapsulated Graph operations
@@ -1259,9 +953,9 @@ func (m *Manager) EstimateContextFill(leafID string) (float64, int, error) {
 	return fillRatio, estimatedTokens, nil
 }
 
-// deriveRecalledMemoriesPrefix queries active workspace constraints and architecture invariants
+// DeriveRecalledMemoriesPrefix queries active workspace constraints and architecture invariants
 // and formats them into a strictly bounded <RECALLED_MEMORIES> XML block for Genesis prefix injection (ADR 014).
-func (m *Manager) deriveRecalledMemoriesPrefix(memStore storage.MemoryStore) string {
+func DeriveRecalledMemoriesPrefix(memStore storage.MemoryStore) string {
 	mems, err := memStore.QueryMemories(storage.MemoryFilter{
 		Limit: 15,
 	})
@@ -1295,4 +989,8 @@ func (m *Manager) deriveRecalledMemoriesPrefix(memStore storage.MemoryStore) str
 	}
 	sb.WriteString("</RECALLED_MEMORIES>")
 	return sb.String()
+}
+
+func (m *Manager) deriveRecalledMemoriesPrefix(memStore storage.MemoryStore) string {
+	return DeriveRecalledMemoriesPrefix(memStore)
 }

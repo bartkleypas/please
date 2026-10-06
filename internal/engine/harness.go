@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/bartkleypas/please/internal/config"
 	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/graph"
 	"github.com/bartkleypas/please/internal/providers"
+	"github.com/bartkleypas/please/internal/storage"
 	"github.com/bartkleypas/please/internal/tools"
 )
 
@@ -78,15 +80,39 @@ type SessionHarness struct {
 	Config         *config.Config
 	OnNodeSaved    func(node *graph.Node)
 	PermissionGate PermissionGate
+	IsSubagent     bool
 }
 
 // NewSessionHarness creates an initialized SessionHarness instance.
 func NewSessionHarness(mgr *Manager, provider providers.Provider, cfg *config.Config) *SessionHarness {
-	return &SessionHarness{
+	h := &SessionHarness{
 		Manager:  mgr,
 		Provider: provider,
 		Config:   cfg,
 	}
+	h.EnableDelegation()
+	return h
+}
+
+// NewSubagentHarness creates an initialized SessionHarness instance for an isolated child subagent (ADR 022).
+// Child subagents have IsSubagent=true, PermissionGate=nil, and cannot recursively spawn further subagents.
+func NewSubagentHarness(mgr *Manager, provider providers.Provider, cfg *config.Config) *SessionHarness {
+	return &SessionHarness{
+		Manager:    mgr,
+		Provider:   provider,
+		Config:     cfg,
+		IsSubagent: true,
+	}
+}
+
+// EnableDelegation registers the spawn_subagent tool into the harness manager's registry (ADR 022).
+// Excluded if this harness is already a child subagent (anti-recursion ceiling = 1).
+func (h *SessionHarness) EnableDelegation() {
+	if h.IsSubagent || h.Manager == nil || h.Manager.Registry == nil || h.Provider == nil {
+		return
+	}
+	orchestrator := NewSubagentOrchestrator(h.Manager, h.Provider, h.Config)
+	h.Manager.Registry.RegisterDelegation(orchestrator)
 }
 
 // ExecuteTurn executes a full multi-turn conversational cycle for a single session.
@@ -218,8 +244,7 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 
 	var asstNode *graph.Node
 	var segments []AssistantSegment
-	var lastToolKey string
-	repeatCount := 0
+	invokedToolArgs := make(map[string]int)
 
 	// Multi-turn tool execution loop
 	for depth := 0; depth < maxDepth; depth++ {
@@ -247,6 +272,21 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 		if err != nil {
 			emit(HarnessEvent{Kind: HarnessEventError, Err: fmt.Errorf("context error: %w", err)})
 			return asstNode, err
+		}
+
+		// Intra-turn working memory continuity:
+		// Attach in-flight thoughts to active assistant messages so reasoning models (Gemma 4, DeepSeek-R1)
+		// maintain continuous awareness of their plan across multi-step tool iterations.
+		if asstNode != nil && len(segments) > 0 {
+			segIdx := 0
+			for mIdx := range messages {
+				if messages[mIdx].Role == domain.RoleAssistant && len(messages[mIdx].ToolCalls) > 0 {
+					if segIdx < len(segments) {
+						messages[mIdx].Thought = segments[segIdx].Thought
+						segIdx++
+					}
+				}
+			}
 		}
 
 		var toolSpecs []domain.ToolSpec
@@ -442,21 +482,16 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 			})
 
 			callKey := fmt.Sprintf("%s:%s", call.Function.Name, string(call.Function.Arguments))
-			if callKey == lastToolKey {
-				repeatCount++
-			} else {
-				lastToolKey = callKey
-				repeatCount = 1
-			}
+			invokedToolArgs[callKey]++
 
 			var result string
 			var execErr error
 			var errStr string
 
-			if repeatCount >= 3 {
-				execErr = fmt.Errorf("loop circuit breaker triggered: tool %q invoked with identical arguments 3 times consecutively", call.Function.Name)
+			if invokedToolArgs[callKey] >= 3 {
+				execErr = fmt.Errorf("loop circuit breaker triggered: tool %q invoked with identical arguments 3 times in this turn", call.Function.Name)
 				errStr = execErr.Error()
-				result = fmt.Sprintf("Error: %s. Please synthesize your final response or adjust parameters.", execErr.Error())
+				result = fmt.Sprintf("Error: %s. You already have this output in your context from an earlier step. Please proceed with your task or synthesize your final response.", execErr.Error())
 			} else {
 				// Check PermissionGate if tool requires human consent
 				requiresGate := false
@@ -478,7 +513,12 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 					}
 					if !allowed {
 						result = fmt.Sprintf("User denied execution of tool: %s", call.Function.Name)
-						_ = h.Manager.UpdateAssistantObservations(asstNode.ID, call.ID, result)
+						deniedObs := domain.ToolObservation{
+							ToolCallID: call.ID,
+							Result:     result,
+							Error:      result,
+						}
+						_ = h.Manager.UpdateAssistantObservationRecord(asstNode.ID, deniedObs)
 						if latest, err := h.Manager.GetNode(asstNode.ID); err == nil && latest != nil {
 							asstNode = latest
 						}
@@ -500,8 +540,41 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 				}
 			}
 
+			// Save observation blob out-of-band and construct SmartReceipt (ADR 021)
+			var smartReceipt *domain.SmartReceipt
+			hasBlob := false
+			receiptID := GenerateReceiptID(call.Function.Name, []byte(result))
+
+			if h.Manager != nil && h.Manager.Storage != nil {
+				if obsStore, ok := h.Manager.Storage.(storage.ObservationStore); ok && obsStore != nil {
+					saveErr := obsStore.SaveObservationBlob(&storage.ObservationBlob{
+						ReceiptID: receiptID,
+						NodeID:    asstNode.ID,
+						CreatedAt: time.Now(),
+						Tool:      call.Function.Name,
+						Payload:   []byte(result),
+					})
+					if saveErr == nil {
+						hasBlob = true
+					}
+				}
+			}
+
+			var rawArgs map[string]interface{}
+			_ = json.Unmarshal(call.Function.Arguments, &rawArgs)
+			rcpt := CreateSmartReceipt(call.Function.Name, rawArgs, result, hasBlob)
+			smartReceipt = &rcpt
+
+			obsRecord := domain.ToolObservation{
+				ToolCallID: call.ID,
+				Result:     result,
+				Receipt:    smartReceipt,
+				BlobID:     receiptID,
+				Error:      errStr,
+			}
+
 			// Update assistant observations on the unified assistant node
-			_ = h.Manager.UpdateAssistantObservations(asstNode.ID, call.ID, result)
+			_ = h.Manager.UpdateAssistantObservationRecord(asstNode.ID, obsRecord)
 			if latest, err := h.Manager.GetNode(asstNode.ID); err == nil && latest != nil {
 				asstNode = latest
 			}

@@ -681,3 +681,49 @@ func TestMemoryTools(t *testing.T) {
 		t.Errorf("expected no memories found, got: %s", recallAfterDel)
 	}
 }
+
+func TestGrepSearch_LargeTreeAndBinaryHygiene(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 1. Create 150 normal files
+	for i := 1; i <= 150; i++ {
+		filePath := filepath.Join(tmpDir, fmt.Sprintf("file_%03d.txt", i))
+		content := fmt.Sprintf("Line in file %d\n", i)
+		if i == 125 {
+			content += "TARGET_SECRET_PATTERN_HERE\n"
+		}
+		if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write file %d: %v", i, err)
+		}
+	}
+
+	// 2. Create a .db file containing the pattern (should be skipped)
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	_ = os.WriteFile(dbPath, []byte("TARGET_SECRET_PATTERN_HERE in binary db"), 0644)
+
+	// 3. Create a binary file containing null bytes with the pattern (should be skipped)
+	binPath := filepath.Join(tmpDir, "compiled_bin")
+	binContent := append([]byte{0x7f, 'E', 'L', 'F', 0, 1, 1}, []byte("TARGET_SECRET_PATTERN_HERE")...)
+	_ = os.WriteFile(binPath, binContent, 0755)
+
+	tool := GrepSearchTool(tmpDir)
+	res, err := tool.Function(context.Background(), map[string]interface{}{
+		"pattern": "TARGET_SECRET_PATTERN_HERE",
+	})
+	if err != nil {
+		t.Fatalf("grep_search failed on large directory tree: %v", err)
+	}
+
+	if !strings.Contains(res, "file_125.txt:2: TARGET_SECRET_PATTERN_HERE") {
+		t.Errorf("expected match in file_125.txt, got:\n%s", res)
+	}
+
+	if strings.Contains(res, "vault.db") {
+		t.Errorf("expected vault.db to be skipped as database file, but got match: %s", res)
+	}
+
+	if strings.Contains(res, "compiled_bin") {
+		t.Errorf("expected compiled_bin to be skipped as binary file, but got match: %s", res)
+	}
+}
+

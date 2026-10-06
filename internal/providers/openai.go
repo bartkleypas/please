@@ -399,11 +399,24 @@ func mapToOpenAIMessages(messages []domain.Message) []openAIMessage {
 			}
 		}
 
+		if strContent, ok := openAIContent.(string); ok && strContent == "" && m.Thought != "" && len(m.ToolCalls) > 0 {
+			firstLine := m.Thought
+			if idx := strings.Index(firstLine, "\n"); idx != -1 {
+				firstLine = strings.TrimSpace(firstLine[:idx])
+			}
+			if len(firstLine) > 120 {
+				firstLine = firstLine[:117] + "..."
+			}
+			openAIContent = fmt.Sprintf("[Action Intent: %s]", firstLine)
+		}
+
 		msg := openAIMessage{
-			Role:       roleStr,
-			Content:    openAIContent,
-			ToolCalls:  tCalls,
-			ToolCallID: m.ToolCallID,
+			Role:             roleStr,
+			Content:          openAIContent,
+			ReasoningContent: m.Thought,
+			Reasoning:        m.Thought,
+			ToolCalls:        tCalls,
+			ToolCallID:       m.ToolCallID,
 		}
 		out = append(out, msg)
 	}

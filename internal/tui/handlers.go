@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/bartkleypas/please/internal/domain"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -41,4 +42,34 @@ func (m *Model) handleSyncResult(msg syncResultMsg) (tea.Model, tea.Cmd) {
 		m.updateViewportContent()
 	}
 	return m, nil
+}
+
+// handleToolApprovalReq displays an interactive confirmation overlay when a tool requires operator consent.
+func (m *Model) handleToolApprovalReq(msg toolApprovalReqMsg) (tea.Model, tea.Cmd) {
+	m.ActiveApprovalResp = msg.Resp
+	m.ensureViewStack()
+	overlay := NewToolConfirmOverlay(m.ViewStack, []domain.ToolCall{msg.Call}, func() tea.Cmd {
+		return func() tea.Msg {
+			if m.ActiveApprovalResp != nil {
+				m.ActiveApprovalResp <- true
+				m.ActiveApprovalResp = nil
+			}
+			return nil
+		}
+	}, func() tea.Cmd {
+		return func() tea.Msg {
+			if m.ActiveApprovalResp != nil {
+				m.ActiveApprovalResp <- false
+				m.ActiveApprovalResp = nil
+			}
+			return nil
+		}
+	})
+	m.ViewStack.Push(overlay)
+	var cmds []tea.Cmd
+	if m.Config.EnableBellOnTurnComplete() {
+		cmds = append(cmds, BellCmd())
+	}
+	cmds = append(cmds, waitForStream(m.StreamContentChan, m.StreamThoughtChan, m.StreamToolCallChan, m.StreamErrChan, m.StreamApprovalReqChan, msg.parentID, msg.activeNodeID))
+	return m, tea.Batch(cmds...)
 }

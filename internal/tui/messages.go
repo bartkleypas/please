@@ -2,6 +2,7 @@ package tui
 
 import (
 	"github.com/bartkleypas/please/internal/domain"
+	"github.com/bartkleypas/please/internal/engine"
 	"github.com/bartkleypas/please/internal/graph"
 )
 
@@ -36,12 +37,13 @@ type llmStreamFinishedMsg struct {
 
 // streamResponseMsg is sent to initialize the streaming channels in the model
 type streamResponseMsg struct {
-	contentChan  <-chan string
-	thoughtChan  <-chan string
-	toolCallChan <-chan []domain.ToolCall
-	errChan      <-chan error
-	parentID     string
-	activeNodeID string // If set, this is an interleaving resumption
+	contentChan     <-chan string
+	thoughtChan     <-chan string
+	toolCallChan    <-chan []domain.ToolCall
+	errChan         <-chan error
+	approvalReqChan <-chan engine.ToolApprovalRequest
+	parentID        string
+	activeNodeID    string // If set, this is an interleaving resumption
 }
 
 // exportResultMsg is sent when the export file operation completes
@@ -60,10 +62,10 @@ type compactionFinishedMsg struct {
 	err  error
 }
 
-// toolsExecutedMsg is sent when tool calls have been executed and saved to the DAG,
-// but before the resumption stream has started.
-type toolsExecutedMsg struct {
-	lastNodeID   string
-	activeNodeID string // The node being interleaved
-	err          error
+// toolApprovalReqMsg is sent when a tool execution requires human approval gate confirmation
+type toolApprovalReqMsg struct {
+	Call         domain.ToolCall
+	Resp         chan bool
+	parentID     string
+	activeNodeID string
 }
