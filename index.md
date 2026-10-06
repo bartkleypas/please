@@ -26,6 +26,8 @@ timestamp: "2026-07-05T14:26:05-07:00"
 *   [internal/tools](internal/tools/index.md) - Tool registry, execution sandboxing, filesystem operations (with pagination & path virtualization), and search tools.
 *   [internal/tui](internal/tui/index.md) - Charm Bubble Tea TUI state machine, Lipgloss rendering, DAG visualizer, and streaming token pacing.
 *   [internal/worktree](internal/worktree/index.md) - Ephemeral out-of-tree Git worktree manager for sandboxed concurrent agent sessions.
+## External Resources
+
 *   [please-swift](../please-swift/index.md) - Native macOS / iPadOS client application specification (Subway Map DAG visualizer, 3-tier LOD, express spine, Supernodes).
 
 ## Concepts & Architecture

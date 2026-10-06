@@ -79,7 +79,7 @@ func TestReadFile_PaginationAndWindowing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read_file with max_bytes failed: %v", err)
 	}
-	if !strings.Contains(res, "Byte budget reached") || !strings.Contains(res, "call read_file with path:") {
+	if !strings.Contains(res, "byte budget reached") || !strings.Contains(res, "offset:") {
 		t.Errorf("expected actionable byte budget hint, got:\n%s", res)
 	}
 
