@@ -279,6 +279,7 @@ func TestSubagentResult_CandidateMemoriesSerialization(t *testing.T) {
 		StepsUsed: 2,
 		Summary:   "Done",
 		Synthesis: "Result synthesis",
+		RepoPath:  "packages/backend",
 		CandidateMemories: []CandidateMemory{
 			{Key: "db_version", Content: "Postgres 16", Scope: "workspace"},
 		},
@@ -290,5 +291,66 @@ func TestSubagentResult_CandidateMemoriesSerialization(t *testing.T) {
 	if !strings.Contains(string(data), "candidate_memories") || !strings.Contains(string(data), "Postgres 16") {
 		t.Errorf("expected candidate_memories in JSON: %s", string(data))
 	}
+	if !strings.Contains(string(data), `"repo_path":"packages/backend"`) {
+		t.Errorf("expected repo_path in JSON: %s", string(data))
+	}
 }
+
+func TestSpawnSubagentTool_TargetDir(t *testing.T) {
+	runner := &mockSubagentRunner{
+		result: &SubagentResult{
+			Status:    "completed",
+			RepoPath:  "services/api",
+			Summary:   "Audit complete",
+			Synthesis: "All clear",
+		},
+	}
+	tool := SpawnSubagentTool(runner)
+
+	ctx := context.Background()
+	out, err := tool.Function(ctx, map[string]interface{}{
+		"task":          "Audit backend",
+		"session_label": "backend-audit",
+		"target_dir":    "services/api",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if runner.lastReq == nil || runner.lastReq.TargetDir != "services/api" {
+		t.Errorf("expected TargetDir 'services/api', got %+v", runner.lastReq)
+	}
+
+	var res SubagentResult
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("failed to parse output JSON: %v", err)
+	}
+	if res.RepoPath != "services/api" {
+		t.Errorf("expected RepoPath 'services/api', got %s", res.RepoPath)
+	}
+}
+
+func TestReconcileSubagentTool_TargetDir(t *testing.T) {
+	rec := &mockSubagentReconciler{
+		result: &ReconcileSubagentResult{
+			Strategy:    "squash",
+			Commit:      "def5678",
+			FilesMerged: []string{"services/api/main.go"},
+			Message:     "Reconciled successfully",
+		},
+	}
+	tool := ReconcileSubagentTool(rec)
+
+	ctx := context.Background()
+	_, err := tool.Function(ctx, map[string]interface{}{
+		"session_id": "sub_9876",
+		"target_dir": "services/api",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rec.lastReq == nil || rec.lastReq.TargetDir != "services/api" {
+		t.Errorf("expected TargetDir 'services/api', got %+v", rec.lastReq)
+	}
+}
+
 

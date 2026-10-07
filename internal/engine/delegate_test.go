@@ -477,3 +477,141 @@ func TestSubagentOrchestrator_CandidateMemoriesPromotion(t *testing.T) {
 	}
 }
 
+func TestSubagentOrchestrator_TargetDir_PathTraversal(t *testing.T) {
+	repoDir, configDir := setupScenarioGitRepo(t)
+	t.Setenv("PLEASE_CONFIG_DIR", configDir)
+
+	g := graph.NewGraph()
+	mgr := NewManager(g, nil)
+	mgr.WorkspaceDir = repoDir
+	cfg := config.NewDefaultConfig()
+	mockProvider := &providers.MockLLMProvider{}
+	orchestrator := NewSubagentOrchestrator(mgr, mockProvider, cfg)
+
+	// Attempt path traversal
+	_, err := orchestrator.SpawnSubagent(context.Background(), tools.SubagentRequest{
+		ParentSessionID: "main",
+		Task:            "Attack workspace",
+		SessionLabel:    "exploit",
+		TargetDir:       "../../outside",
+		ToolPreset:      "read_only",
+		IsolateWorktree: false,
+		MaxSteps:        1,
+	})
+	if err == nil || !strings.Contains(err.Error(), "traverses outside workspace") {
+		t.Fatalf("expected error for path traversal, got: %v", err)
+	}
+
+	// Reconcile path traversal
+	_, err = orchestrator.ReconcileSubagent(context.Background(), tools.ReconcileSubagentRequest{
+		SessionID: "sub_fake",
+		TargetDir: "../../../etc",
+	})
+	if err == nil || !strings.Contains(err.Error(), "traverses outside workspace") {
+		t.Fatalf("expected error for path traversal in reconcile, got: %v", err)
+	}
+}
+
+func TestSubagentOrchestrator_TargetDir_DelegationAndReconciliation(t *testing.T) {
+	repoDir, configDir := setupScenarioGitRepo(t)
+	t.Setenv("PLEASE_CONFIG_DIR", configDir)
+
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git not found")
+	}
+
+	// Create nested git repository inside repoDir
+	childDir := filepath.Join(repoDir, "child_repo")
+	if err := os.MkdirAll(childDir, 0755); err != nil {
+		t.Fatalf("failed to create child_repo: %v", err)
+	}
+	exec.Command(gitPath, "-C", childDir, "init", "-b", "main").Run()
+	exec.Command(gitPath, "-C", childDir, "config", "user.name", "Scenario Tester").Run()
+	exec.Command(gitPath, "-C", childDir, "config", "user.email", "tester@please.dev").Run()
+	_ = os.WriteFile(filepath.Join(childDir, "child_init.txt"), []byte("child repo init"), 0644)
+	exec.Command(gitPath, "-C", childDir, "add", "child_init.txt").Run()
+	exec.Command(gitPath, "-C", childDir, "commit", "-m", "init child").Run()
+
+	dbPath := filepath.Join(t.TempDir(), "vault.db")
+	sqlStore, _ := storage.NewSQLiteStorage(dbPath, "")
+
+	g := graph.NewGraph()
+	mgr := NewManager(g, sqlStore)
+	mgr.WorkspaceDir = repoDir
+	mgr.RegisterDefaultTools(repoDir)
+
+	cfg := config.NewDefaultConfig()
+
+	// Provider writes a file in the child repo worktree
+	mockProvider := &providers.MockLLMProvider{
+		StreamHandler: func(messages []domain.Message, toolSpecs []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
+			for _, m := range messages {
+				if m.Role == domain.RoleTool {
+					return "Subproject file written successfully.", "Concluded", nil, nil
+				}
+			}
+			return "", "Writing child file", []domain.ToolCall{
+				{
+					ID:   "call_write_child",
+					Type: "function",
+					Function: struct {
+						Name      string          `json:"name"`
+						Arguments json.RawMessage `json:"arguments"`
+					}{
+						Name:      "write_file",
+						Arguments: json.RawMessage(`{"path": "child_feature.txt", "content": "child feature content"}`),
+					},
+				},
+			}, nil
+		},
+	}
+
+	orchestrator := NewSubagentOrchestrator(mgr, mockProvider, cfg)
+	res, err := orchestrator.SpawnSubagent(context.Background(), tools.SubagentRequest{
+		ParentSessionID: "main",
+		Task:            "Implement child feature in child_repo",
+		SessionLabel:    "child-delegation",
+		TargetDir:       "child_repo",
+		ToolPreset:      "full",
+		IsolateWorktree: true,
+		MaxSteps:        5,
+	})
+	if err != nil {
+		t.Fatalf("SpawnSubagent failed: %v", err)
+	}
+
+	if res.RepoPath != "child_repo" {
+		t.Errorf("expected RepoPath 'child_repo', got %q", res.RepoPath)
+	}
+	if res.Branch == "" {
+		t.Fatalf("expected non-empty branch for isolate_worktree")
+	}
+
+	subID := strings.TrimPrefix(res.Branch, "subsession/")
+
+	// Reconcile via squash without specifying target_dir (should auto-resolve from session metadata)
+	recRes, err := orchestrator.ReconcileSubagent(context.Background(), tools.ReconcileSubagentRequest{
+		SessionID:       subID,
+		Strategy:        "squash",
+		CleanupWorktree: true,
+	})
+	if err != nil {
+		t.Fatalf("ReconcileSubagent failed: %v", err)
+	}
+	if recRes.Strategy != "squash" || recRes.Commit == "" {
+		t.Errorf("unexpected ReconcileSubagent result: %+v", recRes)
+	}
+
+	// Verify child_feature.txt exists in childDir, NOT in parent repoDir
+	childFile := filepath.Join(childDir, "child_feature.txt")
+	if data, err := os.ReadFile(childFile); err != nil || string(data) != "child feature content" {
+		t.Errorf("child_feature.txt missing or incorrect in child_repo: %v", err)
+	}
+	parentFile := filepath.Join(repoDir, "child_feature.txt")
+	if _, err := os.Stat(parentFile); !os.IsNotExist(err) {
+		t.Errorf("child_feature.txt must NOT exist in parent workspace root")
+	}
+}
+
+

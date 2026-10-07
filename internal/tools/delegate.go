@@ -20,6 +20,7 @@ type SubagentRequest struct {
 	ParentSessionID string `json:"parent_session_id"`
 	Task            string `json:"task"`
 	SessionLabel    string `json:"session_label"`
+	TargetDir       string `json:"target_dir,omitempty"`
 	ToolPreset      string `json:"tool_preset"`
 	IsolateWorktree bool   `json:"isolate_worktree"`
 	MaxSteps        int    `json:"max_steps"`
@@ -40,6 +41,7 @@ type SubagentResult struct {
 	Synthesis         string            `json:"synthesis"`
 	Branch            string            `json:"branch,omitempty"`
 	Commit            string            `json:"commit,omitempty"`
+	RepoPath          string            `json:"repo_path,omitempty"`
 	FilesModified     []string          `json:"files_modified,omitempty"`
 	DiffStat          string            `json:"diff_stat,omitempty"`
 	CandidateMemories []CandidateMemory `json:"candidate_memories,omitempty"`
@@ -58,6 +60,7 @@ type SubagentAuditor interface {
 // ReconcileSubagentRequest defines the parameters for subagent reconciliation.
 type ReconcileSubagentRequest struct {
 	SessionID       string `json:"session_id"`
+	TargetDir       string `json:"target_dir,omitempty"`
 	Strategy        string `json:"strategy"`
 	CleanupWorktree bool   `json:"cleanup_worktree"`
 }
@@ -92,6 +95,10 @@ func SpawnSubagentTool(runner SubagentRunner) Tool {
 				"session_label": map[string]interface{}{
 					"type":        "string",
 					"description": "Descriptive label for the sub-session (e.g. 'audit-auth-race-conditions').",
+				},
+				"target_dir": map[string]interface{}{
+					"type":        "string",
+					"description": "Optional subproject directory or nested repository relative to current workspace to target for worktree isolation. Defaults to workspace root.",
 				},
 				"tool_preset": map[string]interface{}{
 					"type":        "string",
@@ -130,6 +137,9 @@ func SpawnSubagentTool(runner SubagentRunner) Tool {
 				return "", errors.New("session_label parameter is required and cannot be empty")
 			}
 
+			targetDir, _ := args["target_dir"].(string)
+			targetDir = strings.TrimSpace(targetDir)
+
 			toolPreset := "full"
 			if tp, ok := args["tool_preset"].(string); ok && strings.TrimSpace(tp) != "" {
 				tp = strings.ToLower(strings.TrimSpace(tp))
@@ -167,6 +177,7 @@ func SpawnSubagentTool(runner SubagentRunner) Tool {
 				ParentSessionID: parentSessionID,
 				Task:            task,
 				SessionLabel:    sessionLabel,
+				TargetDir:       targetDir,
 				ToolPreset:      toolPreset,
 				IsolateWorktree: isolateWorktree,
 				MaxSteps:        maxSteps,
@@ -199,6 +210,10 @@ func ReconcileSubagentTool(reconciler SubagentReconciler) Tool {
 					"type":        "string",
 					"description": "Identifier of the subagent session to reconcile (e.g. 'sub_1234abcd').",
 				},
+				"target_dir": map[string]interface{}{
+					"type":        "string",
+					"description": "Optional subproject directory or nested repository relative to current workspace where the worktree branch was isolated.",
+				},
 				"strategy": map[string]interface{}{
 					"type":        "string",
 					"enum":        []string{"squash", "merge", "cherry_pick", "discard"},
@@ -225,6 +240,9 @@ func ReconcileSubagentTool(reconciler SubagentReconciler) Tool {
 				return "", errors.New("session_id parameter is required and cannot be empty")
 			}
 
+			targetDir, _ := args["target_dir"].(string)
+			targetDir = strings.TrimSpace(targetDir)
+
 			strategy := "squash"
 			if s, ok := args["strategy"].(string); ok && strings.TrimSpace(s) != "" {
 				strategy = strings.ToLower(strings.TrimSpace(s))
@@ -237,6 +255,7 @@ func ReconcileSubagentTool(reconciler SubagentReconciler) Tool {
 
 			req := ReconcileSubagentRequest{
 				SessionID:       sessionID,
+				TargetDir:       targetDir,
 				Strategy:        strategy,
 				CleanupWorktree: cleanupWorktree,
 			}

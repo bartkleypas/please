@@ -500,3 +500,73 @@ func TestWorktree_GetDiffAndGetBranchDiff(t *testing.T) {
 	_ = mgr.RemoveWorktree(subID, true, true)
 }
 
+func TestWorktree_NestedRepository(t *testing.T) {
+	parentDir, configDir := setupTestGitRepo(t)
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git not found")
+	}
+
+	nestedDir := filepath.Join(parentDir, "child_repo")
+	if err := os.MkdirAll(nestedDir, 0755); err != nil {
+		t.Fatalf("failed to create child_repo dir: %v", err)
+	}
+
+	runGitCmd(t, gitPath, nestedDir, "init", "-b", "main")
+	runGitCmd(t, gitPath, nestedDir, "config", "user.name", "Please Child Test")
+	runGitCmd(t, gitPath, nestedDir, "config", "user.email", "child@please.dev")
+	nestedReadme := filepath.Join(nestedDir, "README.child.md")
+	if err := os.WriteFile(nestedReadme, []byte("# Child Repo\n"), 0644); err != nil {
+		t.Fatalf("failed to write nested readme: %v", err)
+	}
+	runGitCmd(t, gitPath, nestedDir, "add", "README.child.md")
+	runGitCmd(t, gitPath, nestedDir, "commit", "-m", "Initial child commit")
+
+	mgr := NewManager(configDir, nestedDir)
+	if !mgr.IsGitRepo() {
+		t.Fatal("expected nested repository to be recognized as git repo")
+	}
+
+	topLevel, err := mgr.GetTopLevel()
+	if err != nil {
+		t.Fatalf("GetTopLevel failed: %v", err)
+	}
+	evalNested := evalDir(t, nestedDir)
+	if topLevel != evalNested {
+		t.Errorf("expected topLevel %s, got %s", evalNested, topLevel)
+	}
+
+	subID := "sub_child_test"
+	branch := "subsession/" + subID
+	wtDir, _, err := mgr.EnsureWorktreeBranch(subID, branch)
+	if err != nil {
+		t.Fatalf("EnsureWorktreeBranch on nested repo failed: %v", err)
+	}
+
+	// Add file in child worktree
+	childWorkFile := filepath.Join(wtDir, "nested_feature.txt")
+	if err := os.WriteFile(childWorkFile, []byte("feature from child subagent\n"), 0644); err != nil {
+		t.Fatalf("failed to write child work file: %v", err)
+	}
+	runGitCmd(t, gitPath, wtDir, "add", "nested_feature.txt")
+	runGitCmd(t, gitPath, wtDir, "commit", "-m", "child feature commit")
+
+	// Reconcile into child repo
+	recRes, err := mgr.ReconcileBranch(branch, "squash", true, subID)
+	if err != nil {
+		t.Fatalf("ReconcileBranch failed: %v", err)
+	}
+	if recRes.Strategy != "squash" || recRes.Commit == "" {
+		t.Errorf("unexpected ReconcileResult: %+v", recRes)
+	}
+
+	// File should exist in child_repo, NOT in parentDir root
+	if _, err := os.Stat(filepath.Join(nestedDir, "nested_feature.txt")); err != nil {
+		t.Errorf("nested_feature.txt missing in child_repo: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(parentDir, "nested_feature.txt")); !os.IsNotExist(err) {
+		t.Errorf("nested_feature.txt must NOT exist in parent workspace root")
+	}
+}
+
+
