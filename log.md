@@ -241,13 +241,23 @@ All updates and modifications to this knowledge bundle are tracked chronological
     *   Attached in-flight reasoning (`Thought`) from intermediate assistant segments to active assistant messages in `SessionHarness.ExecuteTurn` ([harness.go](internal/engine/harness.go)). Solves reasoning model (Gemma 4, DeepSeek-R1) amnesia where empty `content` on intermediate tool calls caused the model to lose track of its plan and re-read identical files in a loop.
     *   Mapped `m.Thought` to `Thinking` and `Reasoning` fields in [ollama.go](internal/providers/ollama.go) and [openai.go](internal/providers/openai.go).
     *   Added fallback `[Action Intent: <firstLine>]` when assistant message `content` is empty before tool dispatch.
-*   **Pillar 4 Implementation: Native Delegated Multi-Agent Topologies & Worktree Isolation ([ADR 022](decisions/022-native-delegated-multi-agent-topologies.md))**:
-    *   Implemented `spawn_subagent` sensory/exec tool in [delegate.go](internal/tools/delegate.go) with strict input validation, `tool_preset` scoping (`"read_only"` vs `"full"`), and bounded `max_steps` (ceiling 25).
-    *   Implemented `SubagentOrchestrator` in [delegate.go](internal/engine/delegate.go) orchestrating child subagent execution within isolated Git worktree branches (`subsession/sub_<id>`) using `worktree.Manager`.
-    *   Guaranteed context shielding: child subagents execute on their own private DAGs; internal step chatter, intermediate file reads, and failed test outputs never pollute the parent context window. Only a structured `SubagentResult` observation returns to the parent.
-    *   Enforced Anti-Recursion Safety: delegation depth is strictly capped at 1 (`IsSubagent = true`), explicitly omitting `spawn_subagent` from child tool registries.
-    *   Added worktree inspection, git commit tracking, and automatic branch/worktree pruning for clean and read-only tasks.
-    *   Wired `EnableDelegation()` across `SessionHarness` and verified living E2E scenario in [scenarios_test.go](internal/engine/scenarios_test.go) (0.19s).
+## 2026-10-07
+
+*   **v0.3.1: Ergonomics, Nested Repository Delegation & Pure DAG Compaction**:
+    *   **Repository-Aware Worktree Delegation (`target_dir`)**:
+        *   Added optional `target_dir` parameter to `spawn_subagent` and `reconcile_subagent` in [delegate.go](internal/tools/delegate.go) and [delegate.go](internal/engine/delegate.go).
+        *   Allows parent agents operating in meta-workspaces (e.g. `$HOME/Code/`) to delegate subagent execution directly into nested Git repositories (`target_dir: "please"`), provisioning isolated worktrees from the subproject's own Git object store rather than the parent workspace.
+        *   Enforced workspace path confinement to prevent traversal (`..`) outside the parent workspace root.
+        *   Maintained the "One Vault" invariant: SQLite storage/vault remains unified in the parent workspace while Git worktree isolation branches cleanly inside the target repository.
+        *   Automated repository resolution in `reconcile_subagent` and `inspect_subagent` via session metadata caching.
+    *   **Pure DAG Compaction (`CompactRange`)**:
+        *   Purified `/compact` in [service.go](internal/engine/service.go) to focus exclusively on conversational reduction and milestone supernode synthesis.
+        *   Excised the automatic `MEMORIES:` extraction prompt and auto-save database mutations from `CompactRangeWithDirective`, preventing compaction from silently generating redundant records in the SQLite knowledge vault.
+        *   Affirmed separation of concerns: DAG compaction lightens token weight; memory curation is managed explicitly by the agent or operator.
+    *   **Non-Punitive `read_file` Continuation Telemetry**:
+        *   Refactored pagination banners in [sense.go](internal/tools/sense.go) to replace stop-signal phrasing (`(Limit reached; ...)` and `(Byte budget reached; ...)`) with neutral, informative coordinates (`— N lines remaining (offset: X to continue)`).
+        *   Eliminates premature model truncation and task abandonment during sequential file reads.
+
 
 
 

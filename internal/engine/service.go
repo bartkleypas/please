@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -587,22 +586,11 @@ func (m *Manager) CompactRangeWithDirective(ctx context.Context, provider provid
 		trajectoryHeader = fmt.Sprintf("🎯 Trajectory: %s\n\n", strings.Join(signats, " ➔ "))
 	}
 
-	// 1. Generate Summary and Extract Memories
-	summaryPrompt := `You are a concise narrative archivist and knowledge extractor.
-Analyze the following conversation segment and produce:
-1. SUMMARY: A single, high-density milestone paragraph capturing key facts, architectural decisions, tool results, and the active state of the world. Do not use filler or introductory phrases.
-2. MEMORIES: Extract 0-3 enduring facts, technical decisions, or user preferences established in this segment (ignore transient chatter).
+	// 1. Generate Milestone Summary
+	summaryPrompt := `You are a concise narrative archivist.
+Analyze the following conversation segment and produce a single, high-density milestone summary paragraph capturing key facts, architectural decisions, tool results, and the active state of the world. Do not use filler or introductory phrases.
 
-Format your response exactly as:
-SUMMARY:
-<milestone paragraph>
-
-MEMORIES:
-- key: <namespaced_key_e.g._domain:topic:slug> | category: <architecture|convention|preference|invariant|fact|constraint|workflow> | content: <concise durable fact>
-
-If no enduring memories or decisions exist, output:
-MEMORIES:
-none`
+Format your response as a clean, direct summary paragraph.`
 	if directive != "" {
 		summaryPrompt += fmt.Sprintf("\n\nUser Steering Directive: Focus particularly on: %s", directive)
 	}
@@ -631,24 +619,13 @@ none`
 		return nil, fmt.Errorf("failed to find last node in range: %w", err)
 	}
 
-	// 3. Parse compaction output and harvest memories
-	summary, extractedMemories := parseCompactionOutput(resp.Content, lastNodeID)
-
-	var harvestedKeys []string
-	if memStore, ok := m.Storage.(storage.MemoryStore); ok && memStore != nil && len(extractedMemories) > 0 {
-		for i := range extractedMemories {
-			mem := extractedMemories[i]
-			if err := memStore.SaveMemory(&mem); err == nil {
-				harvestedKeys = append(harvestedKeys, mem.Key)
-			}
-		}
+	// 3. Clean summary output
+	summary := strings.TrimSpace(resp.Content)
+	if parsedSummary, _ := parseCompactionOutput(summary, lastNodeID); parsedSummary != "" {
+		summary = parsedSummary
 	}
 
 	metadata := make(map[string]string)
-	if len(harvestedKeys) > 0 {
-		metadata["memories_harvested"] = strconv.Itoa(len(harvestedKeys))
-		metadata["harvested_memory_keys"] = strings.Join(harvestedKeys, ",")
-	}
 
 	// 4. Create Supernode
 	superNodeContent := trajectoryHeader + summary

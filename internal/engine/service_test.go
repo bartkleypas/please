@@ -1601,32 +1601,13 @@ MEMORIES:
 		t.Errorf("supernode content should not contain raw MEMORIES block: %s", superNode.Content)
 	}
 
-	// 2. Verify Supernode metadata contains harvest telemetry
-	if superNode.Metadata["memories_harvested"] != "2" {
-		t.Errorf("expected memories_harvested '2', got %q", superNode.Metadata["memories_harvested"])
-	}
-	if superNode.Metadata["harvested_memory_keys"] != "sqlite_wal,hermetic_tests" {
-		t.Errorf("expected harvested_memory_keys 'sqlite_wal,hermetic_tests', got %q", superNode.Metadata["harvested_memory_keys"])
-	}
-
-	// 3. Verify memories were persisted into storage
+	// 2. Verify compaction did NOT auto-write memories into the store (pure DAG reduction)
 	mem1, err := memStore.GetMemory(storage.ScopeWorkspace, "", "sqlite_wal")
-	if err != nil || mem1 == nil {
-		t.Fatalf("expected sqlite_wal to be stored in vault: %v", err)
+	if err != nil {
+		t.Fatalf("unexpected error querying memory store: %v", err)
 	}
-	if mem1.Category != storage.CategoryArchitecture || mem1.Content != "SQLite configured with WAL mode." {
-		t.Errorf("unexpected mem1 content/category: %+v", mem1)
-	}
-	if mem1.Scope != storage.ScopeWorkspace {
-		t.Errorf("expected ScopeWorkspace, got %s", mem1.Scope)
-	}
-
-	mem2, err := memStore.GetMemory(storage.ScopeWorkspace, "", "hermetic_tests")
-	if err != nil || mem2 == nil {
-		t.Fatalf("expected hermetic_tests to be stored in vault: %v", err)
-	}
-	if mem2.Category != storage.CategoryWorkflow || mem2.Content != "Tests are hermetic and run via make test." {
-		t.Errorf("unexpected mem2 content/category: %+v", mem2)
+	if mem1 != nil {
+		t.Errorf("expected compaction to not auto-write memories into store, but found: %+v", mem1)
 	}
 }
 
