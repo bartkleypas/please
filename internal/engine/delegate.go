@@ -117,10 +117,25 @@ func (o *SubagentOrchestrator) SpawnSubagent(ctx context.Context, req tools.Suba
 
 	childHarness := NewSubagentHarness(childMgr, o.Provider, o.Config)
 
+	// Resolve parent Genesis root for child subagent (ADR 022)
+	var genesisRootID string
+	parentSession := req.ParentSessionID
+	if parentSession == "" {
+		parentSession = "main"
+	}
+	if rootNode, err := o.Manager.GetSessionRoot(parentSession); err == nil && rootNode != nil {
+		genesisRootID = rootNode.ID
+	}
+	if genesisRootID == "" {
+		if sysRoot, err := o.Manager.GetSystemRoot(); err == nil && sysRoot != nil {
+			genesisRootID = sysRoot.ID
+		}
+	}
+
 	// Execute single turn bounded by max_steps
 	turnCtx := map[string]string{
 		"session_id":        subID,
-		"parent_session_id": req.ParentSessionID,
+		"parent_session_id": parentSession,
 		"session_label":     req.SessionLabel,
 		"subagent":          "true",
 	}
@@ -131,6 +146,7 @@ func (o *SubagentOrchestrator) SpawnSubagent(ctx context.Context, req tools.Suba
 
 	turnReq := TurnRequest{
 		SessionID:    subID,
+		ParentID:     genesisRootID,
 		Message:      req.Task,
 		Role:         string(domain.RoleUser),
 		MaxToolDepth: req.MaxSteps,

@@ -5,6 +5,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -879,8 +880,107 @@ func newV7FromTime(t time.Time) (uuid.UUID, error) {
 }
 
 func (m *Manager) GetSystemRoot() (*graph.Node, error) {
+	if m.Graph == nil {
+		if m.Storage != nil {
+			if _, _, err := m.Sync(); err != nil {
+				return nil, err
+			}
+		}
+		if m.Graph == nil {
+			return nil, errors.New("graph not initialized")
+		}
+	}
 	return m.Graph.GetSystemRoot()
 }
+
+// GetRootNode returns the default system root node (alias for GetSystemRoot).
+func (m *Manager) GetRootNode() (*graph.Node, error) {
+	return m.GetSystemRoot()
+}
+
+// GetRootOf returns the root/genesis ancestor node for the given node ID by
+// traversing parent pointers up to the root.
+func (m *Manager) GetRootOf(nodeID string) (*graph.Node, error) {
+	if m == nil {
+		return nil, errors.New("manager not initialized")
+	}
+	if m.Graph == nil {
+		if m.Storage != nil {
+			if _, _, err := m.Sync(); err != nil {
+				return nil, err
+			}
+		}
+		if m.Graph == nil {
+			return nil, errors.New("graph not initialized")
+		}
+	}
+	root, err := m.Graph.GetRootOf(nodeID)
+	if err != nil && errors.Is(err, graph.ErrNodeNotFound) && m.Storage != nil {
+		if _, _, syncErr := m.Sync(); syncErr == nil {
+			return m.Graph.GetRootOf(nodeID)
+		}
+	}
+	return root, err
+}
+
+// GetSessionRoot resolves the canonical Genesis root node for the given session.
+// It inspects the session head pointer in storage, falls back to in-memory graph
+// session metadata or active playhead, and traverses parent pointers to its root.
+func (m *Manager) GetSessionRoot(sessionID string) (*graph.Node, error) {
+	if m == nil {
+		return nil, errors.New("manager not initialized")
+	}
+
+	targetSession := sessionID
+	if targetSession == "" {
+		targetSession = "main"
+	}
+
+	// 1. Try resolving via session head pointer in storage
+	if m.Storage != nil {
+		if headID, err := m.Storage.GetSessionHead(targetSession); err == nil && headID != "" {
+			if root, err := m.GetRootOf(headID); err == nil && root != nil {
+				return root, nil
+			}
+		}
+	}
+
+	// 2. Fallback: inspect in-memory graph
+	if m.Graph != nil {
+		// Check if targetSession itself is a node in the graph
+		if root, err := m.Graph.GetRootOf(targetSession); err == nil && root != nil {
+			return root, nil
+		}
+
+		// Search for the latest node tagged with this session_id
+		var latestNode *graph.Node
+		for _, n := range m.Graph.GetAllNodes() {
+			if n.Metadata != nil && (n.Metadata["session_id"] == targetSession || strings.Contains(n.Metadata["session_label"], targetSession)) {
+				if latestNode == nil || n.Timestamp.After(latestNode.Timestamp) {
+					latestNode = n
+				}
+			}
+		}
+		if latestNode != nil {
+			if root, err := m.Graph.GetRootOf(latestNode.ID); err == nil && root != nil {
+				return root, nil
+			}
+		}
+	}
+
+	// 3. If targetSession is "main", try latest playhead from storage/sync
+	if targetSession == "main" && m.Storage != nil {
+		if _, lastID, err := m.Sync(); err == nil && lastID != "" {
+			if root, err := m.GetRootOf(lastID); err == nil && root != nil {
+				return root, nil
+			}
+		}
+	}
+
+	// 4. Fallback to default system root if available
+	return m.GetSystemRoot()
+}
+
 
 func (m *Manager) GetAllNodeIDs() []string {
 	ids := make([]string, 0, len(m.Graph.Nodes))

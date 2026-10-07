@@ -179,6 +179,18 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 			}
 		}
 		if parentID == "" {
+			// If parent_session_id is provided in context (e.g. child subagent turn), resolve the Genesis root of that parent branch
+			var parentSessionID string
+			if req.Context != nil {
+				parentSessionID = req.Context["parent_session_id"]
+			}
+			if parentSessionID != "" && h.Manager != nil {
+				if rootNode, err := h.Manager.GetSessionRoot(parentSessionID); err == nil && rootNode != nil {
+					parentID = rootNode.ID
+				}
+			}
+		}
+		if parentID == "" {
 			if sessionID == "main" || sessionID == "" {
 				// Single-session default / interactive TUI: snap to latest playhead
 				_, lastID, err := h.Manager.Sync()

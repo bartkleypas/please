@@ -208,3 +208,41 @@ func (g *Graph) GetSystemRoot() (*Node, error) {
 	}
 	return nil, fmt.Errorf("root node is not a system prompt")
 }
+
+// GetRootNode retrieves the first system prompt root node found in the graph (alias for GetSystemRoot).
+func (g *Graph) GetRootNode() (*Node, error) {
+	return g.GetSystemRoot()
+}
+
+// GetRootOf returns the root/genesis ancestor node for the given node ID by
+// traversing parent pointers until reaching a node without a parent.
+func (g *Graph) GetRootOf(nodeID string) (*Node, error) {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	if nodeID == "" {
+		return nil, fmt.Errorf("nodeID cannot be empty")
+	}
+
+	currID := nodeID
+	visited := make(map[string]bool)
+	for currID != "" {
+		if visited[currID] {
+			return nil, fmt.Errorf("cycle detected at node %s", currID)
+		}
+		visited[currID] = true
+
+		node, ok := g.Nodes[currID]
+		if !ok {
+			return nil, fmt.Errorf("%w: %s", ErrNodeNotFound, currID)
+		}
+
+		if node.ParentID == "" {
+			return node, nil
+		}
+		currID = node.ParentID
+	}
+
+	return nil, fmt.Errorf("root not found for node %s", nodeID)
+}
+

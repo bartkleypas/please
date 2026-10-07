@@ -1,6 +1,7 @@
 package graph
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -245,4 +246,83 @@ func TestGraph_GetSystemRoot_MultipleRoots(t *testing.T) {
 	if found.ID != "sys-root" {
 		t.Errorf("expected sys-root, got %s", found.ID)
 	}
+
+	aliasFound, err := g.GetRootNode()
+	if err != nil || aliasFound.ID != "sys-root" {
+		t.Errorf("GetRootNode failed: %v", err)
+	}
 }
+
+func TestGraph_GetRootOf(t *testing.T) {
+	g := NewGraph()
+
+	now := time.Now()
+	rootA := &Node{ID: "root-a", Role: RoleSystem, Content: "System A", Timestamp: now}
+	childA1 := &Node{ID: "child-a1", ParentID: "root-a", Role: RoleUser, Content: "User A1", Timestamp: now.Add(time.Second)}
+	childA2 := &Node{ID: "child-a2", ParentID: "child-a1", Role: RoleAssistant, Content: "Asst A2", Timestamp: now.Add(2 * time.Second)}
+
+	rootB := &Node{ID: "root-b", Role: RoleSystem, Content: "System B", Timestamp: now.Add(3 * time.Second)}
+	childB1 := &Node{ID: "child-b1", ParentID: "root-b", Role: RoleUser, Content: "User B1", Timestamp: now.Add(4 * time.Second)}
+
+	g.AddNode(rootA)
+	g.AddNode(childA1)
+	g.AddNode(childA2)
+	g.AddNode(rootB)
+	g.AddNode(childB1)
+
+	// Leaf of lineage A resolves to root-a
+	rA, err := g.GetRootOf("child-a2")
+	if err != nil {
+		t.Fatalf("GetRootOf child-a2 failed: %v", err)
+	}
+	if rA.ID != "root-a" {
+		t.Errorf("expected root-a, got %s", rA.ID)
+	}
+
+	// Mid-node of lineage A resolves to root-a
+	rA1, err := g.GetRootOf("child-a1")
+	if err != nil || rA1.ID != "root-a" {
+		t.Errorf("expected root-a for child-a1, got %v (err: %v)", rA1, err)
+	}
+
+	// Root itself resolves to itself
+	rRootA, err := g.GetRootOf("root-a")
+	if err != nil || rRootA.ID != "root-a" {
+		t.Errorf("expected root-a for root-a, got %v (err: %v)", rRootA, err)
+	}
+
+	// Lineage B resolves to root-b
+	rB, err := g.GetRootOf("child-b1")
+	if err != nil {
+		t.Fatalf("GetRootOf child-b1 failed: %v", err)
+	}
+	if rB.ID != "root-b" {
+		t.Errorf("expected root-b, got %s", rB.ID)
+	}
+
+	// Empty node ID returns error
+	if _, err := g.GetRootOf(""); err == nil {
+		t.Errorf("expected error for empty nodeID")
+	}
+
+	// Non-existent node returns ErrNodeNotFound
+	if _, err := g.GetRootOf("non-existent"); !errors.Is(err, ErrNodeNotFound) {
+		t.Errorf("expected ErrNodeNotFound, got %v", err)
+	}
+}
+
+func TestGraph_GetRootOf_CycleDetection(t *testing.T) {
+	g := NewGraph()
+
+	// Manually construct cyclic nodes
+	n1 := &Node{ID: "n1", ParentID: "n2"}
+	n2 := &Node{ID: "n2", ParentID: "n1"}
+	g.Nodes["n1"] = n1
+	g.Nodes["n2"] = n2
+
+	_, err := g.GetRootOf("n1")
+	if err == nil || !strings.Contains(err.Error(), "cycle detected") {
+		t.Errorf("expected cycle detected error, got %v", err)
+	}
+}
+

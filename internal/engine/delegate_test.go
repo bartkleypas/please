@@ -614,4 +614,129 @@ func TestSubagentOrchestrator_TargetDir_DelegationAndReconciliation(t *testing.T
 	}
 }
 
+func TestSubagentOrchestrator_InheritsParentBranchGenesisRoot(t *testing.T) {
+	repoDir, configDir := setupScenarioGitRepo(t)
+	t.Setenv("PLEASE_CONFIG_DIR", configDir)
+
+	dbPath := filepath.Join(t.TempDir(), "vault.db")
+	sqlStore, err := storage.NewSQLiteStorage(dbPath, "")
+	if err != nil {
+		t.Fatalf("failed to create sqlite storage: %v", err)
+	}
+
+	g := graph.NewGraph()
+	mgr := NewManager(g, sqlStore)
+	mgr.WorkspaceDir = repoDir
+	mgr.RegisterDefaultTools(repoDir)
+
+	cfg := config.NewDefaultConfig()
+
+	// 1. Establish Root A (older system prompt)
+	rootA, err := mgr.CreateNode("", domain.RoleSystem, "You are Agent Alpha (Legacy Branch)", false)
+	if err != nil {
+		t.Fatalf("failed to create rootA: %v", err)
+	}
+	// Ensure rootA has an earlier timestamp
+	rootA.Timestamp = time.Now().Add(-2 * time.Hour)
+	_ = sqlStore.SaveNode(rootA)
+
+	// Small pause so UUIDv7 timestamp progresses
+	time.Sleep(10 * time.Millisecond)
+
+	// 2. Establish Root B (newer system prompt for active branch)
+	rootB, err := mgr.CreateNode("", domain.RoleSystem, "You are George the Archivist (Active Branch)", false)
+	if err != nil {
+		t.Fatalf("failed to create rootB: %v", err)
+	}
+	rootB.Timestamp = time.Now().Add(-1 * time.Hour)
+	_ = sqlStore.SaveNode(rootB)
+
+	// Re-sync graph to ensure roots ordering
+	_, _, _ = mgr.Sync()
+
+	// Verify that the naive GetSystemRoot() returns rootA (the oldest system root)
+	sysRoot, err := g.GetSystemRoot()
+	if err != nil || sysRoot.ID != rootA.ID {
+		t.Fatalf("expected GetSystemRoot to return oldest rootA, got %v (err: %v)", sysRoot, err)
+	}
+
+	// 3. Start a parent session under Root B
+	time.Sleep(10 * time.Millisecond)
+	parentSessionID := "session_branch_b"
+	userB, err := mgr.CreateNode(rootB.ID, domain.RoleUser, "Investigate the active branch architecture", false)
+	if err != nil {
+		t.Fatalf("failed to create userB: %v", err)
+	}
+	userB.Metadata["session_id"] = parentSessionID
+	_ = sqlStore.SaveNode(userB)
+
+	time.Sleep(10 * time.Millisecond)
+	asstB, err := mgr.CreateAssistantNode(userB.ID, "I am ready to investigate under George's lineage.", "", nil, false)
+	if err != nil {
+		t.Fatalf("failed to create asstB: %v", err)
+	}
+	asstB.Metadata["session_id"] = parentSessionID
+	_ = sqlStore.SaveNode(asstB)
+	if err := sqlStore.SaveSessionHead(parentSessionID, asstB.ID); err != nil {
+		t.Fatalf("failed to save session head: %v", err)
+	}
+
+	// 4. Mock provider for subagent turn
+	mockProvider := &providers.MockLLMProvider{
+		StreamHandler: func(messages []domain.Message, toolSpecs []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
+			return "Subagent task completed under parent lineage.", "Finished", nil, nil
+		},
+	}
+
+	orchestrator := NewSubagentOrchestrator(mgr, mockProvider, cfg)
+
+	// 5. Spawn subagent from parent session
+	res, err := orchestrator.SpawnSubagent(context.Background(), tools.SubagentRequest{
+		ParentSessionID: parentSessionID,
+		Task:            "Perform focused child audit",
+		SessionLabel:    "child-lineage-audit",
+		ToolPreset:      "read_only",
+		IsolateWorktree: false,
+		MaxSteps:        3,
+	})
+	if err != nil {
+		t.Fatalf("SpawnSubagent failed: %v", err)
+	}
+	if res.Status != "completed" {
+		t.Fatalf("expected status completed, got %s (res: %+v)", res.Status, res)
+	}
+
+	// 6. Find subagent user node and assert it attached to Root B, NOT Root A
+	var subagentUserNode *graph.Node
+	for _, n := range mgr.Graph.GetAllNodes() {
+		if n.Role == domain.RoleUser && n.Metadata != nil && n.Metadata["subagent"] == "true" {
+			subagentUserNode = n
+			break
+		}
+	}
+
+	if subagentUserNode == nil {
+		t.Fatalf("expected to find subagent user node in graph")
+	}
+
+	if subagentUserNode.ParentID != rootB.ID {
+		t.Errorf("subagent attached to wrong parent ID: got %q, want %q (Root B). Did it attach to Root A (%q)?",
+			subagentUserNode.ParentID, rootB.ID, rootA.ID)
+	}
+
+	if subagentUserNode.ParentID == rootA.ID {
+		t.Errorf("FAIL: subagent incorrectly attached to oldest root (Root A) instead of parent branch root (Root B)!")
+	}
+
+	// 7. Verify LLM context for the subagent's user turn begins with Root B persona
+	contextMsgs, err := mgr.BuildLLMContext(subagentUserNode.ID, false)
+	if err != nil {
+		t.Fatalf("BuildLLMContext failed: %v", err)
+	}
+	if len(contextMsgs) == 0 || contextMsgs[0].Role != domain.RoleSystem || !strings.Contains(contextMsgs[0].Content, "George the Archivist") {
+		t.Errorf("expected LLM context to contain Root B persona ('George the Archivist'), got: %+v", contextMsgs)
+	}
+}
+
+
 
