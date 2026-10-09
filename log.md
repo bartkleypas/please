@@ -274,3 +274,15 @@ All updates and modifications to this knowledge bundle are tracked chronological
     *   Enhanced `QueryMemories` and `queryMemoriesFallbackLike` in [sqlite.go](internal/storage/sqlite.go) to query candidate records by scope/category/session in SQL and perform post-decryption matching against `mem.Content`, `mem.Key`, and `mem.Tags` in Go memory, respecting search limits and access telemetry.
     *   Broadened FTS query error recovery in `QueryMemories` to fall back to LIKE matching and in-memory evaluation for all query syntax/tokenization failures (such as colons in `arch:something`), eliminating `no such column` failures when colons or operators are queried.
     *   Added regression test coverage in `TestSQLiteStorage_EncryptedMemories_FTS` and `TestSQLiteStorage_FTS_ColonFallback` in [storage_test.go](internal/storage/storage_test.go).
+
+## 2026-10-09
+
+*   **Memory Auditing Diagnostics & Ranking Inversion Fix**:
+    *   Fixed ranking inversion bug in `DiagnoseMemories()` in [sqlite.go](internal/storage/sqlite.go) where `MostAccessed` was delegating to `QueryMemories()` (which hardcoded `ORDER BY updated_at DESC LIMIT 5`), incorrectly surfacing recently edited memories instead of the highest-hit records.
+    *   Fixed stale candidate blindness in `DiagnoseMemories()` where `StaleCandidates` was filtering only within the 5 newest records returned by `QueryMemories()`, completely ignoring genuinely stale memories outside the top 5 by recency.
+    *   Updated `DiagnoseMemories()` with direct, optimized SQL queries:
+        *   `MostAccessed` orders strictly by `access_count DESC, updated_at DESC LIMIT 5`.
+        *   `StaleCandidates` queries `(access_count <= 1 OR updated_at < ?) ORDER BY access_count ASC, updated_at ASC LIMIT 10`.
+    *   Unified duplicate row-scanning and decryption code in [sqlite.go](internal/storage/sqlite.go) via a DRY `scanMemory(scanner scannable)` helper across `GetMemory()`, `QueryMemories()`, `queryMemoriesFallbackLike()`, and `DiagnoseMemories()`.
+    *   Enhanced `TestSQLiteStorage_MemoriesDiagnostics` in [storage_test.go](internal/storage/storage_test.go) to assert strict access count sorting, stale candidate detection, and scope confinement.
+

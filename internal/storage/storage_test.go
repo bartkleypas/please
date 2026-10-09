@@ -875,16 +875,24 @@ func TestSQLiteStorage_MemoriesDiagnostics(t *testing.T) {
 	_ = storage.SaveMemory(&Memory{Key: "k1", Content: "c1", Category: CategoryArchitecture, Scope: ScopeWorkspace})
 	_ = storage.SaveMemory(&Memory{Key: "k2", Content: "c2", Category: CategoryConstraint, Scope: ScopeWorkspace})
 	_ = storage.SaveMemory(&Memory{Key: "k3", Content: "c3", Category: CategoryPreference, Scope: ScopeGlobal})
+	_ = storage.SaveMemory(&Memory{Key: "k4", Content: "c4", Category: CategoryWorkflow, Scope: ScopeWorkspace})
+
+	// Set distinct access counts and updated timestamps
+	thirtyDaysAgo := time.Now().Add(-30 * 24 * time.Hour).Format(time.RFC3339Nano)
+	_, _ = storage.db.Exec("UPDATE memories SET access_count = 0 WHERE key = 'k1'")
+	_, _ = storage.db.Exec("UPDATE memories SET access_count = 15 WHERE key = 'k2'")
+	_, _ = storage.db.Exec("UPDATE memories SET access_count = 5 WHERE key = 'k3'")
+	_, _ = storage.db.Exec("UPDATE memories SET access_count = 1, updated_at = ? WHERE key = 'k4'", thirtyDaysAgo)
 
 	diag, err := storage.DiagnoseMemories("all", "")
 	if err != nil {
 		t.Fatalf("DiagnoseMemories failed: %v", err)
 	}
-	if diag.TotalMemories != 3 {
-		t.Errorf("expected 3 total memories, got %d", diag.TotalMemories)
+	if diag.TotalMemories != 4 {
+		t.Errorf("expected 4 total memories, got %d", diag.TotalMemories)
 	}
-	if diag.ByScope[ScopeWorkspace] != 2 {
-		t.Errorf("expected 2 workspace memories, got %d", diag.ByScope[ScopeWorkspace])
+	if diag.ByScope[ScopeWorkspace] != 3 {
+		t.Errorf("expected 3 workspace memories, got %d", diag.ByScope[ScopeWorkspace])
 	}
 	if diag.ByScope[ScopeGlobal] != 1 {
 		t.Errorf("expected 1 global memory, got %d", diag.ByScope[ScopeGlobal])
@@ -894,5 +902,46 @@ func TestSQLiteStorage_MemoriesDiagnostics(t *testing.T) {
 	}
 	if diag.StorageBytes <= 0 {
 		t.Errorf("expected positive storage bytes, got %d", diag.StorageBytes)
+	}
+
+	// Verify MostAccessed ordering: strictly access_count DESC, updated_at DESC
+	if len(diag.MostAccessed) != 4 {
+		t.Fatalf("expected 4 most accessed memories, got %d", len(diag.MostAccessed))
+	}
+	if diag.MostAccessed[0].Key != "k2" || diag.MostAccessed[0].AccessCount != 15 {
+		t.Errorf("expected MostAccessed[0] to be k2 (access_count 15), got %s (%d)", diag.MostAccessed[0].Key, diag.MostAccessed[0].AccessCount)
+	}
+	if diag.MostAccessed[1].Key != "k3" || diag.MostAccessed[1].AccessCount != 5 {
+		t.Errorf("expected MostAccessed[1] to be k3 (access_count 5), got %s (%d)", diag.MostAccessed[1].Key, diag.MostAccessed[1].AccessCount)
+	}
+
+	// Verify StaleCandidates: access_count <= 1 OR updated_at < 14d cutoff
+	// k1 (access 0) and k4 (access 1, 30 days old) should be present; k2 (15) and k3 (5) should not
+	staleKeys := make(map[string]bool)
+	for _, s := range diag.StaleCandidates {
+		staleKeys[s.Key] = true
+	}
+	if !staleKeys["k1"] {
+		t.Errorf("expected k1 in stale candidates")
+	}
+	if !staleKeys["k4"] {
+		t.Errorf("expected k4 in stale candidates")
+	}
+	if staleKeys["k2"] || staleKeys["k3"] {
+		t.Errorf("frequently accessed memories (k2, k3) should not be in stale candidates")
+	}
+
+	// Verify scoped diagnostics
+	wsDiag, err := storage.DiagnoseMemories(ScopeWorkspace, "")
+	if err != nil {
+		t.Fatalf("DiagnoseMemories for workspace failed: %v", err)
+	}
+	if wsDiag.TotalMemories != 3 {
+		t.Errorf("expected 3 workspace memories, got %d", wsDiag.TotalMemories)
+	}
+	for _, m := range wsDiag.MostAccessed {
+		if m.Scope != ScopeWorkspace {
+			t.Errorf("expected workspace memory only, got %s (scope: %s)", m.Key, m.Scope)
+		}
 	}
 }
