@@ -17,6 +17,28 @@ func NewMemoryToolsAdapter(store storage.MemoryStore) tools.MemoryStore {
 	return &memoryStoreAdapter{store: store}
 }
 
+func toToolMemoryItem(stMem *storage.Memory) *tools.MemoryItem {
+	if stMem == nil {
+		return nil
+	}
+	return &tools.MemoryItem{
+		ID:             stMem.ID,
+		Key:            stMem.Key,
+		Content:        stMem.Content,
+		Category:       string(stMem.Category),
+		Tags:           stMem.Tags,
+		Scope:          string(stMem.Scope),
+		Confidence:     stMem.Confidence,
+		SessionID:      stMem.SessionID,
+		SourceNodeID:   stMem.SourceNodeID,
+		Metadata:       stMem.Metadata,
+		AccessCount:    stMem.AccessCount,
+		LastAccessedAt: stMem.LastAccessedAt,
+		CreatedAt:      stMem.CreatedAt,
+		UpdatedAt:      stMem.UpdatedAt,
+	}
+}
+
 func (a *memoryStoreAdapter) SaveMemory(mem *tools.MemoryItem) error {
 	if mem == nil {
 		return nil
@@ -45,22 +67,7 @@ func (a *memoryStoreAdapter) GetMemory(scope, sessionID, key string) (*tools.Mem
 	if err != nil || stMem == nil {
 		return nil, err
 	}
-	return &tools.MemoryItem{
-		ID:             stMem.ID,
-		Key:            stMem.Key,
-		Content:        stMem.Content,
-		Category:       string(stMem.Category),
-		Tags:           stMem.Tags,
-		Scope:          string(stMem.Scope),
-		Confidence:     stMem.Confidence,
-		SessionID:      stMem.SessionID,
-		SourceNodeID:   stMem.SourceNodeID,
-		Metadata:       stMem.Metadata,
-		AccessCount:    stMem.AccessCount,
-		LastAccessedAt: stMem.LastAccessedAt,
-		CreatedAt:      stMem.CreatedAt,
-		UpdatedAt:      stMem.UpdatedAt,
-	}, nil
+	return toToolMemoryItem(stMem), nil
 }
 
 func (a *memoryStoreAdapter) QueryMemories(filter tools.MemoryFilter) ([]tools.MemoryItem, error) {
@@ -80,22 +87,9 @@ func (a *memoryStoreAdapter) QueryMemories(filter tools.MemoryFilter) ([]tools.M
 	}
 	var out []tools.MemoryItem
 	for _, m := range stMems {
-		out = append(out, tools.MemoryItem{
-			ID:             m.ID,
-			Key:            m.Key,
-			Content:        m.Content,
-			Category:       string(m.Category),
-			Tags:           m.Tags,
-			Scope:          string(m.Scope),
-			Confidence:     m.Confidence,
-			SessionID:      m.SessionID,
-			SourceNodeID:   m.SourceNodeID,
-			Metadata:       m.Metadata,
-			AccessCount:    m.AccessCount,
-			LastAccessedAt: m.LastAccessedAt,
-			CreatedAt:      m.CreatedAt,
-			UpdatedAt:      m.UpdatedAt,
-		})
+		if item := toToolMemoryItem(&m); item != nil {
+			out = append(out, *item)
+		}
 	}
 	return out, nil
 }
@@ -122,23 +116,14 @@ func (a *memoryStoreAdapter) DiagnoseMemories(scope, sessionID string) (*tools.M
 		diag.ByCategory[string(cat)] = c
 	}
 	for _, m := range stDiag.MostAccessed {
-		diag.MostAccessed = append(diag.MostAccessed, tools.MemoryItem{
-			ID:          m.ID,
-			Key:         m.Key,
-			Category:    string(m.Category),
-			Scope:       string(m.Scope),
-			AccessCount: m.AccessCount,
-		})
+		if item := toToolMemoryItem(&m); item != nil {
+			diag.MostAccessed = append(diag.MostAccessed, *item)
+		}
 	}
 	for _, m := range stDiag.StaleCandidates {
-		diag.StaleCandidates = append(diag.StaleCandidates, tools.MemoryItem{
-			ID:          m.ID,
-			Key:         m.Key,
-			Category:    string(m.Category),
-			Scope:       string(m.Scope),
-			AccessCount: m.AccessCount,
-			UpdatedAt:   m.UpdatedAt,
-		})
+		if item := toToolMemoryItem(&m); item != nil {
+			diag.StaleCandidates = append(diag.StaleCandidates, *item)
+		}
 	}
 	return diag, nil
 }

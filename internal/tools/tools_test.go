@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/bartkleypas/please/internal/domain"
 )
 
 func TestReadFile_PaginationAndWindowing(t *testing.T) {
@@ -538,6 +540,9 @@ func (m *mockMemStore) SaveMemory(mem *MemoryItem) error {
 
 func (m *mockMemStore) GetMemory(scope, sessionID, key string) (*MemoryItem, error) {
 	if item, ok := m.items[key]; ok {
+		if scope != "" && item.Scope != scope {
+			return nil, nil
+		}
 		return item, nil
 	}
 	return nil, nil
@@ -546,8 +551,24 @@ func (m *mockMemStore) GetMemory(scope, sessionID, key string) (*MemoryItem, err
 func (m *mockMemStore) QueryMemories(filter MemoryFilter) ([]MemoryItem, error) {
 	var out []MemoryItem
 	for _, item := range m.items {
-		if filter.Query != "" && !strings.Contains(item.Content, filter.Query) && !strings.Contains(item.Key, filter.Query) {
+		if filter.Scope != "" && item.Scope != filter.Scope {
 			continue
+		}
+		if filter.Query != "" {
+			lowerQ := strings.ToLower(filter.Query)
+			matched := strings.Contains(strings.ToLower(item.Content), lowerQ) ||
+				strings.Contains(strings.ToLower(item.Key), lowerQ)
+			if !matched {
+				for _, tag := range item.Tags {
+					if strings.Contains(strings.ToLower(tag), lowerQ) {
+						matched = true
+						break
+					}
+				}
+			}
+			if !matched {
+				continue
+			}
 		}
 		if filter.Key != "" && item.Key != filter.Key {
 			continue
@@ -558,8 +579,14 @@ func (m *mockMemStore) QueryMemories(filter MemoryFilter) ([]MemoryItem, error) 
 }
 
 func (m *mockMemStore) DeleteMemory(scope, sessionID, key string) error {
-	delete(m.items, key)
-	return nil
+	if item, ok := m.items[key]; ok {
+		if scope != "" && item.Scope != scope {
+			return domain.ErrMemoryNotFound
+		}
+		delete(m.items, key)
+		return nil
+	}
+	return domain.ErrMemoryNotFound
 }
 
 func (m *mockMemStore) DiagnoseMemories(scope, sessionID string) (*MemoryDiagnostics, error) {
@@ -602,10 +629,11 @@ func TestMemoryTools(t *testing.T) {
 
 	// 1. Store valid memory
 	res, err := storeTool.Function(ctx, map[string]interface{}{
-		"key":      "arch:storage:wal",
-		"content":  "Always use SetMaxOpenConns(1) with SQLite WAL.",
-		"category": "constraint",
-		"tags":     []interface{}{"sqlite", "wal"},
+		"key":        "arch:storage:wal",
+		"content":    "Always use SetMaxOpenConns(1) with SQLite WAL.",
+		"category":   "constraint",
+		"confidence": 0.85,
+		"tags":       []interface{}{"sqlite", "wal"},
 	})
 	if err != nil {
 		t.Fatalf("memory_store failed: %v", err)
@@ -614,7 +642,7 @@ func TestMemoryTools(t *testing.T) {
 		t.Errorf("unexpected store output: %s", res)
 	}
 
-	// Verify session and node ID were attached
+	// Verify session, node ID, and confidence were attached
 	mem, err := store.GetMemory("workspace", "session-42", "arch:storage:wal")
 	if err != nil || mem == nil {
 		t.Fatalf("failed to get stored memory: %v", err)
@@ -624,6 +652,9 @@ func TestMemoryTools(t *testing.T) {
 	}
 	if mem.SourceNodeID != "node-100" {
 		t.Errorf("expected SourceNodeID 'node-100', got %q", mem.SourceNodeID)
+	}
+	if mem.Confidence != 0.85 {
+		t.Errorf("expected Confidence 0.85, got %f", mem.Confidence)
 	}
 
 	// 2. Secret token quarantine rejection (ADR 011)
@@ -649,6 +680,9 @@ func TestMemoryTools(t *testing.T) {
 	if !strings.Contains(recallRes, "arch:storage:wal") {
 		t.Errorf("expected recall to find arch:storage:wal, got: %s", recallRes)
 	}
+	if !strings.Contains(recallRes, "conf: 0.85") {
+		t.Errorf("expected recall to display confidence, got: %s", recallRes)
+	}
 
 	// 4. Diagnose memory bank
 	diagRes, err := diagnoseTool.Function(ctx, map[string]interface{}{})
@@ -659,7 +693,57 @@ func TestMemoryTools(t *testing.T) {
 		t.Errorf("expected 1 total memory in diagnose output, got: %s", diagRes)
 	}
 
-	// 5. Delete memory
+	detailedDiag, err := diagnoseTool.Function(ctx, map[string]interface{}{
+		"detailed": true,
+	})
+	if err != nil {
+		t.Fatalf("memory_diagnose (detailed) failed: %v", err)
+	}
+	if !strings.Contains(detailedDiag, `"confidence": 0.85`) {
+		t.Errorf("expected detailed diagnose to show non-zero confidence 0.85, got: %s", detailedDiag)
+	}
+
+	// 5. Inexact memory delete impulse should return actionable hint
+	_, err = deleteTool.Function(ctx, map[string]interface{}{
+		"key": "arch:storage",
+	})
+	if err == nil {
+		t.Fatal("expected error when deleting inexact memory key, got nil")
+	}
+	if !strings.Contains(err.Error(), "0 records deleted") || !strings.Contains(err.Error(), "Did you mean: arch:storage:wal?") {
+		t.Errorf("expected actionable hint in error, got: %v", err)
+	}
+
+	// Nonexistent key with no close matches
+	_, err = deleteTool.Function(ctx, map[string]interface{}{
+		"key": "nonexistent:key",
+	})
+	if err == nil {
+		t.Fatal("expected error when deleting nonexistent key, got nil")
+	}
+	if !strings.Contains(err.Error(), "0 records deleted") {
+		t.Errorf("expected '0 records deleted' in error, got: %v", err)
+	}
+
+	// Scope mismatch hint: store in global scope, then attempt delete in workspace scope
+	_, _ = storeTool.Function(ctx, map[string]interface{}{
+		"key":      "preference:theme",
+		"content":  "dark mode",
+		"category": "preference",
+		"scope":    "global",
+	})
+	_, err = deleteTool.Function(ctx, map[string]interface{}{
+		"key":   "preference:theme",
+		"scope": "workspace",
+	})
+	if err == nil {
+		t.Fatal("expected error when deleting global key under workspace scope, got nil")
+	}
+	if !strings.Contains(err.Error(), "exists in scope \"global\"") {
+		t.Errorf("expected scope suggestion in error, got: %v", err)
+	}
+
+	// 6. Delete existing memory
 	delRes, err := deleteTool.Function(ctx, map[string]interface{}{
 		"key": "arch:storage:wal",
 	})
@@ -668,6 +752,17 @@ func TestMemoryTools(t *testing.T) {
 	}
 	if !strings.Contains(delRes, "Deleted memory") {
 		t.Errorf("unexpected delete output: %s", delRes)
+	}
+
+	// Redundant delete should now report 0 records deleted
+	_, err = deleteTool.Function(ctx, map[string]interface{}{
+		"key": "arch:storage:wal",
+	})
+	if err == nil {
+		t.Fatal("expected error on redundant memory_delete, got nil")
+	}
+	if !strings.Contains(err.Error(), "0 records deleted") {
+		t.Errorf("expected '0 records deleted' on redundant delete, got: %v", err)
 	}
 
 	// Verify recall after delete returns empty

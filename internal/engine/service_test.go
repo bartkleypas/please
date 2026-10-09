@@ -1387,13 +1387,28 @@ func (m *MockMemoryStorage) QueryMemories(filter storage.MemoryFilter) ([]storag
 
 func (m *MockMemoryStorage) DeleteMemory(scope storage.MemoryScope, sessionID, key string) error {
 	if m.memories != nil {
+		if _, ok := m.memories[key]; !ok {
+			return storage.ErrMemoryNotFound
+		}
 		delete(m.memories, key)
+		return nil
 	}
-	return nil
+	return storage.ErrMemoryNotFound
 }
 
 func (m *MockMemoryStorage) DiagnoseMemories(scope storage.MemoryScope, sessionID string) (*storage.MemoryDiagnostics, error) {
-	return &storage.MemoryDiagnostics{TotalMemories: len(m.memories)}, nil
+	diag := &storage.MemoryDiagnostics{
+		TotalMemories: len(m.memories),
+		ByScope:       make(map[storage.MemoryScope]int),
+		ByCategory:    make(map[storage.MemoryCategory]int),
+	}
+	for _, mem := range m.memories {
+		diag.ByScope[mem.Scope]++
+		diag.ByCategory[mem.Category]++
+		diag.MostAccessed = append(diag.MostAccessed, *mem)
+		diag.StaleCandidates = append(diag.StaleCandidates, *mem)
+	}
+	return diag, nil
 }
 
 func TestBuildLLMContext_RecalledMemories(t *testing.T) {

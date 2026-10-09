@@ -78,6 +78,9 @@ func TestMemoryToolsAdapter_RoundTrip(t *testing.T) {
 	if retrieved.Category != "architecture" || retrieved.Scope != "workspace" {
 		t.Errorf("unexpected category/scope: %s/%s", retrieved.Category, retrieved.Scope)
 	}
+	if retrieved.Confidence != 1.0 {
+		t.Errorf("expected retrieved confidence 1.0, got %f", retrieved.Confidence)
+	}
 
 	// 4. Test GetMemory not found
 	missing, err := adapter.GetMemory("workspace", "session-main", "non_existent")
@@ -99,6 +102,9 @@ func TestMemoryToolsAdapter_RoundTrip(t *testing.T) {
 	if len(results) != 1 || results[0].Key != "arch_convention" {
 		t.Fatalf("expected 1 matching result, got %d", len(results))
 	}
+	if results[0].Confidence != 1.0 {
+		t.Errorf("expected query result confidence 1.0, got %f", results[0].Confidence)
+	}
 
 	// 6. Test DeleteMemory
 	if err := adapter.DeleteMemory("workspace", "session-main", "arch_convention"); err != nil {
@@ -107,6 +113,11 @@ func TestMemoryToolsAdapter_RoundTrip(t *testing.T) {
 	afterDelete, _ := adapter.GetMemory("workspace", "session-main", "arch_convention")
 	if afterDelete != nil {
 		t.Errorf("expected item to be deleted, but still found: %+v", afterDelete)
+	}
+
+	// Deleting already deleted or nonexistent key should fail
+	if err := adapter.DeleteMemory("workspace", "session-main", "arch_convention"); err == nil {
+		t.Errorf("expected error on deleting nonexistent memory, got nil")
 	}
 }
 
@@ -121,6 +132,7 @@ func TestMemoryToolsAdapter_DiagnoseMemories(t *testing.T) {
 		Content:     "content 1",
 		Category:    storage.CategoryConstraint,
 		Scope:       storage.ScopeWorkspace,
+		Confidence:  0.85,
 		AccessCount: 10,
 		UpdatedAt:   now,
 	})
@@ -130,6 +142,7 @@ func TestMemoryToolsAdapter_DiagnoseMemories(t *testing.T) {
 		Content:     "content 2",
 		Category:    storage.CategoryPreference,
 		Scope:       storage.ScopeGlobal,
+		Confidence:  0.95,
 		AccessCount: 2,
 		UpdatedAt:   now.Add(-24 * time.Hour),
 	})
@@ -144,5 +157,21 @@ func TestMemoryToolsAdapter_DiagnoseMemories(t *testing.T) {
 	}
 	if diag.TotalMemories != 2 {
 		t.Errorf("expected 2 total memories, got %d", diag.TotalMemories)
+	}
+	if len(diag.MostAccessed) != 2 {
+		t.Fatalf("expected 2 most accessed memories, got %d", len(diag.MostAccessed))
+	}
+	for _, m := range diag.MostAccessed {
+		if m.Confidence <= 0 {
+			t.Errorf("expected positive confidence on most accessed memory %q, got %f", m.Key, m.Confidence)
+		}
+	}
+	if len(diag.StaleCandidates) != 2 {
+		t.Fatalf("expected 2 stale candidate memories, got %d", len(diag.StaleCandidates))
+	}
+	for _, m := range diag.StaleCandidates {
+		if m.Confidence <= 0 {
+			t.Errorf("expected positive confidence on stale candidate memory %q, got %f", m.Key, m.Confidence)
+		}
 	}
 }

@@ -1,6 +1,12 @@
 package domain
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"errors"
+)
+
+// ErrMemoryNotFound indicates that a requested memory record does not exist.
+var ErrMemoryNotFound = errors.New("memory not found")
 
 // Role defines the speaker or category of a message turn.
 type Role string

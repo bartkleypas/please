@@ -3,6 +3,7 @@ package storage
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -545,6 +546,14 @@ func TestSQLiteStorage_MemoriesCRUD(t *testing.T) {
 	if deleted != nil {
 		t.Errorf("expected nil after delete, got %+v", deleted)
 	}
+
+	// 5. Redundant and nonexistent deletion should return ErrMemoryNotFound
+	if err := storage.DeleteMemory(ScopeWorkspace, "", "arch:storage:wal"); !errors.Is(err, ErrMemoryNotFound) {
+		t.Errorf("expected ErrMemoryNotFound on redundant delete, got: %v", err)
+	}
+	if err := storage.DeleteMemory(ScopeWorkspace, "", "nonexistent:key"); !errors.Is(err, ErrMemoryNotFound) {
+		t.Errorf("expected ErrMemoryNotFound on nonexistent delete, got: %v", err)
+	}
 }
 
 func TestSQLiteStorage_MemoriesFTS(t *testing.T) {
@@ -601,6 +610,119 @@ func TestSQLiteStorage_MemoriesFTS(t *testing.T) {
 	}
 	if len(tagResults) != 1 || tagResults[0].Key != "workflow:bell" {
 		t.Errorf("expected workflow:bell, got %+v", tagResults)
+	}
+}
+
+func TestSQLiteStorage_EncryptedMemories_FTS(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "memories-enc-fts-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	encKey := "topsecret-encryption-key-32-chars!"
+	storage, err := NewSQLiteStorage(dbPath, encKey)
+	if err != nil {
+		t.Fatalf("NewSQLiteStorage failed: %v", err)
+	}
+
+	err = storage.SaveMemory(&Memory{
+		Key:      "arch:something:other",
+		Content:  "xcodebuild is used for macOS and iOS compilation.",
+		Category: CategoryArchitecture,
+		Tags:     []string{"build", "ios"},
+		Scope:    ScopeWorkspace,
+	})
+	if err != nil {
+		t.Fatalf("SaveMemory failed: %v", err)
+	}
+
+	// 1. Search for tag "ios"
+	tagResults, err := storage.QueryMemories(MemoryFilter{
+		Query: "ios",
+		Scope: ScopeWorkspace,
+	})
+	if err != nil {
+		t.Fatalf("QueryMemories for tag 'ios' failed: %v", err)
+	}
+	if len(tagResults) != 1 {
+		t.Errorf("expected 1 result for tag 'ios', got %d", len(tagResults))
+	}
+
+	// 2. Search for content "xcodebuild"
+	contentResults, err := storage.QueryMemories(MemoryFilter{
+		Query: "xcodebuild",
+		Scope: ScopeWorkspace,
+	})
+	if err != nil {
+		t.Fatalf("QueryMemories for content failed: %v", err)
+	}
+	if len(contentResults) != 1 {
+		t.Errorf("expected 1 result for content 'xcodebuild', got %d", len(contentResults))
+	}
+
+	// 3. Search for key prefix with colon "arch:something"
+	keyResults, err := storage.QueryMemories(MemoryFilter{
+		Query: "arch:something",
+		Scope: ScopeWorkspace,
+	})
+	if err != nil {
+		t.Fatalf("QueryMemories for key query failed: %v", err)
+	}
+	if len(keyResults) != 1 {
+		t.Errorf("expected 1 result for key 'arch:something', got %d", len(keyResults))
+	}
+
+	// 4. Search for negative term
+	noneResults, err := storage.QueryMemories(MemoryFilter{
+		Query: "nonexistent",
+		Scope: ScopeWorkspace,
+	})
+	if err != nil {
+		t.Fatalf("QueryMemories for nonexistent failed: %v", err)
+	}
+	if len(noneResults) != 0 {
+		t.Errorf("expected 0 results for nonexistent query, got %d", len(noneResults))
+	}
+}
+
+func TestSQLiteStorage_FTS_ColonFallback(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "memories-colon-fts-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	storage, err := NewSQLiteStorage(dbPath, "")
+	if err != nil {
+		t.Fatalf("NewSQLiteStorage failed: %v", err)
+	}
+
+	// Add an unencrypted memory
+	err = storage.SaveMemory(&Memory{
+		Key:      "arch:something:other",
+		Content:  "xcodebuild is used for macOS and iOS compilation.",
+		Category: CategoryArchitecture,
+		Tags:     []string{"build", "ios"},
+		Scope:    ScopeWorkspace,
+	})
+	if err != nil {
+		t.Fatalf("SaveMemory failed: %v", err)
+	}
+
+	// FTS5 treats colons as column prefixes. Since 'arch' is not a column,
+	// this triggers an error in raw FTS5 and must fall back to LIKE matching cleanly.
+	results, err := storage.QueryMemories(MemoryFilter{
+		Query: "arch:something",
+		Scope: ScopeWorkspace,
+	})
+	if err != nil {
+		t.Fatalf("QueryMemories with colon query failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("expected 1 result for colon query 'arch:something', got %d", len(results))
 	}
 }
 

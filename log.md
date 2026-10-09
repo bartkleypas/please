@@ -258,6 +258,19 @@ All updates and modifications to this knowledge bundle are tracked chronological
         *   Refactored pagination banners in [sense.go](internal/tools/sense.go) to replace stop-signal phrasing (`(Limit reached; ...)` and `(Byte budget reached; ...)`) with neutral, informative coordinates (`— N lines remaining (offset: X to continue)`).
         *   Eliminates premature model truncation and task abandonment during sequential file reads.
 
+## 2026-10-08
 
-
-
+*   **Sensory Memory Deletion Telemetry & No-Op Prevention**:
+    *   Defined `ErrMemoryNotFound` in [models.go](internal/domain/models.go) and [storage.go](internal/storage/storage.go).
+    *   Updated `SQLiteStorage.DeleteMemory` in [sqlite.go](internal/storage/sqlite.go) to inspect `res.RowsAffected()` and return `ErrMemoryNotFound` when zero rows are matched or deleted.
+    *   Refactored `MemoryDeleteTool` in [memory.go](internal/tools/memory.go) to intercept `ErrMemoryNotFound` and return descriptive error feedback with zero-records-deleted telemetry and fuzzy key suggestions (`Did you mean: <matches>?`) or cross-scope hints (`exists in scope "global"`), preventing silent no-op failures and context desynchronization when a model issues an inexact memory deletion impulse.
+*   **Memory Confidence Adapter Mapping & Recall Visibility**:
+    *   Extracted `toToolMemoryItem()` in [memory_adapter.go](internal/engine/memory_adapter.go) to unify struct conversions between `storage.Memory` and `tools.MemoryItem`.
+    *   Fixed bug in `DiagnoseMemories()` where `Confidence` (and other attributes) was dropped during struct mapping for `MostAccessed` and `StaleCandidates`, causing the model to observe `confidence: 0` when inspecting memories.
+    *   Surfaced `conf: %.2f` scores in `MemoryRecallTool` output in [memory.go](internal/tools/memory.go) and added integer fallback parsing for `confidence` parameter input.
+*   **Encrypted Memory Content Search & Robust FTS Query Fallback**:
+    *   Resolved issue where memory searches failed to match text within `content` in encrypted vaults (e.g., searching for `xcodebuild` when key is `arch:something:other` and tags are `["build", "ios"]`).
+    *   In encrypted vaults (`encryptionKey != ""`), `content` is stored as AES-GCM ciphertext (`enc:v1:...`) in SQLite and virtual tables (`memories_fts`) to preserve zero-knowledge security invariants, preventing native SQLite FTS / LIKE matching on encrypted columns.
+    *   Enhanced `QueryMemories` and `queryMemoriesFallbackLike` in [sqlite.go](internal/storage/sqlite.go) to query candidate records by scope/category/session in SQL and perform post-decryption matching against `mem.Content`, `mem.Key`, and `mem.Tags` in Go memory, respecting search limits and access telemetry.
+    *   Broadened FTS query error recovery in `QueryMemories` to fall back to LIKE matching and in-memory evaluation for all query syntax/tokenization failures (such as colons in `arch:something`), eliminating `no such column` failures when colons or operators are queried.
+    *   Added regression test coverage in `TestSQLiteStorage_EncryptedMemories_FTS` and `TestSQLiteStorage_FTS_ColonFallback` in [storage_test.go](internal/storage/storage_test.go).

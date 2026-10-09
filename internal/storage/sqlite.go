@@ -765,10 +765,17 @@ func (s *SQLiteStorage) QueryMemories(filter MemoryFilter) ([]Memory, error) {
 	}
 
 	// Full-text or substring query
-	if filter.Query != "" {
-		qPattern := "%" + filter.Query + "%"
-		conditions = append(conditions, "(rowid IN (SELECT rowid FROM memories_fts WHERE memories_fts MATCH ?) OR key LIKE ? OR content LIKE ? OR tags LIKE ?)")
-		args = append(args, filter.Query, qPattern, qPattern, qPattern)
+	trimmedQuery := strings.TrimSpace(filter.Query)
+	if trimmedQuery != "" {
+		if s.encryptionKey == "" {
+			qPattern := "%" + trimmedQuery + "%"
+			conditions = append(conditions, "(rowid IN (SELECT rowid FROM memories_fts WHERE memories_fts MATCH ?) OR key LIKE ? OR content LIKE ? OR tags LIKE ?)")
+			args = append(args, trimmedQuery, qPattern, qPattern, qPattern)
+		}
+		// In encrypted vaults (s.encryptionKey != ""), content in SQLite is AES-GCM ciphertext.
+		// Content must not be stored in plaintext in memories_fts (zero-knowledge invariant).
+		// We avoid filtering by query in SQL so candidate records can be decrypted and matched
+		// in-memory across content, key, and tags below.
 	}
 
 	whereClause := ""
@@ -780,7 +787,14 @@ func (s *SQLiteStorage) QueryMemories(filter MemoryFilter) ([]Memory, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	args = append(args, limit)
+	fetchLimit := limit
+	if s.encryptionKey != "" && trimmedQuery != "" {
+		fetchLimit = limit * 20
+		if fetchLimit < 1000 {
+			fetchLimit = 1000
+		}
+	}
+	args = append(args, fetchLimit)
 
 	query := fmt.Sprintf(`
 	SELECT id, key, content, category, tags, scope, confidence, session_id, source_node_id, metadata, access_count, last_accessed_at, created_at, updated_at
@@ -792,8 +806,8 @@ func (s *SQLiteStorage) QueryMemories(filter MemoryFilter) ([]Memory, error) {
 
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
-		// If FTS5 query failed, retry with pure LIKE conditions
-		if filter.Query != "" && strings.Contains(err.Error(), "fts") {
+		// If query failed (e.g. FTS5 syntax or column tokenization error), retry with pure LIKE conditions
+		if filter.Query != "" {
 			return s.queryMemoriesFallbackLike(filter)
 		}
 		return nil, fmt.Errorf("failed to query memories: %w", err)
@@ -857,6 +871,24 @@ func (s *SQLiteStorage) QueryMemories(filter MemoryFilter) ([]Memory, error) {
 			mem.LastAccessedAt = &t
 		}
 
+		// When vault encryption is active, match query against decrypted content, key, and tags in memory
+		if s.encryptionKey != "" && trimmedQuery != "" {
+			lowerQ := strings.ToLower(trimmedQuery)
+			matched := strings.Contains(strings.ToLower(mem.Content), lowerQ) ||
+				strings.Contains(strings.ToLower(mem.Key), lowerQ)
+			if !matched {
+				for _, tag := range mem.Tags {
+					if strings.Contains(strings.ToLower(tag), lowerQ) {
+						matched = true
+						break
+					}
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
+
 		// Optional in-memory tag filter matching
 		if len(filter.Tags) > 0 {
 			hasTag := false
@@ -878,6 +910,10 @@ func (s *SQLiteStorage) QueryMemories(filter MemoryFilter) ([]Memory, error) {
 
 		memories = append(memories, mem)
 		matchedIDs = append(matchedIDs, mem.ID)
+
+		if len(memories) >= limit {
+			break
+		}
 	}
 
 	if err := rows.Err(); err != nil {
@@ -936,10 +972,13 @@ func (s *SQLiteStorage) queryMemoriesFallbackLike(filter MemoryFilter) ([]Memory
 		args = append(args, filter.Key, filter.Key+":%")
 	}
 
-	if filter.Query != "" {
-		qPattern := "%" + filter.Query + "%"
-		conditions = append(conditions, "(key LIKE ? OR content LIKE ? OR tags LIKE ?)")
-		args = append(args, qPattern, qPattern, qPattern)
+	trimmedQuery := strings.TrimSpace(filter.Query)
+	if trimmedQuery != "" {
+		if s.encryptionKey == "" {
+			qPattern := "%" + trimmedQuery + "%"
+			conditions = append(conditions, "(key LIKE ? OR content LIKE ? OR tags LIKE ?)")
+			args = append(args, qPattern, qPattern, qPattern)
+		}
 	}
 
 	whereClause := ""
@@ -951,7 +990,14 @@ func (s *SQLiteStorage) queryMemoriesFallbackLike(filter MemoryFilter) ([]Memory
 	if limit <= 0 {
 		limit = 50
 	}
-	args = append(args, limit)
+	fetchLimit := limit
+	if s.encryptionKey != "" && trimmedQuery != "" {
+		fetchLimit = limit * 20
+		if fetchLimit < 1000 {
+			fetchLimit = 1000
+		}
+	}
+	args = append(args, fetchLimit)
 
 	query := fmt.Sprintf(`
 	SELECT id, key, content, category, tags, scope, confidence, session_id, source_node_id, metadata, access_count, last_accessed_at, created_at, updated_at
@@ -968,6 +1014,8 @@ func (s *SQLiteStorage) queryMemoriesFallbackLike(filter MemoryFilter) ([]Memory
 	defer rows.Close()
 
 	var memories []Memory
+	var matchedIDs []string
+
 	for rows.Next() {
 		var mem Memory
 		var encContent, catStr, tagsStr, scopeStr, metadataStr string
@@ -1022,11 +1070,72 @@ func (s *SQLiteStorage) queryMemoriesFallbackLike(filter MemoryFilter) ([]Memory
 			mem.LastAccessedAt = &t
 		}
 
+		// When vault encryption is active, match query against decrypted content, key, and tags in memory
+		if s.encryptionKey != "" && trimmedQuery != "" {
+			lowerQ := strings.ToLower(trimmedQuery)
+			matched := strings.Contains(strings.ToLower(mem.Content), lowerQ) ||
+				strings.Contains(strings.ToLower(mem.Key), lowerQ)
+			if !matched {
+				for _, tag := range mem.Tags {
+					if strings.Contains(strings.ToLower(tag), lowerQ) {
+						matched = true
+						break
+					}
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
+
+		// Optional in-memory tag filter matching
+		if len(filter.Tags) > 0 {
+			hasTag := false
+			for _, reqTag := range filter.Tags {
+				for _, memTag := range mem.Tags {
+					if strings.EqualFold(reqTag, memTag) {
+						hasTag = true
+						break
+					}
+				}
+				if hasTag {
+					break
+				}
+			}
+			if !hasTag {
+				continue
+			}
+		}
+
 		memories = append(memories, mem)
+		matchedIDs = append(matchedIDs, mem.ID)
+
+		if len(memories) >= limit {
+			break
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating search memories: %w", err)
 	}
+
+	// Update telemetry access timestamp only when actively recalled by agent (Touch == true)
+	if filter.Touch && len(matchedIDs) > 0 {
+		now := time.Now()
+		nowStr := now.Format(time.RFC3339Nano)
+		placeholders := strings.Repeat("?,", len(matchedIDs))
+		placeholders = placeholders[:len(placeholders)-1]
+		updateArgs := make([]interface{}, len(matchedIDs)+1)
+		updateArgs[0] = nowStr
+		for i, id := range matchedIDs {
+			updateArgs[i+1] = id
+		}
+		_, _ = s.db.Exec(fmt.Sprintf("UPDATE memories SET access_count = access_count + 1, last_accessed_at = ? WHERE id IN (%s)", placeholders), updateArgs...)
+		for i := range memories {
+			memories[i].AccessCount++
+			memories[i].LastAccessedAt = &now
+		}
+	}
+
 	return memories, nil
 }
 
@@ -1040,9 +1149,16 @@ func (s *SQLiteStorage) DeleteMemory(scope MemoryScope, sessionID, key string) e
 	}
 
 	query := `DELETE FROM memories WHERE scope = ? AND COALESCE(session_id, '') = ? AND key = ?`
-	_, err := s.db.Exec(query, string(scope), sessionID, key)
+	res, err := s.db.Exec(query, string(scope), sessionID, key)
 	if err != nil {
 		return fmt.Errorf("failed to delete memory %q: %w", key, err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to determine affected rows for memory %q: %w", key, err)
+	}
+	if rows == 0 {
+		return ErrMemoryNotFound
 	}
 	return nil
 }
