@@ -78,19 +78,24 @@ func (m *Model) syncViewportDimensions() {
 		activeView = m.ViewStack.Top().Name()
 	}
 
+	notifLines := 0
+	if m.Notification != "" {
+		notifLines = strings.Count(m.Notification, "\n") + 2
+	}
+
 	if activeView == "map" || m.ViewMode == ModeMap {
 		if m.Searching {
 			// Title (2) + History borders (2) + Spacing (1) + Search box (5) + Spacing (1) + Footer (1) = 12
-			m.Viewport.Height = m.Height - 12
+			m.Viewport.Height = m.Height - 12 - notifLines
 		} else {
 			// Title (2) + History borders (2) + Spacing (1) + Footer (1) = 6
-			m.Viewport.Height = m.Height - 6
+			m.Viewport.Height = m.Height - 6 - notifLines
 		}
 	} else if activeView == "memories" || activeView == "memory_card" || m.ViewMode == ModeMemories {
-		m.Viewport.Height = m.Height - 6
+		m.Viewport.Height = m.Height - 6 - notifLines
 	} else {
 		// Chat mode: Title (2) + History borders (2) + Spacing (1) + Input box (5) + Spacing (1) + Footer (1) = 12
-		m.Viewport.Height = m.Height - 12
+		m.Viewport.Height = m.Height - 12 - notifLines
 	}
 
 	if m.Viewport.Height < 4 {
@@ -142,7 +147,14 @@ func (m Model) View() string {
 	s := titleStyle.Render(titleText) + "\n\n"
 
 	if m.Notification != "" {
-		s += markStyle.Render("! "+m.Notification+" !") + "\n\n"
+		notif := m.Notification
+		if m.Width > 8 && lipgloss.Width(notif) > m.Width-8 {
+			runes := []rune(notif)
+			if len(runes) > m.Width-8 {
+				notif = string(runes[:m.Width-11]) + "..."
+			}
+		}
+		s += markStyle.Render("! "+notif+" !") + "\n\n"
 	}
 
 	s += historyBoxStyle.Render(m.Viewport.View())

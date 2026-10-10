@@ -36,6 +36,7 @@ type ToolCall struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
 	} `json:"function"`
+	ExtraContent json.RawMessage `json:"extra_content,omitempty"`
 }
 
 // ToolObservation represents the result of a tool execution fed back to the LLM.

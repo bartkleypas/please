@@ -1,0 +1,20 @@
+{
+  "version": 2,
+  "mode": "standalone",
+  "server": {
+    "provider": "openai",
+    "model": "gemini-3.8-flash",
+    "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    "api_key": "YOUR_GEMINI_API_KEY",
+    "storage_type": "sqlite",
+    "vault": "./vault.db",
+    "signat_steering": true,
+    "ambient_telemetry": true,
+    "sandbox_policy": "standard",
+    "options": {
+      "temperature": 0.7,
+      "top_p": 0.95,
+      "max_tokens": 8192
+    }
+  }
+}

@@ -44,6 +44,7 @@ cp examples/configs/mlx-gemma4-26b.json "$HOME/Library/Application Support/pleas
 | [`mlx-gemma4-e4b.json`](mlx-gemma4-e4b.json) | Local MLX (OpenAI-compatible) | `gemma4:e4b-mlx` | **Fast / Mobile Local**: Snappy responses, 32k context, optimized for laptops (MacBook Air / Pro with 16GB–24GB RAM). |
 | [`ollama-local.json`](ollama-local.json) | Local Ollama | `gemma4:9b` | **Universal Local Runner**: Zero-config local runner connecting to `localhost:11434`. |
 | [`openrouter-cloud.json`](openrouter-cloud.json) | OpenRouter / OpenAI API | `anthropic/claude-3.7-sonnet` | **Cloud Multi-Model**: Route prompts through cloud endpoints with environment secret expansion. |
+| [`google-aistudio.json`](google-aistudio.json) | Google AI Studio (OpenAI-compatible) | `gemini-3.8-flash` | **Google Gemini Cloud**: Connect directly to Google AI Studio via its OpenAI-compatible endpoint with your Gemini API key. |
 | [`daemon-server.json`](daemon-server.json) | Headless Daemon | `gemma4:26b-mlx` | **Server Daemon**: Runs `please serve` on port 9190 with bearer token auth and SQLite vault persistence. |
 | [`client-remote.json`](client-remote.json) | Thin Client | — | **Remote TUI**: Connects `please connect` to a remote or headless daemon with natural pacing enabled. |
 

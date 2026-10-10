@@ -467,6 +467,9 @@ func TestNormalizeOpenAIEndpoint(t *testing.T) {
 		{"localhost:11434/v1", "http://localhost:11434/v1/chat/completions"},
 		{"127.0.0.1:8000/v1", "http://127.0.0.1:8000/v1/chat/completions"},
 		{"https://openrouter.ai/api/v1", "https://openrouter.ai/api/v1/chat/completions"},
+		{"https://generativelanguage.googleapis.com/v1beta/openai", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"},
+		{"https://generativelanguage.googleapis.com/v1beta/openai/", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"},
+		{"https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"},
 	}
 
 	for _, tc := range cases {
