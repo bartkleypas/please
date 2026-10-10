@@ -290,6 +290,11 @@ All updates and modifications to this knowledge bundle are tracked chronological
     *   Implemented smart defaulting in `SpawnSubagentTool` in [delegate.go](internal/tools/delegate.go): omitting `tool_preset` while specifying `isolate_worktree: false` automatically defaults to `tool_preset: "read_only"`.
     *   Enforced explicit sensory contract validation across [delegate.go](internal/tools/delegate.go) and [delegate.go](internal/engine/delegate.go): explicitly requesting mutating tools (`tool_preset: "full"`) alongside `isolate_worktree: false` is rejected with an actionable error prompting the model to enable worktree isolation or switch to `read_only`.
     *   Added regression test coverage in [delegate_test.go](internal/tools/delegate_test.go) and [delegate_test.go](internal/engine/delegate_test.go).
+*   **Subagent Session Resolution & Result Propagation**:
+    *   Added `SessionID` to `SubagentResult` in [internal/tools/delegate.go](internal/tools/delegate.go) and [internal/engine/delegate.go](internal/engine/delegate.go). When `spawn_subagent` concludes, parent models receive the explicit `session_id` (`sub_<short-uuid>`) in the tool observation, eliminating reliance on human-assigned session labels.
+    *   Implemented `resolveCanonicalSession` in [internal/engine/delegate.go](internal/engine/delegate.go) to map session labels, `subsession/<id>` branches, and canonical session IDs seamlessly across in-memory tracking, SQLite `sessions`, and node metadata hierarchies with automatic graph reloading (`Sync()`).
+    *   Enhanced `InspectSubagent` and `ReconcileSubagent` in [internal/engine/delegate.go](internal/engine/delegate.go) to accept either session IDs or session labels interchangeably, preventing `0 steps recorded` false reports and reconciling the true worktree branches rather than creating phantom branches.
+    *   Expanded test coverage in [internal/engine/delegate_test.go](internal/engine/delegate_test.go) verifying forensic inspection and branch reconciliation by session label.
 
 
 

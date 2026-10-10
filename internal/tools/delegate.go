@@ -35,6 +35,7 @@ type CandidateMemory struct {
 
 // SubagentResult defines the structured observation returned to the parent agent.
 type SubagentResult struct {
+	SessionID         string            `json:"session_id"`
 	Status            string            `json:"status"` // "completed", "budget_exhausted", "failed", "cancelled"
 	StepsUsed         int               `json:"steps_used"`
 	Summary           string            `json:"summary"`
@@ -220,7 +221,7 @@ func ReconcileSubagentTool(reconciler SubagentReconciler) Tool {
 			"properties": map[string]interface{}{
 				"session_id": map[string]interface{}{
 					"type":        "string",
-					"description": "Identifier of the subagent session to reconcile (e.g. 'sub_1234abcd').",
+					"description": "Identifier of the subagent session (e.g. 'sub_1234abcd') or session label to reconcile.",
 				},
 				"target_dir": map[string]interface{}{
 					"type":        "string",
@@ -297,7 +298,7 @@ func InspectSubagentTool(auditor SubagentAuditor) Tool {
 			"properties": map[string]interface{}{
 				"session_id": map[string]interface{}{
 					"type":        "string",
-					"description": "Identifier of the subagent session to inspect.",
+					"description": "Identifier of the subagent session (e.g. 'sub_1234abcd') or session label to inspect.",
 				},
 				"view": map[string]interface{}{
 					"type":        "string",

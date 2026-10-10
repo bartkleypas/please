@@ -279,6 +279,54 @@ func TestSubagentOrchestrator_ReconcileSubagent(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(repoDir, "discard.txt")); !os.IsNotExist(err) {
 		t.Errorf("discarded file should not exist in primary workspace")
 	}
+
+	// 3. Discard strategy using session_label instead of subID
+	subID3 := "sub_orch_label_discard"
+	label3 := "experimental-refactor-label"
+	branch3 := "subsession/" + subID3
+	wtDir3, _, _ := wtMgr.EnsureWorktreeBranch(subID3, branch3)
+	_ = os.WriteFile(filepath.Join(wtDir3, "label_discard.txt"), []byte("throwaway label"), 0644)
+	exec.Command(gitPath, "-C", wtDir3, "add", "label_discard.txt").Run()
+	exec.Command(gitPath, "-C", wtDir3, "commit", "-m", "throwaway commit label").Run()
+
+	userNode3 := &graph.Node{
+		ID:        "node_user_label_3",
+		Role:      domain.RoleUser,
+		Content:   "Refactor experiment",
+		Timestamp: time.Now(),
+		Metadata: map[string]string{
+			"session_id":    subID3,
+			"session_label": label3,
+			"subagent":      "true",
+		},
+	}
+	asstNode3 := &graph.Node{
+		ID:        "node_asst_label_3",
+		ParentID:  userNode3.ID,
+		Role:      domain.RoleAssistant,
+		Content:   "Finished experiment",
+		Timestamp: time.Now(),
+	}
+	g.AddNode(userNode3)
+	g.AddNode(asstNode3)
+	_ = sqlStore.SaveNode(userNode3)
+	_ = sqlStore.SaveNode(asstNode3)
+	_ = sqlStore.SaveSessionHead(subID3, asstNode3.ID)
+
+	discardByLabelRes, err := orchestrator.ReconcileSubagent(context.Background(), tools.ReconcileSubagentRequest{
+		SessionID:       label3,
+		Strategy:        "discard",
+		CleanupWorktree: true,
+	})
+	if err != nil {
+		t.Fatalf("discard by label failed: %v", err)
+	}
+	if discardByLabelRes.Strategy != "discard" {
+		t.Errorf("expected strategy 'discard', got %s", discardByLabelRes.Strategy)
+	}
+	if _, err := os.Stat(filepath.Join(repoDir, "label_discard.txt")); !os.IsNotExist(err) {
+		t.Errorf("discarded file should not exist in primary workspace")
+	}
 }
 
 func TestSubagentOrchestrator_InspectSubagent(t *testing.T) {
@@ -305,8 +353,9 @@ func TestSubagentOrchestrator_InspectSubagent(t *testing.T) {
 		Content:   "Analyze security policies",
 		Timestamp: time.Now(),
 		Metadata: map[string]string{
-			"session_id": subID,
-			"subagent":   "true",
+			"session_id":    subID,
+			"session_label": "audit-auth-race-conditions",
+			"subagent":      "true",
 		},
 	}
 	g.AddNode(userNode)
@@ -412,6 +461,32 @@ func TestSubagentOrchestrator_InspectSubagent(t *testing.T) {
 	}
 	if !strings.Contains(diffOut, "No git diff recorded") {
 		t.Errorf("expected clean/empty diff message, got: %s", diffOut)
+	}
+
+	// 4. Inspect using session_label ("audit-auth-race-conditions") instead of subID
+	labelStepsOut, err := orchestrator.InspectSubagent(context.Background(), tools.InspectSubagentRequest{
+		SessionID: "audit-auth-race-conditions",
+		View:      "steps",
+	})
+	if err != nil {
+		t.Fatalf("InspectSubagent by label failed: %v", err)
+	}
+	if !strings.Contains(labelStepsOut, "read_file") || !strings.Contains(labelStepsOut, "execute_command") {
+		t.Errorf("label steps output missing tool names: %s", labelStepsOut)
+	}
+
+	labelSummaryOut, err := orchestrator.InspectSubagent(context.Background(), tools.InspectSubagentRequest{
+		SessionID: "audit-auth-race-conditions",
+		View:      "summary",
+	})
+	if err != nil {
+		t.Fatalf("InspectSubagent summary by label failed: %v", err)
+	}
+	if !strings.Contains(labelSummaryOut, "Total Steps:  2") {
+		t.Errorf("label summary output missing step count: %s", labelSummaryOut)
+	}
+	if !strings.Contains(labelSummaryOut, "security_flaw") {
+		t.Errorf("label summary output missing candidate memory: %s", labelSummaryOut)
 	}
 }
 
