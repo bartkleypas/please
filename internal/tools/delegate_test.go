@@ -90,6 +90,47 @@ func TestSpawnSubagentTool_Validation(t *testing.T) {
 	if res.Status != "completed" || res.StepsUsed != 3 {
 		t.Errorf("unexpected parsed result: %+v", res)
 	}
+
+	// 5. isolate_worktree: false with explicit tool_preset: "full" must error
+	_, err = tool.Function(ctx, map[string]interface{}{
+		"task":             "Refactor database",
+		"session_label":    "destructive-task",
+		"isolate_worktree": false,
+		"tool_preset":      "full",
+	})
+	if err == nil || !strings.Contains(err.Error(), "mutating tools (tool_preset: 'full') require an isolated worktree") {
+		t.Errorf("expected error for full tools without worktree isolation, got: %v", err)
+	}
+
+	// 6. isolate_worktree: false with omitted tool_preset must smart-default to "read_only"
+	_, err = tool.Function(ctx, map[string]interface{}{
+		"task":             "Audit code for memory leaks",
+		"session_label":    "audit-task",
+		"isolate_worktree": false,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error when omitting tool_preset with isolate_worktree: false: %v", err)
+	}
+	if runner.lastReq.ToolPreset != "read_only" {
+		t.Errorf("expected smart default tool_preset 'read_only' when isolate_worktree is false, got %s", runner.lastReq.ToolPreset)
+	}
+	if runner.lastReq.IsolateWorktree {
+		t.Errorf("expected isolate_worktree false")
+	}
+
+	// 7. isolate_worktree: false with explicit tool_preset: "read_only" succeeds
+	_, err = tool.Function(ctx, map[string]interface{}{
+		"task":             "Audit code for memory leaks",
+		"session_label":    "audit-task",
+		"isolate_worktree": false,
+		"tool_preset":      "read_only",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error with explicit read_only and isolate_worktree: false: %v", err)
+	}
+	if runner.lastReq.ToolPreset != "read_only" {
+		t.Errorf("expected tool_preset 'read_only', got %s", runner.lastReq.ToolPreset)
+	}
 }
 
 func TestSpawnSubagentTool_ParentSessionContext(t *testing.T) {

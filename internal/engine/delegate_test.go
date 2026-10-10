@@ -80,6 +80,25 @@ func TestSubagentOrchestrator_ReadOnlyWorktreePruned(t *testing.T) {
 	}
 }
 
+func TestSubagentOrchestrator_RejectsMutatingToolsWithoutWorktree(t *testing.T) {
+	mgr := &Manager{}
+	mockProvider := &providers.MockLLMProvider{}
+	cfg := config.NewDefaultConfig()
+	orchestrator := NewSubagentOrchestrator(mgr, mockProvider, cfg)
+
+	_, err := orchestrator.SpawnSubagent(context.Background(), tools.SubagentRequest{
+		ParentSessionID: "main",
+		Task:            "Modify code directly in workspace",
+		SessionLabel:    "unsafe-delegation",
+		ToolPreset:      "full",
+		IsolateWorktree: false,
+		MaxSteps:        5,
+	})
+	if err == nil || !strings.Contains(err.Error(), "mutating tools (tool_preset: 'full') require an isolated worktree") {
+		t.Fatalf("expected error rejecting full tools without worktree isolation, got: %v", err)
+	}
+}
+
 func TestSubagentOrchestrator_BudgetExhaustion(t *testing.T) {
 	repoDir, configDir := setupScenarioGitRepo(t)
 	t.Setenv("PLEASE_CONFIG_DIR", configDir)
@@ -461,7 +480,7 @@ func TestSubagentOrchestrator_CandidateMemoriesPromotion(t *testing.T) {
 		ParentSessionID: "main",
 		Task:            "Investigate database architecture",
 		SessionLabel:    "db-investigation",
-		ToolPreset:      "full",
+		ToolPreset:      "read_only",
 		IsolateWorktree: false,
 		MaxSteps:        5,
 	})

@@ -104,12 +104,12 @@ func SpawnSubagentTool(runner SubagentRunner) Tool {
 					"type":        "string",
 					"enum":        []string{"read_only", "full"},
 					"default":     "full",
-					"description": "Tool permission scope: 'read_only' restricts to inspections; 'full' allows file writes and command executions.",
+					"description": "Tool permission scope: 'read_only' restricts to inspections; 'full' allows file writes and command executions (requires isolate_worktree: true).",
 				},
 				"isolate_worktree": map[string]interface{}{
 					"type":        "boolean",
 					"default":     true,
-					"description": "Whether to provision an isolated Git worktree branch. Recommended true for any task modifying files or running builds.",
+					"description": "Whether to provision an isolated Git worktree branch. Set true (default) for tasks modifying files or running builds. If false, tool_preset must be 'read_only' to protect the primary workspace.",
 				},
 				"max_steps": map[string]interface{}{
 					"type":        "integer",
@@ -141,10 +141,12 @@ func SpawnSubagentTool(runner SubagentRunner) Tool {
 			targetDir = strings.TrimSpace(targetDir)
 
 			toolPreset := "full"
+			explicitPreset := false
 			if tp, ok := args["tool_preset"].(string); ok && strings.TrimSpace(tp) != "" {
 				tp = strings.ToLower(strings.TrimSpace(tp))
 				if tp == "read_only" || tp == "full" {
 					toolPreset = tp
+					explicitPreset = true
 				} else {
 					return "", fmt.Errorf("invalid tool_preset %q: must be 'read_only' or 'full'", tp)
 				}
@@ -153,6 +155,16 @@ func SpawnSubagentTool(runner SubagentRunner) Tool {
 			isolateWorktree := true
 			if iw, ok := args["isolate_worktree"].(bool); ok {
 				isolateWorktree = iw
+			}
+
+			if !isolateWorktree {
+				if !explicitPreset {
+					// Smart default: when worktree isolation is explicitly disabled and tool_preset is omitted,
+					// default to read_only to prevent accidental un-isolated modifications to the primary workspace.
+					toolPreset = "read_only"
+				} else if toolPreset == "full" {
+					return "", errors.New("mutating tools (tool_preset: 'full') require an isolated worktree to protect the primary workspace from un-isolated modifications; set isolate_worktree: true (recommended for edits/builds) or switch tool_preset to 'read_only'")
+				}
 			}
 
 			maxSteps := 10

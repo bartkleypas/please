@@ -44,6 +44,9 @@ func (o *SubagentOrchestrator) SpawnSubagent(ctx context.Context, req tools.Suba
 	if o.Provider == nil {
 		return nil, errors.New("provider not configured")
 	}
+	if !req.IsolateWorktree && req.ToolPreset != "read_only" {
+		return nil, errors.New("mutating tools (tool_preset: 'full') require an isolated worktree to protect the primary workspace from un-isolated modifications; set isolate_worktree: true or tool_preset: 'read_only'")
+	}
 
 	subID := fmt.Sprintf("sub_%s", strings.ReplaceAll(uuid.New().String(), "-", "")[:8])
 	targetRepo := o.Manager.WorkspaceDir

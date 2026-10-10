@@ -285,4 +285,11 @@ All updates and modifications to this knowledge bundle are tracked chronological
         *   `StaleCandidates` queries `(access_count <= 1 OR updated_at < ?) ORDER BY access_count ASC, updated_at ASC LIMIT 10`.
     *   Unified duplicate row-scanning and decryption code in [sqlite.go](internal/storage/sqlite.go) via a DRY `scanMemory(scanner scannable)` helper across `GetMemory()`, `QueryMemories()`, `queryMemoriesFallbackLike()`, and `DiagnoseMemories()`.
     *   Enhanced `TestSQLiteStorage_MemoriesDiagnostics` in [storage_test.go](internal/storage/storage_test.go) to assert strict access count sorting, stale candidate detection, and scope confinement.
+*   **Subagent Worktree Isolation Safety Guard & Smart Defaulting**:
+    *   Resolved hazard where a parent agent invoking `spawn_subagent(isolate_worktree: false)` with an omitted `tool_preset` inadvertently inherited `tool_preset: "full"`, executing modifying tools (`write_file`, `replace_file_content`, `run_command`) directly in the user's primary checkout without branch protection or diff tracking.
+    *   Implemented smart defaulting in `SpawnSubagentTool` in [delegate.go](internal/tools/delegate.go): omitting `tool_preset` while specifying `isolate_worktree: false` automatically defaults to `tool_preset: "read_only"`.
+    *   Enforced explicit sensory contract validation across [delegate.go](internal/tools/delegate.go) and [delegate.go](internal/engine/delegate.go): explicitly requesting mutating tools (`tool_preset: "full"`) alongside `isolate_worktree: false` is rejected with an actionable error prompting the model to enable worktree isolation or switch to `read_only`.
+    *   Added regression test coverage in [delegate_test.go](internal/tools/delegate_test.go) and [delegate_test.go](internal/engine/delegate_test.go).
+
+
 
