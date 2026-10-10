@@ -17,7 +17,9 @@ timestamp: "2026-07-05T14:26:05-07:00"
 
 *   [decisions](decisions/index.md) - Architecture Decision Records (ADRs) tracking design debates and key trade-offs (ADR-001 through ADR-010).
 *   [cmd/please](cmd/please/index.md) - Primary CLI entry point (`please`, `please serve`, `please connect`, `please inspect`, `please context`, `please cert`).
+*   [internal/acp](internal/acp/index.md) - Agent Client Protocol (ACP) implementation, providing a standardized bridge between ACP clients and the `please` runtime.
 *   [internal/config](internal/config/index.md) - Configuration loading, JSON schema validation, directory discovery, and migration utilities.
+*   [internal/domain](internal/domain/index.md) - Shared domain models and core types, including message structures, tool call/observation definitions, and smart receipt schemas.
 *   [internal/engine](internal/engine/index.md) - Canonical `SessionHarness`, `LocalHarnessProvider`, multi-turn tool execution loop, and legacy compatibility layers.
 *   [internal/graph](internal/graph/index.md) - Pure in-memory DAG conversation `Graph` and `Node` structures with cycle detection.
 *   [internal/providers](internal/providers/index.md) - LLM provider drivers (Ollama, OpenAI, Remote Daemon, Mock), wire protocols, and streaming parsers.
