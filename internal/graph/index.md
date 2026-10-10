@@ -16,6 +16,6 @@ The `internal/graph` package defines the pure, memory-only conversation DAG data
 
 ## Core Files & Components
 
-*   [node.go](node.go) - Defines `Node`, `Role` (system, user, assistant, tool), timestamps, token metrics, observations, tool calls, and parent pointers.
-*   [graph.go](graph.go) - Implements `Graph`, thread-safe node indexing, parent trail reconstruction, branch discovery, leaf identification, and adversarial cycle detection.
-*   [graph_test.go](graph_test.go) - Unit tests testing graph invariants, deep branching, parent walking, and cycle detection assertions.
+* [node.go](node.go) - Defines `Node`, `Role` (system, user, assistant, tool), timestamps, token metrics, observations, tool calls, and parent pointers.
+* [graph.go](graph.go) - Implements `Graph`, thread-safe node indexing, parent trail reconstruction, branch discovery, leaf identification, and adversarial cycle detection.
+* [graph_test.go](graph_test.go) - Unit tests testing graph invariants, deep branching, parent walking, and cycle detection assertions.

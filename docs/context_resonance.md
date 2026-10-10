@@ -23,10 +23,10 @@ The importance of each node on the active conversational path is evaluated using
 $$V = (W \cdot C) \cdot e^{-k \cdot \Delta t}$$
 
 Where:
-*   **$V$ (Resonance Value)**: The computed score indicating the relevance of a node to the current context.
-*   **$W$ (Weight)**: Custom multipliers based on node significance (e.g. system commands, bookmarks, or manual user overrides have higher baseline weights).
-*   **$C$ (Context Cost)**: The character/token size of the raw message and its observations.
-*   **$e^{-k \cdot \Delta t}$ (Temporal Decay)**: An exponential decay factor where $\Delta t$ is the age of the node (turns and minutes since creation) and $k$ is a damping coefficient.
+* **$V$ (Resonance Value)**: The computed score indicating the relevance of a node to the current context.
+* **$W$ (Weight)**: Custom multipliers based on node significance (e.g. system commands, bookmarks, or manual user overrides have higher baseline weights).
+* **$C$ (Context Cost)**: The character/token size of the raw message and its observations.
+* **$e^{-k \cdot \Delta t}$ (Temporal Decay)**: An exponential decay factor where $\Delta t$ is the age of the node (turns and minutes since creation) and $k$ is a damping coefficient.
 
 ---
 

@@ -16,9 +16,9 @@ The `internal/storage` package isolates all persistent conversation storage driv
 
 ## Core Files & Components
 
-*   [storage.go](storage.go) - Declares the `Storage` interface, migration contracts, and common storage errors.
-*   [sqlite.go](sqlite.go) - Authoritative SQLite engine utilizing Write-Ahead Logging (WAL) mode, parent indexing, and conflict-safe node observation updates.
-*   [jsonl.go](jsonl.go) - Append-only JSON Lines flat-file driver for lightweight and streaming audit records.
-*   [remote.go](remote.go) - Storage proxy delegating persistence operations over HTTP REST v1 to a remote `please serve` daemon.
-*   [crypto.go](crypto.go) - AES-256 GCM encryption wrapper for zero-knowledge vault protection at rest.
-*   [storage_test.go](storage_test.go) & [remote_test.go](remote_test.go) - Concurrency, stress, transaction, and migration test suites.
+* [storage.go](storage.go) - Declares the `Storage` interface, migration contracts, and common storage errors.
+* [sqlite.go](sqlite.go) - Authoritative SQLite engine utilizing Write-Ahead Logging (WAL) mode, parent indexing, and conflict-safe node observation updates.
+* [jsonl.go](jsonl.go) - Append-only JSON Lines flat-file driver for lightweight and streaming audit records.
+* [remote.go](remote.go) - Storage proxy delegating persistence operations over HTTP REST v1 to a remote `please serve` daemon.
+* [crypto.go](crypto.go) - AES-256 GCM encryption wrapper for zero-knowledge vault protection at rest.
+* [storage_test.go](storage_test.go) & [remote_test.go](remote_test.go) - Concurrency, stress, transaction, and migration test suites.

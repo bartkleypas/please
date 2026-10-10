@@ -9,21 +9,21 @@ Unlike linear chat applications, `Please` treats conversations as a Directed Acy
 ## ✨ Features
 
 ### 🏗️ Engine Architecture
-*   **DAG-Based Navigation:** Breaks the linear chat mold by allowing users to branch, prune, and jump across multiple conversation timelines.
-*   **Persistent Storage:** Narrative history is stored in a robust SQLite database (default) or legacy JSONL format, ensuring your stories are saved safely and concurrently.
-*   **Context Resonance Scoring:** Automatically manages the LLM context window using an exponential decay algorithm (`V = (W * C) * e^(-k * Δt)`). It dynamically prunes raw tool outputs and internal reasoning from older messages while preserving the high-fidelity semantic core of the dialogue, preventing context bloat during heavy tool usage.
-*   **Streaming Responses:** Real-time, character-by-character output for a responsive and interactive experience.
+* **DAG-Based Navigation:** Breaks the linear chat mold by allowing users to branch, prune, and jump across multiple conversation timelines.
+* **Persistent Storage:** Narrative history is stored in a robust SQLite database (default) or legacy JSONL format, ensuring your stories are saved safely and concurrently.
+* **Context Resonance Scoring:** Automatically manages the LLM context window using an exponential decay algorithm (`V = (W * C) * e^(-k * Δt)`). It dynamically prunes raw tool outputs and internal reasoning from older messages while preserving the high-fidelity semantic core of the dialogue, preventing context bloat during heavy tool usage.
+* **Streaming Responses:** Real-time, character-by-character output for a responsive and interactive experience.
 
 ### 🎭 Narrative Interaction
-*   **Modular TUI:** Built with [Charm Bubble Tea](https://github.com/charmbracelet/bubbletea), featuring a flattened state machine and specialized event handlers.
-*   **Visual Mapping:** Use `/map` to visualize the branching paths of your story with Vim-style navigation (`h/j/k/l`).
-*   **Supernodes (Compaction):** Press `c` in the map to summarize long-winded branches into high-density context nodes, helping to prevent the onset of "context bloat" in longer conversations (especially useful after heavy tool use).
-*   **Branch Pruning:** Press `d` in the map to soft-delete unwanted branches, with `/gc` for permanent secure scrubbing.
-*   **Engine Daemon & Streaming API:** Run `please serve --port 8080` to launch the headless API service. Features a Server-Sent Events (SSE) streaming endpoint (`POST /api/v1/chat/stream`), complete DAG REST API (`/api/v1/graph`, `/api/v1/nodes`), and host tool execution loops for client applications (Swift macOS/iPadOS, Web UI, CLI). See the [Daemon Protocol Specification](docs/daemon_protocol_spec.md) for full wire schemas and event lifecycles.
+* **Modular TUI:** Built with [Charm Bubble Tea](https://github.com/charmbracelet/bubbletea), featuring a flattened state machine and specialized event handlers.
+* **Visual Mapping:** Use `/map` to visualize the branching paths of your story with Vim-style navigation (`h/j/k/l`).
+* **Supernodes (Compaction):** Press `c` in the map to summarize long-winded branches into high-density context nodes, helping to prevent the onset of "context bloat" in longer conversations (especially useful after heavy tool use).
+* **Branch Pruning:** Press `d` in the map to soft-delete unwanted branches, with `/gc` for permanent secure scrubbing.
+* **Engine Daemon & Streaming API:** Run `please serve --port 8080` to launch the headless API service. Features a Server-Sent Events (SSE) streaming endpoint (`POST /api/v1/chat/stream`), complete DAG REST API (`/api/v1/graph`, `/api/v1/nodes`), and host tool execution loops for client applications (Swift macOS/iPadOS, Web UI, CLI). See the [Daemon Protocol Specification](docs/daemon_protocol_spec.md) for full wire schemas and event lifecycles.
 
-*   **20-Year Internal PKI Certificates:** Run `please cert generate` to mint 20-year self-signed Root CA and Server Leaf certificates with SANs for zero-expiration TLS across local and home mesh networks.
-*   **Persona Management:** Easily switch between different system prompts and characters using the `/persona` command.
-*   **Natural Reading Pacing:** Buffer and stream assistant replies at a realistic human reading pace with punctuation-sensitive pauses (300ms for ends of sentences, 100ms for commas). Supports instant skipping to flush the output.
+* **20-Year Internal PKI Certificates:** Run `please cert generate` to mint 20-year self-signed Root CA and Server Leaf certificates with SANs for zero-expiration TLS across local and home mesh networks.
+* **Persona Management:** Easily switch between different system prompts and characters using the `/persona` command.
+* **Natural Reading Pacing:** Buffer and stream assistant replies at a realistic human reading pace with punctuation-sensitive pauses (300ms for ends of sentences, 100ms for commas). Supports instant skipping to flush the output.
 
 ---
 
@@ -96,10 +96,10 @@ please memory prune --older-than 720h
 ## 🚀 Getting Started
 
 ### Prerequisites
-*   **Go:** 1.26 or higher.
-*   **LLM Provider:**
-    *   A local **Ollama** instance running with your preferred model (default: `gemma4:e4b`).
-    *   *OR* an **OpenAI** API key and compatible endpoint.
+* **Go:** 1.26 or higher.
+* **LLM Provider:**
+    * A local **Ollama** instance running with your preferred model (default: `gemma4:e4b`).
+    * *OR* an **OpenAI** API key and compatible endpoint.
 
 ### Installation
 
@@ -110,12 +110,12 @@ go install github.com/bartkleypas/please@latest
 ```
 
 **Option B: Build from Source**
-1.  Clone the repository:
+1. Clone the repository:
     ```bash
     git clone https://github.com/bartkleypas/please.git
     cd please
     ```
-2.  Install dependencies:
+2. Install dependencies:
     ```bash
     go mod download
     ```
@@ -269,16 +269,16 @@ Inside the app, use these interactive commands to navigate your story:
 | `/q` or `/bye` | Gracefully exit the application. |
 
 **Navigation Tips:**
-*   **Chat:** Use `↑`/`↓` or `PgUp`/`PgDn` to scroll history.
-*   **Streaming Pacing:** Press `ESC`, `Enter`, or `Space` while content is streaming to instantly skip pacing and flush the whole response.
-*   **Map Navigation:**
-    *   `j`/`k`: Move selection.
-    *   `h`/`l`: Collapse/Expand or Ascend/Descend branches.
-    *   `g`/`G`: Jump to root/end.
-    *   `/`: Real-time fuzzy search.
-    *   `c`: Compact/Summarize branch.
-    *   `d`: Prune/Delete branch.
-*   **Exit Views:** Press `ESC` to return to the chat from `/map` or `/help` views.
+* **Chat:** Use `↑`/`↓` or `PgUp`/`PgDn` to scroll history.
+* **Streaming Pacing:** Press `ESC`, `Enter`, or `Space` while content is streaming to instantly skip pacing and flush the whole response.
+* **Map Navigation:**
+    * `j`/`k`: Move selection.
+    * `h`/`l`: Collapse/Expand or Ascend/Descend branches.
+    * `g`/`G`: Jump to root/end.
+    * `/`: Real-time fuzzy search.
+    * `c`: Compact/Summarize branch.
+    * `d`: Prune/Delete branch.
+* **Exit Views:** Press `ESC` to return to the chat from `/map` or `/help` views.
 
 ---
 
@@ -298,6 +298,6 @@ make test-livefire
 ```
 
 ### Technical Structure
-*   `cmd/please/`: Entry point and CLI flag handling.
-*   `internal/engine/`: Core logic for DAG management, LLM providers, and storage.
-*   `internal/tui/`: Bubble Tea components, modular handlers, and rendering logic.
+* `cmd/please/`: Entry point and CLI flag handling.
+* `internal/engine/`: Core logic for DAG management, LLM providers, and storage.
+* `internal/tui/`: Bubble Tea components, modular handlers, and rendering logic.

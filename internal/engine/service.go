@@ -981,7 +981,6 @@ func (m *Manager) GetSessionRoot(sessionID string) (*graph.Node, error) {
 	return m.GetSystemRoot()
 }
 
-
 func (m *Manager) GetAllNodeIDs() []string {
 	ids := make([]string, 0, len(m.Graph.Nodes))
 	for id := range m.Graph.Nodes {

@@ -18,13 +18,13 @@ The `server` package provides the headless daemon, REST v1 API, and real-time Se
 
 ## 🗺️ Components & Source Files
 
-*   [server.go](server.go) - Core `Server` lifecycle (`StartWithHost`, `StartTLS`, `Stop`), CORS and Bearer auth middlewares, and REST API v1 route controllers.
-*   [stream.go](stream.go) - Server-Sent Events (`SSE`) multiplexer and handler (`POST /api/v1/chat/stream`), managing multi-turn agent tool execution loops on the host machine.
-*   [session_actor.go](session_actor.go) - Per-session single-threaded actor mailbox ensuring sequential execution per session without SQLite observation stomping.
-*   [bus.go](bus.go) - Internal publish/subscribe event bus routing SSE streaming events and tool execution updates to connected clients.
-*   [cert.go](cert.go) - Self-contained 20-year (7,300 days) ECDSA Root CA and Leaf Server Certificate generator with Subject Alternative Names (SANs) for secure local network encryption.
-*   [server_test.go](server_test.go) - Comprehensive unit and integration test suite covering cert generation, auth rejection/acceptance, REST v1 endpoints, and SSE stream flushing.
-*   [assets/](assets/) - Embedded web visualization single-page application (`assets/index.html`).
+* [server.go](server.go) - Core `Server` lifecycle (`StartWithHost`, `StartTLS`, `Stop`), CORS and Bearer auth middlewares, and REST API v1 route controllers.
+* [stream.go](stream.go) - Server-Sent Events (`SSE`) multiplexer and handler (`POST /api/v1/chat/stream`), managing multi-turn agent tool execution loops on the host machine.
+* [session_actor.go](session_actor.go) - Per-session single-threaded actor mailbox ensuring sequential execution per session without SQLite observation stomping.
+* [bus.go](bus.go) - Internal publish/subscribe event bus routing SSE streaming events and tool execution updates to connected clients.
+* [cert.go](cert.go) - Self-contained 20-year (7,300 days) ECDSA Root CA and Leaf Server Certificate generator with Subject Alternative Names (SANs) for secure local network encryption.
+* [server_test.go](server_test.go) - Comprehensive unit and integration test suite covering cert generation, auth rejection/acceptance, REST v1 endpoints, and SSE stream flushing.
+* [assets/](assets/) - Embedded web visualization single-page application (`assets/index.html`).
 
 ---
 
@@ -50,9 +50,9 @@ The `server` package provides the headless daemon, REST v1 API, and real-time Se
 
 The streaming endpoint emits typed SSE frames:
 
-*   `event: thought` — Real-time reasoning tokens emitted by thinking models (e.g. DeepSeek-R1, Gemma 4).
-*   `event: token` — Dialogue text tokens streamed directly for stage canvas presentation.
-*   `event: tool_call` — Emitted when the model triggers a host workspace tool.
-*   `event: tool_result` — Emitted after the host tool completes execution.
-*   `event: node_complete` — Emitted when the turn finishes and is persisted to SQLite.
-*   `event: error` — Error reporting.
+* `event: thought` — Real-time reasoning tokens emitted by thinking models (e.g. DeepSeek-R1, Gemma 4).
+* `event: token` — Dialogue text tokens streamed directly for stage canvas presentation.
+* `event: tool_call` — Emitted when the model triggers a host workspace tool.
+* `event: tool_result` — Emitted after the host tool completes execution.
+* `event: node_complete` — Emitted when the turn finishes and is persisted to SQLite.
+* `event: error` — Error reporting.

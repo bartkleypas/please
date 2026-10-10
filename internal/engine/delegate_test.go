@@ -831,6 +831,3 @@ func TestSubagentOrchestrator_InheritsParentBranchGenesisRoot(t *testing.T) {
 		t.Errorf("expected LLM context to contain Root B persona ('George the Archivist'), got: %+v", contextMsgs)
 	}
 }
-
-
-

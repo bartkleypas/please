@@ -19,39 +19,39 @@ timestamp: "2026-07-09T14:35:00-07:00"
 ## 🗺️ Project Navigation Hub
 
 For detailed and authoritative documentation, consult these dedicated files instead of relying on this bootstrap anchor:
-*   [Project Index](index.md) - The central directory of packages, concepts, and specifications.
-*   [Technical README](README.md) - Features list, CLI examples, setup, TUI controls table, and testing instructions.
-*   [v0.3.0 Roadmap](docs/roadmap_v0.3.0.md) - Strategic architecture roadmap for execution lifecycle, three-tier memory, and delegated multi-agent topologies.
-*   [Daemon Protocol Spec](docs/daemon_protocol_spec.md) - Authoritative REST v1 and SSE streaming wire protocol specification.
-*   [Context Resonance Spec](docs/context_resonance.md) - Math formula and scoring mechanics for token decay.
-*   [Natural Pacing Spec](docs/natural_pacing.md) - Stream buffering and punctuation-sensitive pacing rules.
-*   [Architecture Decisions (ADRs)](decisions/index.md) - Historical record of TUI framework, SQLite storage, and visualization server.
-*   [Change Log](log.md) - Chronological ledger of all modifications.
+* [Project Index](index.md) - The central directory of packages, concepts, and specifications.
+* [Technical README](README.md) - Features list, CLI examples, setup, TUI controls table, and testing instructions.
+* [v0.3.0 Roadmap](docs/roadmap_v0.3.0.md) - Strategic architecture roadmap for execution lifecycle, three-tier memory, and delegated multi-agent topologies.
+* [Daemon Protocol Spec](docs/daemon_protocol_spec.md) - Authoritative REST v1 and SSE streaming wire protocol specification.
+* [Context Resonance Spec](docs/context_resonance.md) - Math formula and scoring mechanics for token decay.
+* [Natural Pacing Spec](docs/natural_pacing.md) - Stream buffering and punctuation-sensitive pacing rules.
+* [Architecture Decisions (ADRs)](decisions/index.md) - Historical record of TUI framework, SQLite storage, and visualization server.
+* [Change Log](log.md) - Chronological ledger of all modifications.
 
 ---
 
 ## 🏗️ Active Design Context & Focus
 
-*   **Current Focus**: Executing the [v0.3.0 Roadmap](docs/roadmap_v0.3.0.md): formalizing Step vs. Turn execution lifecycles, three-tier memory and observation compaction, pluggable context shaping, and native sub-session agent delegation.
-*   **Go Baseline**: Bubble Tea TUI, DAG conversation graph, SQLite WAL storage, and 20-year internal PKI certs (`please cert generate`) stabilized ([v0.1.10](log.md)).
-*   **Clients**: Standalone Go TUI (`please`), Connected Go TUI (`please connect`), and the external native Apple client ([please-swift](../please-swift/index.md)).
+* **Current Focus**: Executing the [v0.3.0 Roadmap](docs/roadmap_v0.3.0.md): formalizing Step vs. Turn execution lifecycles, three-tier memory and observation compaction, pluggable context shaping, and native sub-session agent delegation.
+* **Go Baseline**: Bubble Tea TUI, DAG conversation graph, SQLite WAL storage, and 20-year internal PKI certs (`please cert generate`) stabilized ([v0.1.10](log.md)).
+* **Clients**: Standalone Go TUI (`please`), Connected Go TUI (`please connect`), and the external native Apple client ([please-swift](../please-swift/index.md)).
 
 ---
 
 ## ⚖️ Active Debates
 
-*   *There are currently no active debates.* Architecture decisions for SQLite persistence, TUI state machines, and daemon streaming protocols are resolved in [decisions/](decisions/index.md).
+* *There are currently no active debates.* Architecture decisions for SQLite persistence, TUI state machines, and daemon streaming protocols are resolved in [decisions/](decisions/index.md).
 
 ---
 
 ## 💻 Key Developer Reminders
 
 To maintain the architectural conventions of the `please` codebase during edits:
-*   **DAG Navigation**: Remember that the "current" view in the app is always a leaf node in a DAG. Reconstruct linear history by traversing parent pointers up to the root.
-*   **LLM Provider Abstraction**: Maintain strict protocol boundaries (`LLMProvider`) so local Ollama backends, OpenAI-compatible cloud/self-hosted endpoints, and remote `please serve` daemons swap seamlessly.
-*   **Testing Discipline**: Always run fast hermetic tests (`go test -count=1 ./...` and `make build`) for automated verification (~2s). Treat `PLEASE_LIVE_FIRE=1` (`make test-livefire`) as **Manual / On-Demand Integration Testing** triggered only when explicitly evaluating real local LLM inference.
-*   **Tool Contracts as Sensory Input**: Tools must return concrete telemetry (paths, byte sizes, line counts) and descriptive error messages with actionable hints to prevent model retry loops.
-*   **Built-in Diagnostics**: Use `please inspect` and `please context` to diagnose live SQLite/JSONL vaults without writing scratch code.
+* **DAG Navigation**: Remember that the "current" view in the app is always a leaf node in a DAG. Reconstruct linear history by traversing parent pointers up to the root.
+* **LLM Provider Abstraction**: Maintain strict protocol boundaries (`LLMProvider`) so local Ollama backends, OpenAI-compatible cloud/self-hosted endpoints, and remote `please serve` daemons swap seamlessly.
+* **Testing Discipline**: Always run fast hermetic tests (`go test -count=1 ./...` and `make build`) for automated verification (~2s). Treat `PLEASE_LIVE_FIRE=1` (`make test-livefire`) as **Manual / On-Demand Integration Testing** triggered only when explicitly evaluating real local LLM inference.
+* **Tool Contracts as Sensory Input**: Tools must return concrete telemetry (paths, byte sizes, line counts) and descriptive error messages with actionable hints to prevent model retry loops.
+* **Built-in Diagnostics**: Use `please inspect` and `please context` to diagnose live SQLite/JSONL vaults without writing scratch code.
 
 ---
 
@@ -59,14 +59,14 @@ To maintain the architectural conventions of the `please` codebase during edits:
 
 The CLI includes built-in diagnostic tools to inspect DAG nodes, tool observation telemetry, lineage resonance decay, and exact reconstructed LLM prompt contexts:
 
-*   **Inspect Node & Lineage Scorecard**:
+* **Inspect Node & Lineage Scorecard**:
     ```bash
     please inspect [node-id] [-v /path/to/vault.db] [-c config.json]
     ```
     *Omitting `[node-id]` automatically targets the latest active leaf node.*
     Prints node metadata, segments, exact tool calls and observations (with byte counts and banners), and an ASCII table of the path to root showing distance, token costs, resonance scores $V$, and fidelity tiers (`Full Fidelity`, `Medium`, `Low (Compact)`). Supports full UUIDs or short prefixes (e.g. `01a08802`).
 
-*   **Inspect LLM Reconstructed Context**:
+* **Inspect LLM Reconstructed Context**:
     ```bash
     please context [node-id] [-v /path/to/vault.db] [-c config.json] [--json]
     ```

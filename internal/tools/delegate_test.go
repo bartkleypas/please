@@ -393,5 +393,3 @@ func TestReconcileSubagentTool_TargetDir(t *testing.T) {
 		t.Errorf("expected TargetDir 'services/api', got %+v", rec.lastReq)
 	}
 }
-
-

@@ -22,7 +22,7 @@ While the terminal map is useful for quick jumps, visualizing large conversation
 ---
 
 ## Decision
-1.  **Embedded Go HTTP Server**: Bundle a lightweight HTTP server (`net/http`) inside the Go binary. It spins up in a background goroutine only if launched with the `-s` / `--server` CLI flag.
-2.  **Static Visualizer Assets**: Serve a static, vanilla HTML/JS web frontpage (located at `internal/server/assets/index.html`) using Go's `embed` package. 
-3.  **JSON API**: Expose simple read-only API endpoints (e.g. `/api/graph`) to fetch the node map from SQLite, feeding it into D3.js on the client web browser to render the radial tidy tree graph.
-4.  **No Dynamic Web Compile**: Keep visualizer assets free of heavy JavaScript node compilation steps. The user does not need `node` installed to build or run the visualization.
+1. **Embedded Go HTTP Server**: Bundle a lightweight HTTP server (`net/http`) inside the Go binary. It spins up in a background goroutine only if launched with the `-s` / `--server` CLI flag.
+2. **Static Visualizer Assets**: Serve a static, vanilla HTML/JS web frontpage (located at `internal/server/assets/index.html`) using Go's `embed` package. 
+3. **JSON API**: Expose simple read-only API endpoints (e.g. `/api/graph`) to fetch the node map from SQLite, feeding it into D3.js on the client web browser to render the radial tidy tree graph.
+4. **No Dynamic Web Compile**: Keep visualizer assets free of heavy JavaScript node compilation steps. The user does not need `node` installed to build or run the visualization.

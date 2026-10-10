@@ -325,4 +325,3 @@ func TestGraph_GetRootOf_CycleDetection(t *testing.T) {
 		t.Errorf("expected cycle detected error, got %v", err)
 	}
 }
-

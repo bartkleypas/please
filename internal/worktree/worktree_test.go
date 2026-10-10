@@ -568,5 +568,3 @@ func TestWorktree_NestedRepository(t *testing.T) {
 		t.Errorf("nested_feature.txt must NOT exist in parent workspace root")
 	}
 }
-
-

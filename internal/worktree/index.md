@@ -17,8 +17,8 @@ The `internal/worktree` package manages out-of-tree Git worktrees to isolate con
 
 ## Core Files & Components
 
-*   [worktree.go](worktree.go) - Defines `Manager`, `WorktreeSession`, directory hashing, branch creation, worktree mounting, and clean pruning.
-*   [worktree_test.go](worktree_test.go) - Unit and integration tests testing branch isolation, out-of-tree cleanup, uncommitted changes, and non-git fallback.
+* [worktree.go](worktree.go) - Defines `Manager`, `WorktreeSession`, directory hashing, branch creation, worktree mounting, and clean pruning.
+* [worktree_test.go](worktree_test.go) - Unit and integration tests testing branch isolation, out-of-tree cleanup, uncommitted changes, and non-git fallback.
 
 ## Storage Layout
 

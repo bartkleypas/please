@@ -15,8 +15,8 @@ The `internal/config` package manages configuration schema parsing, environment 
 
 ## Core Files & Components
 
-*   [config.go](config.go) - Declares `Config`, `ModelConfig`, `ProviderConfig`, and workspace resolution functions (`LoadConfig`, `DefaultConfig`, `ConfigDir`).
-*   [config_test.go](config_test.go) - Unit tests verifying default value generation, environment variable overrides, and path canonicalization.
+* [config.go](config.go) - Declares `Config`, `ModelConfig`, `ProviderConfig`, and workspace resolution functions (`LoadConfig`, `DefaultConfig`, `ConfigDir`).
+* [config_test.go](config_test.go) - Unit tests verifying default value generation, environment variable overrides, and path canonicalization.
 
 ## Configuration Resolution Order
 

@@ -245,4 +245,3 @@ func (g *Graph) GetRootOf(nodeID string) (*Node, error) {
 
 	return nil, fmt.Errorf("root not found for node %s", nodeID)
 }
-

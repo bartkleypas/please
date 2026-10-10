@@ -1298,4 +1298,3 @@ func (s *SQLiteStorage) CleanObservations() (int64, error) {
 
 	return rowsAffected, nil
 }
-

@@ -821,4 +821,3 @@ func TestGrepSearch_LargeTreeAndBinaryHygiene(t *testing.T) {
 		t.Errorf("expected compiled_bin to be skipped as binary file, but got match: %s", res)
 	}
 }
-
