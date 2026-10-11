@@ -39,5 +39,5 @@ timestamp: "2026-07-05T14:26:05-07:00"
 * [daemon_protocol](docs/daemon_protocol_spec.md) - Authoritative REST v1 and SSE streaming wire protocol specification for multi-platform clients.
 * [multi_session_concurrency](decisions/007-multi-session-daemon-branch-concurrency.md) - ADR-007: Multi-session daemon architecture, cursor decoupling, branch-isolated compactions, and Git worktree sandboxing.
 * [swift_apple_evolution](decisions/004-swift-apple-ecosystem-evolution.md) - ADR-004: Swift port strategy, iPad Mini device targeting, and Intel Mac dev bridge strategy.
-* [context_resonance](docs/context_resonance.md) - Dynamic Context Resonance Scoring algorithm (`V = (W * C) * e^(-k * Δt)`) to prune old tool outputs.
+* [context_resonance](docs/context_resonance.md) - Smart Receipt system (ADR-021) using out-of-band storage and on-demand paging to manage context without lossy decay.
 * [natural_pacing](docs/natural_pacing.md) - Natural reading-pace stream buffering with punctuation-sensitive pauses.
