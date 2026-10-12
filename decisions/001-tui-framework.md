@@ -22,6 +22,6 @@ The MUC predecessor used standard CLI line reads and terminal print loops. Becau
 ---
 
 ## Decision
-1.  **UI Loop (Bubble Tea)**: Adopt Charm's **Bubble Tea** library (`github.com/charmbracelet/bubbletea`) to structure TUI loops using the Elm architecture (Model, Update, View). This provides clean, event-driven state updates for keyboards, tickers, and channel streams.
-2.  **Styling (Lipgloss)**: Use **Lipgloss** (`github.com/charmbracelet/lipgloss`) to construct colors, borders, borders padding, and adaptive terminal layouts.
-3.  **Command Execution**: Run LLM interactions and background streams asynchronously by wrapping them in Bubble Tea `tea.Cmd` handlers to prevent blocking the UI render cycle.
+1. **UI Loop (Bubble Tea)**: Adopt Charm's **Bubble Tea** library (`github.com/charmbracelet/bubbletea`) to structure TUI loops using the Elm architecture (Model, Update, View). This provides clean, event-driven state updates for keyboards, tickers, and channel streams.
+2. **Styling (Lipgloss)**: Use **Lipgloss** (`github.com/charmbracelet/lipgloss`) to construct colors, borders, borders padding, and adaptive terminal layouts.
+3. **Command Execution**: Run LLM interactions and background streams asynchronously by wrapping them in Bubble Tea `tea.Cmd` handlers to prevent blocking the UI render cycle.

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/bartkleypas/please/internal/config"
 	"github.com/bartkleypas/please/internal/domain"
@@ -19,9 +21,11 @@ import (
 // SubagentOrchestrator coordinates child subagent execution, worktree sandboxing,
 // and synthesized perception returns (ADR 022).
 type SubagentOrchestrator struct {
-	Manager  *Manager
-	Provider providers.Provider
-	Config   *config.Config
+	Manager       *Manager
+	Provider      providers.Provider
+	Config        *config.Config
+	sessionRepos  sync.Map
+	sessionLabels sync.Map
 }
 
 // NewSubagentOrchestrator creates a SubagentOrchestrator instance.
@@ -41,9 +45,32 @@ func (o *SubagentOrchestrator) SpawnSubagent(ctx context.Context, req tools.Suba
 	if o.Provider == nil {
 		return nil, errors.New("provider not configured")
 	}
+	if !req.IsolateWorktree && req.ToolPreset != "read_only" {
+		return nil, errors.New("mutating tools (tool_preset: 'full') require an isolated worktree to protect the primary workspace from un-isolated modifications; set isolate_worktree: true or tool_preset: 'read_only'")
+	}
 
 	subID := fmt.Sprintf("sub_%s", strings.ReplaceAll(uuid.New().String(), "-", "")[:8])
-	childWorkspace := o.Manager.WorkspaceDir
+	targetRepo := o.Manager.WorkspaceDir
+	if req.TargetDir != "" {
+		if filepath.IsAbs(req.TargetDir) {
+			targetRepo = filepath.Clean(req.TargetDir)
+		} else {
+			targetRepo = filepath.Clean(filepath.Join(o.Manager.WorkspaceDir, req.TargetDir))
+		}
+		rel, err := filepath.Rel(o.Manager.WorkspaceDir, targetRepo)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return nil, fmt.Errorf("target_dir %q traverses outside workspace %q", req.TargetDir, o.Manager.WorkspaceDir)
+		}
+	}
+
+	o.sessionRepos.Store(subID, targetRepo)
+	o.sessionRepos.Store(fmt.Sprintf("subsession/%s", subID), targetRepo)
+	if req.SessionLabel != "" {
+		o.sessionRepos.Store(req.SessionLabel, targetRepo)
+		o.sessionLabels.Store(req.SessionLabel, subID)
+	}
+
+	childWorkspace := targetRepo
 	branchName := ""
 	baseCommit := ""
 	var wtMgr *worktree.Manager
@@ -51,7 +78,7 @@ func (o *SubagentOrchestrator) SpawnSubagent(ctx context.Context, req tools.Suba
 
 	if req.IsolateWorktree {
 		configDir, _ := config.GetConfigDir()
-		wtMgr = worktree.NewManager(configDir, o.Manager.WorkspaceDir)
+		wtMgr = worktree.NewManager(configDir, targetRepo)
 		if wtMgr.IsGitAvailable() && wtMgr.IsGitRepo() {
 			branch := fmt.Sprintf("subsession/%s", subID)
 			wtDir, actBranch, err := wtMgr.EnsureWorktreeBranch(subID, branch)
@@ -65,16 +92,16 @@ func (o *SubagentOrchestrator) SpawnSubagent(ctx context.Context, req tools.Suba
 	}
 
 	// Clone manager scoped to child workspace
-	childMgr := o.Manager.CloneWithWorkspace(childWorkspace, o.Manager.WorkspaceDir)
+	childMgr := o.Manager.CloneWithWorkspace(childWorkspace, targetRepo)
 
 	// Build child tool registry strictly according to tool_preset.
 	// Anti-recursion guard: spawn_subagent is NEVER registered in childMgr.Registry.
 	childMgr.Registry = tools.NewToolRegistry()
-	for _, t := range tools.SensoryTools(childWorkspace, o.Manager.WorkspaceDir) {
+	for _, t := range tools.SensoryTools(childWorkspace, targetRepo) {
 		childMgr.Registry.Register(t)
 	}
 	if req.ToolPreset != "read_only" {
-		for _, t := range tools.MutateTools(childWorkspace, o.Manager.WorkspaceDir) {
+		for _, t := range tools.MutateTools(childWorkspace, targetRepo) {
 			childMgr.Registry.Register(t)
 		}
 		for _, t := range tools.ExecTools(childWorkspace) {
@@ -98,18 +125,40 @@ func (o *SubagentOrchestrator) SpawnSubagent(ctx context.Context, req tools.Suba
 
 	childHarness := NewSubagentHarness(childMgr, o.Provider, o.Config)
 
+	// Resolve parent Genesis root for child subagent (ADR 022)
+	var genesisRootID string
+	parentSession := req.ParentSessionID
+	if parentSession == "" {
+		parentSession = "main"
+	}
+	if rootNode, err := o.Manager.GetSessionRoot(parentSession); err == nil && rootNode != nil {
+		genesisRootID = rootNode.ID
+	}
+	if genesisRootID == "" {
+		if sysRoot, err := o.Manager.GetSystemRoot(); err == nil && sysRoot != nil {
+			genesisRootID = sysRoot.ID
+		}
+	}
+
 	// Execute single turn bounded by max_steps
+	turnCtx := map[string]string{
+		"session_id":        subID,
+		"parent_session_id": parentSession,
+		"session_label":     req.SessionLabel,
+		"subagent":          "true",
+	}
+	if req.TargetDir != "" {
+		turnCtx["target_dir"] = req.TargetDir
+		turnCtx["repo_path"] = targetRepo
+	}
+
 	turnReq := TurnRequest{
 		SessionID:    subID,
+		ParentID:     genesisRootID,
 		Message:      req.Task,
 		Role:         string(domain.RoleUser),
 		MaxToolDepth: req.MaxSteps,
-		Context: map[string]string{
-			"session_id":        subID,
-			"parent_session_id": req.ParentSessionID,
-			"session_label":     req.SessionLabel,
-			"subagent":          "true",
-		},
+		Context:      turnCtx,
 	}
 
 	eventCh := make(chan HarnessEvent, 64)
@@ -210,16 +259,159 @@ func (o *SubagentOrchestrator) SpawnSubagent(ctx context.Context, req tools.Suba
 	}
 
 	return &tools.SubagentResult{
+		SessionID:         subID,
 		Status:            status,
 		StepsUsed:         stepsUsed,
 		Summary:           summary,
 		Synthesis:         synthesis,
 		Branch:            branchName,
 		Commit:            commitHash,
+		RepoPath:          req.TargetDir,
 		FilesModified:     filesModified,
 		DiffStat:          diffStat,
 		CandidateMemories: candidateMemories,
 	}, nil
+}
+
+// resolveCanonicalSession maps a session ID, label, or subsession branch name to its canonical subagent session ID.
+func (o *SubagentOrchestrator) resolveCanonicalSession(idOrLabel string) string {
+	raw := strings.TrimSpace(idOrLabel)
+	if raw == "" {
+		return ""
+	}
+	cleanID := strings.TrimPrefix(raw, "subsession/")
+
+	// 0. If already in canonical subagent session format, return directly
+	if strings.HasPrefix(cleanID, "sub_") {
+		return cleanID
+	}
+
+	// 1. Direct memory lookup in sessionLabels
+	if val, ok := o.sessionLabels.Load(cleanID); ok {
+		if sID, ok := val.(string); ok && sID != "" {
+			return sID
+		}
+	}
+	if val, ok := o.sessionLabels.Load(raw); ok {
+		if sID, ok := val.(string); ok && sID != "" {
+			return sID
+		}
+	}
+
+	// 2. Direct head lookup in storage (if cleanID is already a valid session ID)
+	if o.Manager != nil && o.Manager.Storage != nil {
+		if headID, err := o.Manager.Storage.GetSessionHead(cleanID); err == nil && headID != "" {
+			return cleanID
+		}
+	}
+
+	// 3. Search storage sessions and their nodes for matching session_label or session_id metadata
+	if o.Manager != nil && o.Manager.Storage != nil {
+		if sessions, err := o.Manager.Storage.ListSessions(); err == nil {
+			for sID, headID := range sessions {
+				if sID == cleanID {
+					return sID
+				}
+				// Inspect nodes along this session's head
+				currID := headID
+				visited := make(map[string]bool)
+				synced := false
+				for currID != "" && !visited[currID] {
+					visited[currID] = true
+					currNode, _ := o.Manager.GetNode(currID)
+					if currNode == nil && !synced {
+						if _, _, syncErr := o.Manager.Sync(); syncErr == nil {
+							synced = true
+							currNode, _ = o.Manager.GetNode(currID)
+						}
+					}
+					if currNode == nil {
+						break
+					}
+					if currNode.Metadata != nil {
+						if currNode.Metadata["session_label"] == cleanID || currNode.Metadata["session_label"] == raw || currNode.Metadata["session_id"] == cleanID {
+							o.sessionLabels.Store(cleanID, sID)
+							o.sessionLabels.Store(raw, sID)
+							return sID
+						}
+					}
+					currID = currNode.ParentID
+				}
+			}
+		}
+	}
+
+	// 4. Fallback search through in-memory graph
+	if o.Manager != nil && o.Manager.Graph != nil {
+		for _, n := range o.Manager.Graph.GetAllNodes() {
+			if n.Metadata != nil {
+				if (n.Metadata["session_label"] == cleanID || n.Metadata["session_label"] == raw || n.Metadata["session_id"] == cleanID) && n.Metadata["session_id"] != "" {
+					sID := n.Metadata["session_id"]
+					o.sessionLabels.Store(cleanID, sID)
+					o.sessionLabels.Store(raw, sID)
+					return sID
+				}
+			}
+		}
+	}
+
+	return cleanID
+}
+
+// resolveSessionRepo determines the target repository path for a session.
+func (o *SubagentOrchestrator) resolveSessionRepo(sessionID string, targetDir string) (string, error) {
+	if o.Manager == nil {
+		return "", errors.New("manager not configured")
+	}
+
+	if targetDir != "" {
+		var targetRepo string
+		if filepath.IsAbs(targetDir) {
+			targetRepo = filepath.Clean(targetDir)
+		} else {
+			targetRepo = filepath.Clean(filepath.Join(o.Manager.WorkspaceDir, targetDir))
+		}
+		rel, err := filepath.Rel(o.Manager.WorkspaceDir, targetRepo)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return "", fmt.Errorf("target_dir %q traverses outside workspace %q", targetDir, o.Manager.WorkspaceDir)
+		}
+		return targetRepo, nil
+	}
+
+	canonicalID := o.resolveCanonicalSession(sessionID)
+	cleanID := strings.TrimPrefix(canonicalID, "subsession/")
+
+	if val, ok := o.sessionRepos.Load(cleanID); ok {
+		if repo, ok := val.(string); ok && repo != "" {
+			return repo, nil
+		}
+	}
+	if val, ok := o.sessionRepos.Load(sessionID); ok {
+		if repo, ok := val.(string); ok && repo != "" {
+			return repo, nil
+		}
+	}
+
+	// Inspect graph nodes for stored session metadata
+	nodes := o.resolveSubagentNodes(cleanID)
+	for _, n := range nodes {
+		if n.Metadata != nil {
+			if repo, ok := n.Metadata["repo_path"]; ok && repo != "" {
+				if filepath.IsAbs(repo) {
+					return filepath.Clean(repo), nil
+				}
+				return filepath.Clean(filepath.Join(o.Manager.WorkspaceDir, repo)), nil
+			}
+			if dir, ok := n.Metadata["target_dir"]; ok && dir != "" {
+				if filepath.IsAbs(dir) {
+					return filepath.Clean(dir), nil
+				}
+				return filepath.Clean(filepath.Join(o.Manager.WorkspaceDir, dir)), nil
+			}
+		}
+	}
+
+	return o.Manager.WorkspaceDir, nil
 }
 
 // ReconcileSubagent merges, squashes, or discards an isolated subagent worktree branch.
@@ -233,20 +425,28 @@ func (o *SubagentOrchestrator) ReconcileSubagent(ctx context.Context, req tools.
 		return nil, errors.New("session_id parameter is required and cannot be empty")
 	}
 
-	branch := sessionID
+	canonicalID := o.resolveCanonicalSession(sessionID)
+	cleanSessionID := strings.TrimPrefix(canonicalID, "subsession/")
+
+	branch := cleanSessionID
 	if !strings.HasPrefix(branch, "subsession/") && !strings.HasPrefix(branch, "please/") {
-		branch = fmt.Sprintf("subsession/%s", sessionID)
+		branch = fmt.Sprintf("subsession/%s", cleanSessionID)
+	}
+
+	targetRepo, err := o.resolveSessionRepo(cleanSessionID, req.TargetDir)
+	if err != nil {
+		return nil, err
 	}
 
 	configDir, _ := config.GetConfigDir()
-	wtMgr := worktree.NewManager(configDir, o.Manager.WorkspaceDir)
+	wtMgr := worktree.NewManager(configDir, targetRepo)
 
 	strategy := req.Strategy
 	if strategy == "" {
 		strategy = "squash"
 	}
 
-	res, err := wtMgr.ReconcileBranch(branch, strategy, req.CleanupWorktree, sessionID)
+	res, err := wtMgr.ReconcileBranch(branch, strategy, req.CleanupWorktree, cleanSessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -269,15 +469,17 @@ func (o *SubagentOrchestrator) InspectSubagent(ctx context.Context, req tools.In
 	if sessionID == "" {
 		return "", errors.New("session_id parameter is required and cannot be empty")
 	}
-	cleanSessionID := strings.TrimPrefix(sessionID, "subsession/")
+	canonicalID := o.resolveCanonicalSession(sessionID)
+	cleanSessionID := strings.TrimPrefix(canonicalID, "subsession/")
 
 	view := strings.ToLower(strings.TrimSpace(req.View))
 	if view == "" {
 		view = "summary"
 	}
 
+	targetRepo, _ := o.resolveSessionRepo(cleanSessionID, "")
 	configDir, _ := config.GetConfigDir()
-	wtMgr := worktree.NewManager(configDir, o.Manager.WorkspaceDir)
+	wtMgr := worktree.NewManager(configDir, targetRepo)
 
 	switch view {
 	case "diff":
@@ -433,10 +635,13 @@ type toolStepRecord struct {
 }
 
 func (o *SubagentOrchestrator) resolveSubagentNodes(sessionID string) []*graph.Node {
+	canonicalID := o.resolveCanonicalSession(sessionID)
+	cleanID := strings.TrimPrefix(canonicalID, "subsession/")
+
 	var sessionNodes []*graph.Node
 
 	if o.Manager.Storage != nil {
-		if headID, err := o.Manager.Storage.GetSessionHead(sessionID); err == nil && headID != "" {
+		if headID, err := o.Manager.Storage.GetSessionHead(cleanID); err == nil && headID != "" {
 			if o.Manager.Graph != nil {
 				if path, err := o.Manager.Graph.GetPath(headID); err == nil {
 					sessionNodes = path
@@ -446,9 +651,16 @@ func (o *SubagentOrchestrator) resolveSubagentNodes(sessionID string) []*graph.N
 				currID := headID
 				var revNodes []*graph.Node
 				visited := make(map[string]bool)
+				synced := false
 				for currID != "" && !visited[currID] {
 					visited[currID] = true
 					currNode, _ := o.Manager.GetNode(currID)
+					if currNode == nil && !synced {
+						if _, _, syncErr := o.Manager.Sync(); syncErr == nil {
+							synced = true
+							currNode, _ = o.Manager.GetNode(currID)
+						}
+					}
 					if currNode == nil {
 						break
 					}
@@ -464,7 +676,7 @@ func (o *SubagentOrchestrator) resolveSubagentNodes(sessionID string) []*graph.N
 
 	if len(sessionNodes) == 0 && o.Manager.Graph != nil {
 		for _, n := range o.Manager.Graph.GetAllNodes() {
-			if n.Metadata != nil && (n.Metadata["session_id"] == sessionID || strings.Contains(n.Metadata["session_label"], sessionID)) {
+			if n.Metadata != nil && (n.Metadata["session_id"] == cleanID || n.Metadata["session_id"] == sessionID || strings.Contains(n.Metadata["session_label"], sessionID) || strings.Contains(n.Metadata["session_label"], cleanID)) {
 				sessionNodes = append(sessionNodes, n)
 			}
 		}
@@ -474,7 +686,7 @@ func (o *SubagentOrchestrator) resolveSubagentNodes(sessionID string) []*graph.N
 	foundStart := false
 	for _, n := range sessionNodes {
 		if !foundStart {
-			if n.Metadata != nil && (n.Metadata["session_id"] == sessionID || n.Metadata["subagent"] == "true") {
+			if n.Metadata != nil && (n.Metadata["session_id"] == cleanID || n.Metadata["session_id"] == sessionID || n.Metadata["session_label"] == sessionID || n.Metadata["session_label"] == cleanID || n.Metadata["subagent"] == "true") {
 				foundStart = true
 				childNodes = append(childNodes, n)
 			}

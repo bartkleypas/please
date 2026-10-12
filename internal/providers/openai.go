@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/bartkleypas/please/internal/domain"
@@ -32,6 +33,9 @@ func NormalizeOpenAIEndpoint(endpoint string) string {
 		return endpoint
 	}
 	if strings.HasSuffix(endpoint, "/v1") {
+		return endpoint + "/chat/completions"
+	}
+	if strings.HasSuffix(endpoint, "/openai") {
 		return endpoint + "/chat/completions"
 	}
 	return endpoint + "/v1/chat/completions"
@@ -94,6 +98,7 @@ type openAIToolCall struct {
 		Name      string `json:"name"`
 		Arguments string `json:"arguments"`
 	} `json:"function"`
+	ExtraContent json.RawMessage `json:"extra_content,omitempty"`
 }
 
 type openAIRequest struct {
@@ -138,10 +143,37 @@ func (o *OpenAIProvider) doRequest(ctx context.Context, reqBody openAIRequest) (
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("openai returned non-ok status: %d, body: %s", resp.StatusCode, string(bodyBytes))
+		return nil, formatOpenAIError(resp.StatusCode, bodyBytes)
 	}
 
 	return resp, nil
+}
+
+func formatOpenAIError(statusCode int, bodyBytes []byte) error {
+	var errObj struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(bodyBytes, &errObj); err == nil && errObj.Error.Message != "" {
+		return fmt.Errorf("API error (%d): %s", statusCode, strings.TrimSpace(errObj.Error.Message))
+	}
+
+	var errList []struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(bodyBytes, &errList); err == nil && len(errList) > 0 && errList[0].Error.Message != "" {
+		return fmt.Errorf("API error (%d): %s", statusCode, strings.TrimSpace(errList[0].Error.Message))
+	}
+
+	flat := strings.ReplaceAll(string(bodyBytes), "\n", " ")
+	flat = strings.TrimSpace(flat)
+	if len(flat) > 150 {
+		flat = flat[:147] + "..."
+	}
+	return fmt.Errorf("API error (%d): %s", statusCode, flat)
 }
 
 // GenerateResponse performs a synchronous, non-streaming request against the OpenAI-compatible API.
@@ -192,6 +224,7 @@ func (o *OpenAIProvider) GenerateResponse(ctx context.Context, messages []domain
 				Name:      tc.Function.Name,
 				Arguments: json.RawMessage(tc.Function.Arguments),
 			},
+			ExtraContent: tc.ExtraContent,
 		})
 	}
 
@@ -251,9 +284,10 @@ func (o *OpenAIProvider) GenerateResponseStream(ctx context.Context, messages []
 		scanner := bufio.NewScanner(resp.Body)
 
 		type toolCallBuilder struct {
-			id        string
-			name      string
-			arguments strings.Builder
+			id           string
+			name         string
+			arguments    strings.Builder
+			extraContent json.RawMessage
 		}
 		toolCallsMap := make(map[int]*toolCallBuilder)
 		hasToolCalls := false
@@ -292,19 +326,30 @@ func (o *OpenAIProvider) GenerateResponseStream(ctx context.Context, messages []
 
 			if len(delta.ToolCalls) > 0 {
 				hasToolCalls = true
-				for _, tc := range delta.ToolCalls {
-					if tc.Index == nil {
-						continue
+				for i, tc := range delta.ToolCalls {
+					idx := i
+					if tc.Index != nil {
+						idx = *tc.Index
 					}
 
-					idx := *tc.Index
-					if tc.ID != "" {
+					if _, exists := toolCallsMap[idx]; !exists {
 						toolCallsMap[idx] = &toolCallBuilder{
-							id:   tc.ID,
-							name: tc.Function.Name,
+							id:           tc.ID,
+							name:         tc.Function.Name,
+							extraContent: tc.ExtraContent,
+						}
+					} else {
+						if tc.ID != "" && toolCallsMap[idx].id == "" {
+							toolCallsMap[idx].id = tc.ID
+						}
+						if tc.Function.Name != "" && toolCallsMap[idx].name == "" {
+							toolCallsMap[idx].name = tc.Function.Name
+						}
+						if len(tc.ExtraContent) > 0 && len(toolCallsMap[idx].extraContent) == 0 {
+							toolCallsMap[idx].extraContent = tc.ExtraContent
 						}
 					}
-					if tc.Function.Arguments != "" && toolCallsMap[idx] != nil {
+					if tc.Function.Arguments != "" {
 						toolCallsMap[idx].arguments.WriteString(tc.Function.Arguments)
 					}
 				}
@@ -317,8 +362,15 @@ func (o *OpenAIProvider) GenerateResponseStream(ctx context.Context, messages []
 		}
 
 		if hasToolCalls && len(toolCallsMap) > 0 {
+			var indices []int
+			for idx := range toolCallsMap {
+				indices = append(indices, idx)
+			}
+			sort.Ints(indices)
+
 			var collectedToolCalls []domain.ToolCall
-			for _, builder := range toolCallsMap {
+			for _, idx := range indices {
+				builder := toolCallsMap[idx]
 				collectedToolCalls = append(collectedToolCalls, domain.ToolCall{
 					ID:   builder.id,
 					Type: "function",
@@ -329,6 +381,7 @@ func (o *OpenAIProvider) GenerateResponseStream(ctx context.Context, messages []
 						Name:      builder.name,
 						Arguments: json.RawMessage(builder.arguments.String()),
 					},
+					ExtraContent: builder.extraContent,
 				})
 			}
 			toolCallChan <- collectedToolCalls
@@ -354,6 +407,7 @@ func mapToOpenAIMessages(messages []domain.Message) []openAIMessage {
 					Name:      tc.Function.Name,
 					Arguments: string(tc.Function.Arguments),
 				},
+				ExtraContent: tc.ExtraContent,
 			})
 		}
 

@@ -22,8 +22,8 @@ Conversational message records, metadata, tool calling logs, and system branches
 ---
 
 ## Decision
-1.  **SQLite Database**: Persist all graph data in a local SQLite file (default location: `~/.local/share/please/vault.db`).
-2.  **WAL Mode Concurrency**: Configure the database connection with Write-Ahead Logging (WAL) mode enabled. This allows concurrent readers to query the database (e.g. the web visualizer backend) even while the TUI chat loop is writing new message stream blocks.
-3.  **Relational DAG Schema**: Use standard relational tables:
-    *   `nodes`: Stores message roles, text contents, UUIDv7 surrogate keys, and a nullable `parent_id` referencing back to the parent node.
-    *   Indices on `parent_id` and timestamps to speed up backwards-traversal context generation.
+1. **SQLite Database**: Persist all graph data in a local SQLite file (default location: `~/.local/share/please/vault.db`).
+2. **WAL Mode Concurrency**: Configure the database connection with Write-Ahead Logging (WAL) mode enabled. This allows concurrent readers to query the database (e.g. the web visualizer backend) even while the TUI chat loop is writing new message stream blocks.
+3. **Relational DAG Schema**: Use standard relational tables:
+    * `nodes`: Stores message roles, text contents, UUIDv7 surrogate keys, and a nullable `parent_id` referencing back to the parent node.
+    * Indices on `parent_id` and timestamps to speed up backwards-traversal context generation.

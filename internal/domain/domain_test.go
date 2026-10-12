@@ -217,4 +217,3 @@ func TestToolObservationSerialization(t *testing.T) {
 		t.Errorf("expected empty BlobID for legacy observation, got %s", legacyObs.BlobID)
 	}
 }
-

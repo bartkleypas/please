@@ -81,6 +81,9 @@ type MemoryDiagnostics struct {
 	StaleCandidates []Memory               `json:"stale_candidates"`
 }
 
+// ErrMemoryNotFound is returned when a memory deletion or lookup targets a nonexistent key.
+var ErrMemoryNotFound = domain.ErrMemoryNotFound
+
 // MemoryStore defines the interface for persisting and recalling atomic agent memories.
 type MemoryStore interface {
 	SaveMemory(mem *Memory) error

@@ -106,4 +106,3 @@ func FormatObservationReceipt(toolName string, obs domain.ToolObservation) strin
 	}
 	return formatCompactedToolObservation(toolName, obs.Result)
 }
-

@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -211,6 +212,8 @@ func MemoryStoreTool(store MemoryStore, defaultScope string) Tool {
 			confidence := 1.0
 			if cf, ok := args["confidence"].(float64); ok && cf > 0 {
 				confidence = cf
+			} else if ci, ok := args["confidence"].(int); ok && ci > 0 {
+				confidence = float64(ci)
 			}
 
 			var tags []string
@@ -342,7 +345,11 @@ func MemoryRecallTool(store MemoryStore, defaultScope string) Tool {
 				if len(m.Tags) > 0 {
 					tagStr = fmt.Sprintf(" (tags: %s)", strings.Join(m.Tags, ", "))
 				}
-				sb.WriteString(fmt.Sprintf("\n• [%s | %s] %s%s\n  %s\n", m.Scope, m.Category, m.Key, tagStr, strings.TrimSpace(m.Content)))
+				confStr := ""
+				if m.Confidence > 0 {
+					confStr = fmt.Sprintf(" | conf: %.2f", m.Confidence)
+				}
+				sb.WriteString(fmt.Sprintf("\n• [%s | %s%s] %s%s\n  %s\n", m.Scope, m.Category, confStr, m.Key, tagStr, strings.TrimSpace(m.Content)))
 			}
 
 			return sb.String(), nil
@@ -394,6 +401,40 @@ func MemoryDeleteTool(store MemoryStore, defaultScope string) Tool {
 			sessID, _ := MemoryContextFromContext(ctx)
 
 			if err := store.DeleteMemory(scope, sessID, key); err != nil {
+				if errors.Is(err, domain.ErrMemoryNotFound) {
+					// Sensory telemetry & actionable guidance (GEMINI.md)
+					candidates, _ := store.QueryMemories(MemoryFilter{
+						Scope:     scope,
+						SessionID: sessID,
+						Limit:     50,
+					})
+					var closeMatches []string
+					lowerKey := strings.ToLower(key)
+					for _, c := range candidates {
+						cKeyLower := strings.ToLower(c.Key)
+						if strings.Contains(cKeyLower, lowerKey) || strings.Contains(lowerKey, cKeyLower) {
+							closeMatches = append(closeMatches, c.Key)
+						}
+					}
+					if len(closeMatches) > 0 {
+						return "", fmt.Errorf("no memory found matching key %q in scope %q (0 records deleted). Did you mean: %s?", key, scope, strings.Join(closeMatches, ", "))
+					}
+
+					// If workspace scope, check if it exists in global scope
+					if scope == "workspace" {
+						globalCandidates, _ := store.QueryMemories(MemoryFilter{
+							Scope: "global",
+							Limit: 50,
+						})
+						for _, gc := range globalCandidates {
+							if strings.EqualFold(gc.Key, key) {
+								return "", fmt.Errorf("no memory found matching key %q in scope %q (0 records deleted), but it exists in scope \"global\". Re-run with scope=\"global\" to delete it.", key, scope)
+							}
+						}
+					}
+
+					return "", fmt.Errorf("no memory found matching key %q in scope %q (0 records deleted)", key, scope)
+				}
 				return "", fmt.Errorf("failed to delete memory: %w", err)
 			}
 

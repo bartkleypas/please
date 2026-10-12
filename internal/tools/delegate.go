@@ -20,6 +20,7 @@ type SubagentRequest struct {
 	ParentSessionID string `json:"parent_session_id"`
 	Task            string `json:"task"`
 	SessionLabel    string `json:"session_label"`
+	TargetDir       string `json:"target_dir,omitempty"`
 	ToolPreset      string `json:"tool_preset"`
 	IsolateWorktree bool   `json:"isolate_worktree"`
 	MaxSteps        int    `json:"max_steps"`
@@ -34,12 +35,14 @@ type CandidateMemory struct {
 
 // SubagentResult defines the structured observation returned to the parent agent.
 type SubagentResult struct {
+	SessionID         string            `json:"session_id"`
 	Status            string            `json:"status"` // "completed", "budget_exhausted", "failed", "cancelled"
 	StepsUsed         int               `json:"steps_used"`
 	Summary           string            `json:"summary"`
 	Synthesis         string            `json:"synthesis"`
 	Branch            string            `json:"branch,omitempty"`
 	Commit            string            `json:"commit,omitempty"`
+	RepoPath          string            `json:"repo_path,omitempty"`
 	FilesModified     []string          `json:"files_modified,omitempty"`
 	DiffStat          string            `json:"diff_stat,omitempty"`
 	CandidateMemories []CandidateMemory `json:"candidate_memories,omitempty"`
@@ -58,6 +61,7 @@ type SubagentAuditor interface {
 // ReconcileSubagentRequest defines the parameters for subagent reconciliation.
 type ReconcileSubagentRequest struct {
 	SessionID       string `json:"session_id"`
+	TargetDir       string `json:"target_dir,omitempty"`
 	Strategy        string `json:"strategy"`
 	CleanupWorktree bool   `json:"cleanup_worktree"`
 }
@@ -93,16 +97,20 @@ func SpawnSubagentTool(runner SubagentRunner) Tool {
 					"type":        "string",
 					"description": "Descriptive label for the sub-session (e.g. 'audit-auth-race-conditions').",
 				},
+				"target_dir": map[string]interface{}{
+					"type":        "string",
+					"description": "Optional subproject directory or nested repository relative to current workspace to target for worktree isolation. Defaults to workspace root.",
+				},
 				"tool_preset": map[string]interface{}{
 					"type":        "string",
 					"enum":        []string{"read_only", "full"},
 					"default":     "full",
-					"description": "Tool permission scope: 'read_only' restricts to inspections; 'full' allows file writes and command executions.",
+					"description": "Tool permission scope: 'read_only' restricts to inspections; 'full' allows file writes and command executions (requires isolate_worktree: true).",
 				},
 				"isolate_worktree": map[string]interface{}{
 					"type":        "boolean",
 					"default":     true,
-					"description": "Whether to provision an isolated Git worktree branch. Recommended true for any task modifying files or running builds.",
+					"description": "Whether to provision an isolated Git worktree branch. Set true (default) for tasks modifying files or running builds. If false, tool_preset must be 'read_only' to protect the primary workspace.",
 				},
 				"max_steps": map[string]interface{}{
 					"type":        "integer",
@@ -130,11 +138,16 @@ func SpawnSubagentTool(runner SubagentRunner) Tool {
 				return "", errors.New("session_label parameter is required and cannot be empty")
 			}
 
+			targetDir, _ := args["target_dir"].(string)
+			targetDir = strings.TrimSpace(targetDir)
+
 			toolPreset := "full"
+			explicitPreset := false
 			if tp, ok := args["tool_preset"].(string); ok && strings.TrimSpace(tp) != "" {
 				tp = strings.ToLower(strings.TrimSpace(tp))
 				if tp == "read_only" || tp == "full" {
 					toolPreset = tp
+					explicitPreset = true
 				} else {
 					return "", fmt.Errorf("invalid tool_preset %q: must be 'read_only' or 'full'", tp)
 				}
@@ -143,6 +156,16 @@ func SpawnSubagentTool(runner SubagentRunner) Tool {
 			isolateWorktree := true
 			if iw, ok := args["isolate_worktree"].(bool); ok {
 				isolateWorktree = iw
+			}
+
+			if !isolateWorktree {
+				if !explicitPreset {
+					// Smart default: when worktree isolation is explicitly disabled and tool_preset is omitted,
+					// default to read_only to prevent accidental un-isolated modifications to the primary workspace.
+					toolPreset = "read_only"
+				} else if toolPreset == "full" {
+					return "", errors.New("mutating tools (tool_preset: 'full') require an isolated worktree to protect the primary workspace from un-isolated modifications; set isolate_worktree: true (recommended for edits/builds) or switch tool_preset to 'read_only'")
+				}
 			}
 
 			maxSteps := 10
@@ -167,6 +190,7 @@ func SpawnSubagentTool(runner SubagentRunner) Tool {
 				ParentSessionID: parentSessionID,
 				Task:            task,
 				SessionLabel:    sessionLabel,
+				TargetDir:       targetDir,
 				ToolPreset:      toolPreset,
 				IsolateWorktree: isolateWorktree,
 				MaxSteps:        maxSteps,
@@ -197,7 +221,11 @@ func ReconcileSubagentTool(reconciler SubagentReconciler) Tool {
 			"properties": map[string]interface{}{
 				"session_id": map[string]interface{}{
 					"type":        "string",
-					"description": "Identifier of the subagent session to reconcile (e.g. 'sub_1234abcd').",
+					"description": "Identifier of the subagent session (e.g. 'sub_1234abcd') or session label to reconcile.",
+				},
+				"target_dir": map[string]interface{}{
+					"type":        "string",
+					"description": "Optional subproject directory or nested repository relative to current workspace where the worktree branch was isolated.",
 				},
 				"strategy": map[string]interface{}{
 					"type":        "string",
@@ -225,6 +253,9 @@ func ReconcileSubagentTool(reconciler SubagentReconciler) Tool {
 				return "", errors.New("session_id parameter is required and cannot be empty")
 			}
 
+			targetDir, _ := args["target_dir"].(string)
+			targetDir = strings.TrimSpace(targetDir)
+
 			strategy := "squash"
 			if s, ok := args["strategy"].(string); ok && strings.TrimSpace(s) != "" {
 				strategy = strings.ToLower(strings.TrimSpace(s))
@@ -237,6 +268,7 @@ func ReconcileSubagentTool(reconciler SubagentReconciler) Tool {
 
 			req := ReconcileSubagentRequest{
 				SessionID:       sessionID,
+				TargetDir:       targetDir,
 				Strategy:        strategy,
 				CleanupWorktree: cleanupWorktree,
 			}
@@ -266,7 +298,7 @@ func InspectSubagentTool(auditor SubagentAuditor) Tool {
 			"properties": map[string]interface{}{
 				"session_id": map[string]interface{}{
 					"type":        "string",
-					"description": "Identifier of the subagent session to inspect.",
+					"description": "Identifier of the subagent session (e.g. 'sub_1234abcd') or session label to inspect.",
 				},
 				"view": map[string]interface{}{
 					"type":        "string",

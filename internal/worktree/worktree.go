@@ -567,7 +567,6 @@ func (m *Manager) ReconcileBranch(branch string, strategy string, cleanupWorktre
 	}, nil
 }
 
-
 // Prune cleans up stale worktree administrative files from .git.
 func (m *Manager) Prune() error {
 	if !m.IsGitAvailable() || !m.IsGitRepo() {

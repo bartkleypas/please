@@ -3,6 +3,7 @@ package storage
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -545,6 +546,14 @@ func TestSQLiteStorage_MemoriesCRUD(t *testing.T) {
 	if deleted != nil {
 		t.Errorf("expected nil after delete, got %+v", deleted)
 	}
+
+	// 5. Redundant and nonexistent deletion should return ErrMemoryNotFound
+	if err := storage.DeleteMemory(ScopeWorkspace, "", "arch:storage:wal"); !errors.Is(err, ErrMemoryNotFound) {
+		t.Errorf("expected ErrMemoryNotFound on redundant delete, got: %v", err)
+	}
+	if err := storage.DeleteMemory(ScopeWorkspace, "", "nonexistent:key"); !errors.Is(err, ErrMemoryNotFound) {
+		t.Errorf("expected ErrMemoryNotFound on nonexistent delete, got: %v", err)
+	}
 }
 
 func TestSQLiteStorage_MemoriesFTS(t *testing.T) {
@@ -601,6 +610,119 @@ func TestSQLiteStorage_MemoriesFTS(t *testing.T) {
 	}
 	if len(tagResults) != 1 || tagResults[0].Key != "workflow:bell" {
 		t.Errorf("expected workflow:bell, got %+v", tagResults)
+	}
+}
+
+func TestSQLiteStorage_EncryptedMemories_FTS(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "memories-enc-fts-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	encKey := "topsecret-encryption-key-32-chars!"
+	storage, err := NewSQLiteStorage(dbPath, encKey)
+	if err != nil {
+		t.Fatalf("NewSQLiteStorage failed: %v", err)
+	}
+
+	err = storage.SaveMemory(&Memory{
+		Key:      "arch:something:other",
+		Content:  "xcodebuild is used for macOS and iOS compilation.",
+		Category: CategoryArchitecture,
+		Tags:     []string{"build", "ios"},
+		Scope:    ScopeWorkspace,
+	})
+	if err != nil {
+		t.Fatalf("SaveMemory failed: %v", err)
+	}
+
+	// 1. Search for tag "ios"
+	tagResults, err := storage.QueryMemories(MemoryFilter{
+		Query: "ios",
+		Scope: ScopeWorkspace,
+	})
+	if err != nil {
+		t.Fatalf("QueryMemories for tag 'ios' failed: %v", err)
+	}
+	if len(tagResults) != 1 {
+		t.Errorf("expected 1 result for tag 'ios', got %d", len(tagResults))
+	}
+
+	// 2. Search for content "xcodebuild"
+	contentResults, err := storage.QueryMemories(MemoryFilter{
+		Query: "xcodebuild",
+		Scope: ScopeWorkspace,
+	})
+	if err != nil {
+		t.Fatalf("QueryMemories for content failed: %v", err)
+	}
+	if len(contentResults) != 1 {
+		t.Errorf("expected 1 result for content 'xcodebuild', got %d", len(contentResults))
+	}
+
+	// 3. Search for key prefix with colon "arch:something"
+	keyResults, err := storage.QueryMemories(MemoryFilter{
+		Query: "arch:something",
+		Scope: ScopeWorkspace,
+	})
+	if err != nil {
+		t.Fatalf("QueryMemories for key query failed: %v", err)
+	}
+	if len(keyResults) != 1 {
+		t.Errorf("expected 1 result for key 'arch:something', got %d", len(keyResults))
+	}
+
+	// 4. Search for negative term
+	noneResults, err := storage.QueryMemories(MemoryFilter{
+		Query: "nonexistent",
+		Scope: ScopeWorkspace,
+	})
+	if err != nil {
+		t.Fatalf("QueryMemories for nonexistent failed: %v", err)
+	}
+	if len(noneResults) != 0 {
+		t.Errorf("expected 0 results for nonexistent query, got %d", len(noneResults))
+	}
+}
+
+func TestSQLiteStorage_FTS_ColonFallback(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "memories-colon-fts-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	dbPath := filepath.Join(tmpDir, "vault.db")
+	storage, err := NewSQLiteStorage(dbPath, "")
+	if err != nil {
+		t.Fatalf("NewSQLiteStorage failed: %v", err)
+	}
+
+	// Add an unencrypted memory
+	err = storage.SaveMemory(&Memory{
+		Key:      "arch:something:other",
+		Content:  "xcodebuild is used for macOS and iOS compilation.",
+		Category: CategoryArchitecture,
+		Tags:     []string{"build", "ios"},
+		Scope:    ScopeWorkspace,
+	})
+	if err != nil {
+		t.Fatalf("SaveMemory failed: %v", err)
+	}
+
+	// FTS5 treats colons as column prefixes. Since 'arch' is not a column,
+	// this triggers an error in raw FTS5 and must fall back to LIKE matching cleanly.
+	results, err := storage.QueryMemories(MemoryFilter{
+		Query: "arch:something",
+		Scope: ScopeWorkspace,
+	})
+	if err != nil {
+		t.Fatalf("QueryMemories with colon query failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("expected 1 result for colon query 'arch:something', got %d", len(results))
 	}
 }
 
@@ -753,16 +875,24 @@ func TestSQLiteStorage_MemoriesDiagnostics(t *testing.T) {
 	_ = storage.SaveMemory(&Memory{Key: "k1", Content: "c1", Category: CategoryArchitecture, Scope: ScopeWorkspace})
 	_ = storage.SaveMemory(&Memory{Key: "k2", Content: "c2", Category: CategoryConstraint, Scope: ScopeWorkspace})
 	_ = storage.SaveMemory(&Memory{Key: "k3", Content: "c3", Category: CategoryPreference, Scope: ScopeGlobal})
+	_ = storage.SaveMemory(&Memory{Key: "k4", Content: "c4", Category: CategoryWorkflow, Scope: ScopeWorkspace})
+
+	// Set distinct access counts and updated timestamps
+	thirtyDaysAgo := time.Now().Add(-30 * 24 * time.Hour).Format(time.RFC3339Nano)
+	_, _ = storage.db.Exec("UPDATE memories SET access_count = 0 WHERE key = 'k1'")
+	_, _ = storage.db.Exec("UPDATE memories SET access_count = 15 WHERE key = 'k2'")
+	_, _ = storage.db.Exec("UPDATE memories SET access_count = 5 WHERE key = 'k3'")
+	_, _ = storage.db.Exec("UPDATE memories SET access_count = 1, updated_at = ? WHERE key = 'k4'", thirtyDaysAgo)
 
 	diag, err := storage.DiagnoseMemories("all", "")
 	if err != nil {
 		t.Fatalf("DiagnoseMemories failed: %v", err)
 	}
-	if diag.TotalMemories != 3 {
-		t.Errorf("expected 3 total memories, got %d", diag.TotalMemories)
+	if diag.TotalMemories != 4 {
+		t.Errorf("expected 4 total memories, got %d", diag.TotalMemories)
 	}
-	if diag.ByScope[ScopeWorkspace] != 2 {
-		t.Errorf("expected 2 workspace memories, got %d", diag.ByScope[ScopeWorkspace])
+	if diag.ByScope[ScopeWorkspace] != 3 {
+		t.Errorf("expected 3 workspace memories, got %d", diag.ByScope[ScopeWorkspace])
 	}
 	if diag.ByScope[ScopeGlobal] != 1 {
 		t.Errorf("expected 1 global memory, got %d", diag.ByScope[ScopeGlobal])
@@ -772,5 +902,46 @@ func TestSQLiteStorage_MemoriesDiagnostics(t *testing.T) {
 	}
 	if diag.StorageBytes <= 0 {
 		t.Errorf("expected positive storage bytes, got %d", diag.StorageBytes)
+	}
+
+	// Verify MostAccessed ordering: strictly access_count DESC, updated_at DESC
+	if len(diag.MostAccessed) != 4 {
+		t.Fatalf("expected 4 most accessed memories, got %d", len(diag.MostAccessed))
+	}
+	if diag.MostAccessed[0].Key != "k2" || diag.MostAccessed[0].AccessCount != 15 {
+		t.Errorf("expected MostAccessed[0] to be k2 (access_count 15), got %s (%d)", diag.MostAccessed[0].Key, diag.MostAccessed[0].AccessCount)
+	}
+	if diag.MostAccessed[1].Key != "k3" || diag.MostAccessed[1].AccessCount != 5 {
+		t.Errorf("expected MostAccessed[1] to be k3 (access_count 5), got %s (%d)", diag.MostAccessed[1].Key, diag.MostAccessed[1].AccessCount)
+	}
+
+	// Verify StaleCandidates: access_count <= 1 OR updated_at < 14d cutoff
+	// k1 (access 0) and k4 (access 1, 30 days old) should be present; k2 (15) and k3 (5) should not
+	staleKeys := make(map[string]bool)
+	for _, s := range diag.StaleCandidates {
+		staleKeys[s.Key] = true
+	}
+	if !staleKeys["k1"] {
+		t.Errorf("expected k1 in stale candidates")
+	}
+	if !staleKeys["k4"] {
+		t.Errorf("expected k4 in stale candidates")
+	}
+	if staleKeys["k2"] || staleKeys["k3"] {
+		t.Errorf("frequently accessed memories (k2, k3) should not be in stale candidates")
+	}
+
+	// Verify scoped diagnostics
+	wsDiag, err := storage.DiagnoseMemories(ScopeWorkspace, "")
+	if err != nil {
+		t.Fatalf("DiagnoseMemories for workspace failed: %v", err)
+	}
+	if wsDiag.TotalMemories != 3 {
+		t.Errorf("expected 3 workspace memories, got %d", wsDiag.TotalMemories)
+	}
+	for _, m := range wsDiag.MostAccessed {
+		if m.Scope != ScopeWorkspace {
+			t.Errorf("expected workspace memory only, got %s (scope: %s)", m.Key, m.Scope)
+		}
 	}
 }

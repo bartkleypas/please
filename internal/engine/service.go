@@ -5,8 +5,8 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -587,22 +587,11 @@ func (m *Manager) CompactRangeWithDirective(ctx context.Context, provider provid
 		trajectoryHeader = fmt.Sprintf("🎯 Trajectory: %s\n\n", strings.Join(signats, " ➔ "))
 	}
 
-	// 1. Generate Summary and Extract Memories
-	summaryPrompt := `You are a concise narrative archivist and knowledge extractor.
-Analyze the following conversation segment and produce:
-1. SUMMARY: A single, high-density milestone paragraph capturing key facts, architectural decisions, tool results, and the active state of the world. Do not use filler or introductory phrases.
-2. MEMORIES: Extract 0-3 enduring facts, technical decisions, or user preferences established in this segment (ignore transient chatter).
+	// 1. Generate Milestone Summary
+	summaryPrompt := `You are a concise narrative archivist.
+Analyze the following conversation segment and produce a single, high-density milestone summary paragraph capturing key facts, architectural decisions, tool results, and the active state of the world. Do not use filler or introductory phrases.
 
-Format your response exactly as:
-SUMMARY:
-<milestone paragraph>
-
-MEMORIES:
-- key: <namespaced_key_e.g._domain:topic:slug> | category: <architecture|convention|preference|invariant|fact|constraint|workflow> | content: <concise durable fact>
-
-If no enduring memories or decisions exist, output:
-MEMORIES:
-none`
+Format your response as a clean, direct summary paragraph.`
 	if directive != "" {
 		summaryPrompt += fmt.Sprintf("\n\nUser Steering Directive: Focus particularly on: %s", directive)
 	}
@@ -631,24 +620,13 @@ none`
 		return nil, fmt.Errorf("failed to find last node in range: %w", err)
 	}
 
-	// 3. Parse compaction output and harvest memories
-	summary, extractedMemories := parseCompactionOutput(resp.Content, lastNodeID)
-
-	var harvestedKeys []string
-	if memStore, ok := m.Storage.(storage.MemoryStore); ok && memStore != nil && len(extractedMemories) > 0 {
-		for i := range extractedMemories {
-			mem := extractedMemories[i]
-			if err := memStore.SaveMemory(&mem); err == nil {
-				harvestedKeys = append(harvestedKeys, mem.Key)
-			}
-		}
+	// 3. Clean summary output
+	summary := strings.TrimSpace(resp.Content)
+	if parsedSummary, _ := parseCompactionOutput(summary, lastNodeID); parsedSummary != "" {
+		summary = parsedSummary
 	}
 
 	metadata := make(map[string]string)
-	if len(harvestedKeys) > 0 {
-		metadata["memories_harvested"] = strconv.Itoa(len(harvestedKeys))
-		metadata["harvested_memory_keys"] = strings.Join(harvestedKeys, ",")
-	}
 
 	// 4. Create Supernode
 	superNodeContent := trajectoryHeader + summary
@@ -902,7 +880,105 @@ func newV7FromTime(t time.Time) (uuid.UUID, error) {
 }
 
 func (m *Manager) GetSystemRoot() (*graph.Node, error) {
+	if m.Graph == nil {
+		if m.Storage != nil {
+			if _, _, err := m.Sync(); err != nil {
+				return nil, err
+			}
+		}
+		if m.Graph == nil {
+			return nil, errors.New("graph not initialized")
+		}
+	}
 	return m.Graph.GetSystemRoot()
+}
+
+// GetRootNode returns the default system root node (alias for GetSystemRoot).
+func (m *Manager) GetRootNode() (*graph.Node, error) {
+	return m.GetSystemRoot()
+}
+
+// GetRootOf returns the root/genesis ancestor node for the given node ID by
+// traversing parent pointers up to the root.
+func (m *Manager) GetRootOf(nodeID string) (*graph.Node, error) {
+	if m == nil {
+		return nil, errors.New("manager not initialized")
+	}
+	if m.Graph == nil {
+		if m.Storage != nil {
+			if _, _, err := m.Sync(); err != nil {
+				return nil, err
+			}
+		}
+		if m.Graph == nil {
+			return nil, errors.New("graph not initialized")
+		}
+	}
+	root, err := m.Graph.GetRootOf(nodeID)
+	if err != nil && errors.Is(err, graph.ErrNodeNotFound) && m.Storage != nil {
+		if _, _, syncErr := m.Sync(); syncErr == nil {
+			return m.Graph.GetRootOf(nodeID)
+		}
+	}
+	return root, err
+}
+
+// GetSessionRoot resolves the canonical Genesis root node for the given session.
+// It inspects the session head pointer in storage, falls back to in-memory graph
+// session metadata or active playhead, and traverses parent pointers to its root.
+func (m *Manager) GetSessionRoot(sessionID string) (*graph.Node, error) {
+	if m == nil {
+		return nil, errors.New("manager not initialized")
+	}
+
+	targetSession := sessionID
+	if targetSession == "" {
+		targetSession = "main"
+	}
+
+	// 1. Try resolving via session head pointer in storage
+	if m.Storage != nil {
+		if headID, err := m.Storage.GetSessionHead(targetSession); err == nil && headID != "" {
+			if root, err := m.GetRootOf(headID); err == nil && root != nil {
+				return root, nil
+			}
+		}
+	}
+
+	// 2. Fallback: inspect in-memory graph
+	if m.Graph != nil {
+		// Check if targetSession itself is a node in the graph
+		if root, err := m.Graph.GetRootOf(targetSession); err == nil && root != nil {
+			return root, nil
+		}
+
+		// Search for the latest node tagged with this session_id
+		var latestNode *graph.Node
+		for _, n := range m.Graph.GetAllNodes() {
+			if n.Metadata != nil && (n.Metadata["session_id"] == targetSession || strings.Contains(n.Metadata["session_label"], targetSession)) {
+				if latestNode == nil || n.Timestamp.After(latestNode.Timestamp) {
+					latestNode = n
+				}
+			}
+		}
+		if latestNode != nil {
+			if root, err := m.Graph.GetRootOf(latestNode.ID); err == nil && root != nil {
+				return root, nil
+			}
+		}
+	}
+
+	// 3. If targetSession is "main", try latest playhead from storage/sync
+	if targetSession == "main" && m.Storage != nil {
+		if _, lastID, err := m.Sync(); err == nil && lastID != "" {
+			if root, err := m.GetRootOf(lastID); err == nil && root != nil {
+				return root, nil
+			}
+		}
+	}
+
+	// 4. Fallback to default system root if available
+	return m.GetSystemRoot()
 }
 
 func (m *Manager) GetAllNodeIDs() []string {

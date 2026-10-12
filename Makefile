@@ -38,6 +38,7 @@ test-livefire: test-e2e
 
 format:
 	go fmt ./...
+	go run ./scripts/fmtmd
 
 lint:
 	go vet ./...

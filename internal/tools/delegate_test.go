@@ -90,6 +90,47 @@ func TestSpawnSubagentTool_Validation(t *testing.T) {
 	if res.Status != "completed" || res.StepsUsed != 3 {
 		t.Errorf("unexpected parsed result: %+v", res)
 	}
+
+	// 5. isolate_worktree: false with explicit tool_preset: "full" must error
+	_, err = tool.Function(ctx, map[string]interface{}{
+		"task":             "Refactor database",
+		"session_label":    "destructive-task",
+		"isolate_worktree": false,
+		"tool_preset":      "full",
+	})
+	if err == nil || !strings.Contains(err.Error(), "mutating tools (tool_preset: 'full') require an isolated worktree") {
+		t.Errorf("expected error for full tools without worktree isolation, got: %v", err)
+	}
+
+	// 6. isolate_worktree: false with omitted tool_preset must smart-default to "read_only"
+	_, err = tool.Function(ctx, map[string]interface{}{
+		"task":             "Audit code for memory leaks",
+		"session_label":    "audit-task",
+		"isolate_worktree": false,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error when omitting tool_preset with isolate_worktree: false: %v", err)
+	}
+	if runner.lastReq.ToolPreset != "read_only" {
+		t.Errorf("expected smart default tool_preset 'read_only' when isolate_worktree is false, got %s", runner.lastReq.ToolPreset)
+	}
+	if runner.lastReq.IsolateWorktree {
+		t.Errorf("expected isolate_worktree false")
+	}
+
+	// 7. isolate_worktree: false with explicit tool_preset: "read_only" succeeds
+	_, err = tool.Function(ctx, map[string]interface{}{
+		"task":             "Audit code for memory leaks",
+		"session_label":    "audit-task",
+		"isolate_worktree": false,
+		"tool_preset":      "read_only",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error with explicit read_only and isolate_worktree: false: %v", err)
+	}
+	if runner.lastReq.ToolPreset != "read_only" {
+		t.Errorf("expected tool_preset 'read_only', got %s", runner.lastReq.ToolPreset)
+	}
 }
 
 func TestSpawnSubagentTool_ParentSessionContext(t *testing.T) {
@@ -279,6 +320,7 @@ func TestSubagentResult_CandidateMemoriesSerialization(t *testing.T) {
 		StepsUsed: 2,
 		Summary:   "Done",
 		Synthesis: "Result synthesis",
+		RepoPath:  "packages/backend",
 		CandidateMemories: []CandidateMemory{
 			{Key: "db_version", Content: "Postgres 16", Scope: "workspace"},
 		},
@@ -290,5 +332,64 @@ func TestSubagentResult_CandidateMemoriesSerialization(t *testing.T) {
 	if !strings.Contains(string(data), "candidate_memories") || !strings.Contains(string(data), "Postgres 16") {
 		t.Errorf("expected candidate_memories in JSON: %s", string(data))
 	}
+	if !strings.Contains(string(data), `"repo_path":"packages/backend"`) {
+		t.Errorf("expected repo_path in JSON: %s", string(data))
+	}
 }
 
+func TestSpawnSubagentTool_TargetDir(t *testing.T) {
+	runner := &mockSubagentRunner{
+		result: &SubagentResult{
+			Status:    "completed",
+			RepoPath:  "services/api",
+			Summary:   "Audit complete",
+			Synthesis: "All clear",
+		},
+	}
+	tool := SpawnSubagentTool(runner)
+
+	ctx := context.Background()
+	out, err := tool.Function(ctx, map[string]interface{}{
+		"task":          "Audit backend",
+		"session_label": "backend-audit",
+		"target_dir":    "services/api",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if runner.lastReq == nil || runner.lastReq.TargetDir != "services/api" {
+		t.Errorf("expected TargetDir 'services/api', got %+v", runner.lastReq)
+	}
+
+	var res SubagentResult
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("failed to parse output JSON: %v", err)
+	}
+	if res.RepoPath != "services/api" {
+		t.Errorf("expected RepoPath 'services/api', got %s", res.RepoPath)
+	}
+}
+
+func TestReconcileSubagentTool_TargetDir(t *testing.T) {
+	rec := &mockSubagentReconciler{
+		result: &ReconcileSubagentResult{
+			Strategy:    "squash",
+			Commit:      "def5678",
+			FilesMerged: []string{"services/api/main.go"},
+			Message:     "Reconciled successfully",
+		},
+	}
+	tool := ReconcileSubagentTool(rec)
+
+	ctx := context.Background()
+	_, err := tool.Function(ctx, map[string]interface{}{
+		"session_id": "sub_9876",
+		"target_dir": "services/api",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rec.lastReq == nil || rec.lastReq.TargetDir != "services/api" {
+		t.Errorf("expected TargetDir 'services/api', got %+v", rec.lastReq)
+	}
+}

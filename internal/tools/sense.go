@@ -199,9 +199,9 @@ func ReadFileTool(workspaceDir ...string) Tool {
 			if endLine < totalLines {
 				remainingLines := totalLines - endLine
 				if hitByteLimit {
-					paginationHint = fmt.Sprintf(" (Byte budget reached; %d lines remaining. To read further, call read_file with path: %q, offset: %d)", remainingLines, path, endLine+1)
+					paginationHint = fmt.Sprintf(" — %d lines remaining (byte budget reached; offset: %d to continue)", remainingLines, endLine+1)
 				} else {
-					paginationHint = fmt.Sprintf(" (Limit reached; %d lines remaining. To read further, call read_file with path: %q, offset: %d)", remainingLines, path, endLine+1)
+					paginationHint = fmt.Sprintf(" — %d lines remaining (offset: %d to continue)", remainingLines, endLine+1)
 				}
 			}
 

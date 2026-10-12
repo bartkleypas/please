@@ -1,6 +1,12 @@
 package domain
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"errors"
+)
+
+// ErrMemoryNotFound indicates that a requested memory record does not exist.
+var ErrMemoryNotFound = errors.New("memory not found")
 
 // Role defines the speaker or category of a message turn.
 type Role string
@@ -30,6 +36,7 @@ type ToolCall struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
 	} `json:"function"`
+	ExtraContent json.RawMessage `json:"extra_content,omitempty"`
 }
 
 // ToolObservation represents the result of a tool execution fed back to the LLM.

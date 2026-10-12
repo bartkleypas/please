@@ -80,6 +80,25 @@ func TestSubagentOrchestrator_ReadOnlyWorktreePruned(t *testing.T) {
 	}
 }
 
+func TestSubagentOrchestrator_RejectsMutatingToolsWithoutWorktree(t *testing.T) {
+	mgr := &Manager{}
+	mockProvider := &providers.MockLLMProvider{}
+	cfg := config.NewDefaultConfig()
+	orchestrator := NewSubagentOrchestrator(mgr, mockProvider, cfg)
+
+	_, err := orchestrator.SpawnSubagent(context.Background(), tools.SubagentRequest{
+		ParentSessionID: "main",
+		Task:            "Modify code directly in workspace",
+		SessionLabel:    "unsafe-delegation",
+		ToolPreset:      "full",
+		IsolateWorktree: false,
+		MaxSteps:        5,
+	})
+	if err == nil || !strings.Contains(err.Error(), "mutating tools (tool_preset: 'full') require an isolated worktree") {
+		t.Fatalf("expected error rejecting full tools without worktree isolation, got: %v", err)
+	}
+}
+
 func TestSubagentOrchestrator_BudgetExhaustion(t *testing.T) {
 	repoDir, configDir := setupScenarioGitRepo(t)
 	t.Setenv("PLEASE_CONFIG_DIR", configDir)
@@ -260,6 +279,54 @@ func TestSubagentOrchestrator_ReconcileSubagent(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(repoDir, "discard.txt")); !os.IsNotExist(err) {
 		t.Errorf("discarded file should not exist in primary workspace")
 	}
+
+	// 3. Discard strategy using session_label instead of subID
+	subID3 := "sub_orch_label_discard"
+	label3 := "experimental-refactor-label"
+	branch3 := "subsession/" + subID3
+	wtDir3, _, _ := wtMgr.EnsureWorktreeBranch(subID3, branch3)
+	_ = os.WriteFile(filepath.Join(wtDir3, "label_discard.txt"), []byte("throwaway label"), 0644)
+	exec.Command(gitPath, "-C", wtDir3, "add", "label_discard.txt").Run()
+	exec.Command(gitPath, "-C", wtDir3, "commit", "-m", "throwaway commit label").Run()
+
+	userNode3 := &graph.Node{
+		ID:        "node_user_label_3",
+		Role:      domain.RoleUser,
+		Content:   "Refactor experiment",
+		Timestamp: time.Now(),
+		Metadata: map[string]string{
+			"session_id":    subID3,
+			"session_label": label3,
+			"subagent":      "true",
+		},
+	}
+	asstNode3 := &graph.Node{
+		ID:        "node_asst_label_3",
+		ParentID:  userNode3.ID,
+		Role:      domain.RoleAssistant,
+		Content:   "Finished experiment",
+		Timestamp: time.Now(),
+	}
+	g.AddNode(userNode3)
+	g.AddNode(asstNode3)
+	_ = sqlStore.SaveNode(userNode3)
+	_ = sqlStore.SaveNode(asstNode3)
+	_ = sqlStore.SaveSessionHead(subID3, asstNode3.ID)
+
+	discardByLabelRes, err := orchestrator.ReconcileSubagent(context.Background(), tools.ReconcileSubagentRequest{
+		SessionID:       label3,
+		Strategy:        "discard",
+		CleanupWorktree: true,
+	})
+	if err != nil {
+		t.Fatalf("discard by label failed: %v", err)
+	}
+	if discardByLabelRes.Strategy != "discard" {
+		t.Errorf("expected strategy 'discard', got %s", discardByLabelRes.Strategy)
+	}
+	if _, err := os.Stat(filepath.Join(repoDir, "label_discard.txt")); !os.IsNotExist(err) {
+		t.Errorf("discarded file should not exist in primary workspace")
+	}
 }
 
 func TestSubagentOrchestrator_InspectSubagent(t *testing.T) {
@@ -286,8 +353,9 @@ func TestSubagentOrchestrator_InspectSubagent(t *testing.T) {
 		Content:   "Analyze security policies",
 		Timestamp: time.Now(),
 		Metadata: map[string]string{
-			"session_id": subID,
-			"subagent":   "true",
+			"session_id":    subID,
+			"session_label": "audit-auth-race-conditions",
+			"subagent":      "true",
 		},
 	}
 	g.AddNode(userNode)
@@ -394,6 +462,32 @@ func TestSubagentOrchestrator_InspectSubagent(t *testing.T) {
 	if !strings.Contains(diffOut, "No git diff recorded") {
 		t.Errorf("expected clean/empty diff message, got: %s", diffOut)
 	}
+
+	// 4. Inspect using session_label ("audit-auth-race-conditions") instead of subID
+	labelStepsOut, err := orchestrator.InspectSubagent(context.Background(), tools.InspectSubagentRequest{
+		SessionID: "audit-auth-race-conditions",
+		View:      "steps",
+	})
+	if err != nil {
+		t.Fatalf("InspectSubagent by label failed: %v", err)
+	}
+	if !strings.Contains(labelStepsOut, "read_file") || !strings.Contains(labelStepsOut, "execute_command") {
+		t.Errorf("label steps output missing tool names: %s", labelStepsOut)
+	}
+
+	labelSummaryOut, err := orchestrator.InspectSubagent(context.Background(), tools.InspectSubagentRequest{
+		SessionID: "audit-auth-race-conditions",
+		View:      "summary",
+	})
+	if err != nil {
+		t.Fatalf("InspectSubagent summary by label failed: %v", err)
+	}
+	if !strings.Contains(labelSummaryOut, "Total Steps:  2") {
+		t.Errorf("label summary output missing step count: %s", labelSummaryOut)
+	}
+	if !strings.Contains(labelSummaryOut, "security_flaw") {
+		t.Errorf("label summary output missing candidate memory: %s", labelSummaryOut)
+	}
 }
 
 func TestManager_DefaultAndClonedDelegationTools(t *testing.T) {
@@ -461,7 +555,7 @@ func TestSubagentOrchestrator_CandidateMemoriesPromotion(t *testing.T) {
 		ParentSessionID: "main",
 		Task:            "Investigate database architecture",
 		SessionLabel:    "db-investigation",
-		ToolPreset:      "full",
+		ToolPreset:      "read_only",
 		IsolateWorktree: false,
 		MaxSteps:        5,
 	})
@@ -477,3 +571,263 @@ func TestSubagentOrchestrator_CandidateMemoriesPromotion(t *testing.T) {
 	}
 }
 
+func TestSubagentOrchestrator_TargetDir_PathTraversal(t *testing.T) {
+	repoDir, configDir := setupScenarioGitRepo(t)
+	t.Setenv("PLEASE_CONFIG_DIR", configDir)
+
+	g := graph.NewGraph()
+	mgr := NewManager(g, nil)
+	mgr.WorkspaceDir = repoDir
+	cfg := config.NewDefaultConfig()
+	mockProvider := &providers.MockLLMProvider{}
+	orchestrator := NewSubagentOrchestrator(mgr, mockProvider, cfg)
+
+	// Attempt path traversal
+	_, err := orchestrator.SpawnSubagent(context.Background(), tools.SubagentRequest{
+		ParentSessionID: "main",
+		Task:            "Attack workspace",
+		SessionLabel:    "exploit",
+		TargetDir:       "../../outside",
+		ToolPreset:      "read_only",
+		IsolateWorktree: false,
+		MaxSteps:        1,
+	})
+	if err == nil || !strings.Contains(err.Error(), "traverses outside workspace") {
+		t.Fatalf("expected error for path traversal, got: %v", err)
+	}
+
+	// Reconcile path traversal
+	_, err = orchestrator.ReconcileSubagent(context.Background(), tools.ReconcileSubagentRequest{
+		SessionID: "sub_fake",
+		TargetDir: "../../../etc",
+	})
+	if err == nil || !strings.Contains(err.Error(), "traverses outside workspace") {
+		t.Fatalf("expected error for path traversal in reconcile, got: %v", err)
+	}
+}
+
+func TestSubagentOrchestrator_TargetDir_DelegationAndReconciliation(t *testing.T) {
+	repoDir, configDir := setupScenarioGitRepo(t)
+	t.Setenv("PLEASE_CONFIG_DIR", configDir)
+
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git not found")
+	}
+
+	// Create nested git repository inside repoDir
+	childDir := filepath.Join(repoDir, "child_repo")
+	if err := os.MkdirAll(childDir, 0755); err != nil {
+		t.Fatalf("failed to create child_repo: %v", err)
+	}
+	exec.Command(gitPath, "-C", childDir, "init", "-b", "main").Run()
+	exec.Command(gitPath, "-C", childDir, "config", "user.name", "Scenario Tester").Run()
+	exec.Command(gitPath, "-C", childDir, "config", "user.email", "tester@please.dev").Run()
+	_ = os.WriteFile(filepath.Join(childDir, "child_init.txt"), []byte("child repo init"), 0644)
+	exec.Command(gitPath, "-C", childDir, "add", "child_init.txt").Run()
+	exec.Command(gitPath, "-C", childDir, "commit", "-m", "init child").Run()
+
+	dbPath := filepath.Join(t.TempDir(), "vault.db")
+	sqlStore, _ := storage.NewSQLiteStorage(dbPath, "")
+
+	g := graph.NewGraph()
+	mgr := NewManager(g, sqlStore)
+	mgr.WorkspaceDir = repoDir
+	mgr.RegisterDefaultTools(repoDir)
+
+	cfg := config.NewDefaultConfig()
+
+	// Provider writes a file in the child repo worktree
+	mockProvider := &providers.MockLLMProvider{
+		StreamHandler: func(messages []domain.Message, toolSpecs []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
+			for _, m := range messages {
+				if m.Role == domain.RoleTool {
+					return "Subproject file written successfully.", "Concluded", nil, nil
+				}
+			}
+			return "", "Writing child file", []domain.ToolCall{
+				{
+					ID:   "call_write_child",
+					Type: "function",
+					Function: struct {
+						Name      string          `json:"name"`
+						Arguments json.RawMessage `json:"arguments"`
+					}{
+						Name:      "write_file",
+						Arguments: json.RawMessage(`{"path": "child_feature.txt", "content": "child feature content"}`),
+					},
+				},
+			}, nil
+		},
+	}
+
+	orchestrator := NewSubagentOrchestrator(mgr, mockProvider, cfg)
+	res, err := orchestrator.SpawnSubagent(context.Background(), tools.SubagentRequest{
+		ParentSessionID: "main",
+		Task:            "Implement child feature in child_repo",
+		SessionLabel:    "child-delegation",
+		TargetDir:       "child_repo",
+		ToolPreset:      "full",
+		IsolateWorktree: true,
+		MaxSteps:        5,
+	})
+	if err != nil {
+		t.Fatalf("SpawnSubagent failed: %v", err)
+	}
+
+	if res.RepoPath != "child_repo" {
+		t.Errorf("expected RepoPath 'child_repo', got %q", res.RepoPath)
+	}
+	if res.Branch == "" {
+		t.Fatalf("expected non-empty branch for isolate_worktree")
+	}
+
+	subID := strings.TrimPrefix(res.Branch, "subsession/")
+
+	// Reconcile via squash without specifying target_dir (should auto-resolve from session metadata)
+	recRes, err := orchestrator.ReconcileSubagent(context.Background(), tools.ReconcileSubagentRequest{
+		SessionID:       subID,
+		Strategy:        "squash",
+		CleanupWorktree: true,
+	})
+	if err != nil {
+		t.Fatalf("ReconcileSubagent failed: %v", err)
+	}
+	if recRes.Strategy != "squash" || recRes.Commit == "" {
+		t.Errorf("unexpected ReconcileSubagent result: %+v", recRes)
+	}
+
+	// Verify child_feature.txt exists in childDir, NOT in parent repoDir
+	childFile := filepath.Join(childDir, "child_feature.txt")
+	if data, err := os.ReadFile(childFile); err != nil || string(data) != "child feature content" {
+		t.Errorf("child_feature.txt missing or incorrect in child_repo: %v", err)
+	}
+	parentFile := filepath.Join(repoDir, "child_feature.txt")
+	if _, err := os.Stat(parentFile); !os.IsNotExist(err) {
+		t.Errorf("child_feature.txt must NOT exist in parent workspace root")
+	}
+}
+
+func TestSubagentOrchestrator_InheritsParentBranchGenesisRoot(t *testing.T) {
+	repoDir, configDir := setupScenarioGitRepo(t)
+	t.Setenv("PLEASE_CONFIG_DIR", configDir)
+
+	dbPath := filepath.Join(t.TempDir(), "vault.db")
+	sqlStore, err := storage.NewSQLiteStorage(dbPath, "")
+	if err != nil {
+		t.Fatalf("failed to create sqlite storage: %v", err)
+	}
+
+	g := graph.NewGraph()
+	mgr := NewManager(g, sqlStore)
+	mgr.WorkspaceDir = repoDir
+	mgr.RegisterDefaultTools(repoDir)
+
+	cfg := config.NewDefaultConfig()
+
+	// 1. Establish Root A (older system prompt)
+	rootA, err := mgr.CreateNode("", domain.RoleSystem, "You are Agent Alpha (Legacy Branch)", false)
+	if err != nil {
+		t.Fatalf("failed to create rootA: %v", err)
+	}
+	// Ensure rootA has an earlier timestamp
+	rootA.Timestamp = time.Now().Add(-2 * time.Hour)
+	_ = sqlStore.SaveNode(rootA)
+
+	// Small pause so UUIDv7 timestamp progresses
+	time.Sleep(10 * time.Millisecond)
+
+	// 2. Establish Root B (newer system prompt for active branch)
+	rootB, err := mgr.CreateNode("", domain.RoleSystem, "You are George the Archivist (Active Branch)", false)
+	if err != nil {
+		t.Fatalf("failed to create rootB: %v", err)
+	}
+	rootB.Timestamp = time.Now().Add(-1 * time.Hour)
+	_ = sqlStore.SaveNode(rootB)
+
+	// Re-sync graph to ensure roots ordering
+	_, _, _ = mgr.Sync()
+
+	// Verify that the naive GetSystemRoot() returns rootA (the oldest system root)
+	sysRoot, err := g.GetSystemRoot()
+	if err != nil || sysRoot.ID != rootA.ID {
+		t.Fatalf("expected GetSystemRoot to return oldest rootA, got %v (err: %v)", sysRoot, err)
+	}
+
+	// 3. Start a parent session under Root B
+	time.Sleep(10 * time.Millisecond)
+	parentSessionID := "session_branch_b"
+	userB, err := mgr.CreateNode(rootB.ID, domain.RoleUser, "Investigate the active branch architecture", false)
+	if err != nil {
+		t.Fatalf("failed to create userB: %v", err)
+	}
+	userB.Metadata["session_id"] = parentSessionID
+	_ = sqlStore.SaveNode(userB)
+
+	time.Sleep(10 * time.Millisecond)
+	asstB, err := mgr.CreateAssistantNode(userB.ID, "I am ready to investigate under George's lineage.", "", nil, false)
+	if err != nil {
+		t.Fatalf("failed to create asstB: %v", err)
+	}
+	asstB.Metadata["session_id"] = parentSessionID
+	_ = sqlStore.SaveNode(asstB)
+	if err := sqlStore.SaveSessionHead(parentSessionID, asstB.ID); err != nil {
+		t.Fatalf("failed to save session head: %v", err)
+	}
+
+	// 4. Mock provider for subagent turn
+	mockProvider := &providers.MockLLMProvider{
+		StreamHandler: func(messages []domain.Message, toolSpecs []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
+			return "Subagent task completed under parent lineage.", "Finished", nil, nil
+		},
+	}
+
+	orchestrator := NewSubagentOrchestrator(mgr, mockProvider, cfg)
+
+	// 5. Spawn subagent from parent session
+	res, err := orchestrator.SpawnSubagent(context.Background(), tools.SubagentRequest{
+		ParentSessionID: parentSessionID,
+		Task:            "Perform focused child audit",
+		SessionLabel:    "child-lineage-audit",
+		ToolPreset:      "read_only",
+		IsolateWorktree: false,
+		MaxSteps:        3,
+	})
+	if err != nil {
+		t.Fatalf("SpawnSubagent failed: %v", err)
+	}
+	if res.Status != "completed" {
+		t.Fatalf("expected status completed, got %s (res: %+v)", res.Status, res)
+	}
+
+	// 6. Find subagent user node and assert it attached to Root B, NOT Root A
+	var subagentUserNode *graph.Node
+	for _, n := range mgr.Graph.GetAllNodes() {
+		if n.Role == domain.RoleUser && n.Metadata != nil && n.Metadata["subagent"] == "true" {
+			subagentUserNode = n
+			break
+		}
+	}
+
+	if subagentUserNode == nil {
+		t.Fatalf("expected to find subagent user node in graph")
+	}
+
+	if subagentUserNode.ParentID != rootB.ID {
+		t.Errorf("subagent attached to wrong parent ID: got %q, want %q (Root B). Did it attach to Root A (%q)?",
+			subagentUserNode.ParentID, rootB.ID, rootA.ID)
+	}
+
+	if subagentUserNode.ParentID == rootA.ID {
+		t.Errorf("FAIL: subagent incorrectly attached to oldest root (Root A) instead of parent branch root (Root B)!")
+	}
+
+	// 7. Verify LLM context for the subagent's user turn begins with Root B persona
+	contextMsgs, err := mgr.BuildLLMContext(subagentUserNode.ID, false)
+	if err != nil {
+		t.Fatalf("BuildLLMContext failed: %v", err)
+	}
+	if len(contextMsgs) == 0 || contextMsgs[0].Role != domain.RoleSystem || !strings.Contains(contextMsgs[0].Content, "George the Archivist") {
+		t.Errorf("expected LLM context to contain Root B persona ('George the Archivist'), got: %+v", contextMsgs)
+	}
+}
