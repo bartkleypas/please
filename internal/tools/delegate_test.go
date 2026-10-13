@@ -131,6 +131,24 @@ func TestSpawnSubagentTool_Validation(t *testing.T) {
 	if runner.lastReq.ToolPreset != "read_only" {
 		t.Errorf("expected tool_preset 'read_only', got %s", runner.lastReq.ToolPreset)
 	}
+
+	// 8. String-encoded max_steps and isolate_worktree arguments
+	_, err = tool.Function(ctx, map[string]interface{}{
+		"task":             "Audit code with string args",
+		"session_label":    "audit-string-args",
+		"max_steps":        "25",
+		"isolate_worktree": "false",
+		"tool_preset":      "read_only",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error with string-encoded arguments: %v", err)
+	}
+	if runner.lastReq.MaxSteps != 25 {
+		t.Errorf("expected string '25' to be coerced to 25, got %d", runner.lastReq.MaxSteps)
+	}
+	if runner.lastReq.IsolateWorktree {
+		t.Errorf("expected string 'false' to be coerced to false")
+	}
 }
 
 func TestSpawnSubagentTool_ParentSessionContext(t *testing.T) {

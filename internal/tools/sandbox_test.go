@@ -235,3 +235,79 @@ func TestToolDefaults_WorkspaceScoping(t *testing.T) {
 		t.Errorf("expected execute_command to run in %s, got %s", absWs, strings.TrimSpace(pwdOut))
 	}
 }
+
+func TestArgumentHelpers(t *testing.T) {
+	args := map[string]interface{}{
+		"int_direct":       25,
+		"float_direct":     25.0,
+		"str_int":          "25",
+		"str_int_padded":   "  25  ",
+		"str_float":        "25.0",
+		"bool_direct":      true,
+		"bool_str_true":    "true",
+		"bool_str_1":       "1",
+		"bool_str_yes":     "yes",
+		"bool_str_false":   "false",
+		"bool_str_false_p": " False ",
+		"bool_str_0":       "0",
+		"float_num":        0.85,
+		"float_str":        " 0.95 ",
+	}
+
+	// Test getIntArg
+	if got := getIntArg(args, "int_direct", 10); got != 25 {
+		t.Errorf("expected 25, got %d", got)
+	}
+	if got := getIntArg(args, "float_direct", 10); got != 25 {
+		t.Errorf("expected 25, got %d", got)
+	}
+	if got := getIntArg(args, "str_int", 10); got != 25 {
+		t.Errorf("expected 25 from string '25', got %d", got)
+	}
+	if got := getIntArg(args, "str_int_padded", 10); got != 25 {
+		t.Errorf("expected 25 from padded string '  25  ', got %d", got)
+	}
+	if got := getIntArg(args, "str_float", 10); got != 25 {
+		t.Errorf("expected 25 from string '25.0', got %d", got)
+	}
+	if got := getIntArg(args, "non_existent", 10); got != 10 {
+		t.Errorf("expected default 10, got %d", got)
+	}
+
+	// Test getBoolArg
+	if got := getBoolArg(args, "bool_direct", false); !got {
+		t.Errorf("expected true, got false")
+	}
+	if got := getBoolArg(args, "bool_str_true", false); !got {
+		t.Errorf("expected true from string 'true', got false")
+	}
+	if got := getBoolArg(args, "bool_str_1", false); !got {
+		t.Errorf("expected true from string '1', got false")
+	}
+	if got := getBoolArg(args, "bool_str_yes", false); !got {
+		t.Errorf("expected true from string 'yes', got false")
+	}
+	if got := getBoolArg(args, "bool_str_false", true); got {
+		t.Errorf("expected false from string 'false', got true")
+	}
+	if got := getBoolArg(args, "bool_str_false_p", true); got {
+		t.Errorf("expected false from padded string ' False ', got true")
+	}
+	if got := getBoolArg(args, "bool_str_0", true); got {
+		t.Errorf("expected false from string '0', got true")
+	}
+	if got := getBoolArg(args, "non_existent", true); !got {
+		t.Errorf("expected default true, got false")
+	}
+
+	// Test getFloatArg
+	if got := getFloatArg(args, "float_num", 1.0); got != 0.85 {
+		t.Errorf("expected 0.85, got %f", got)
+	}
+	if got := getFloatArg(args, "float_str", 1.0); got != 0.95 {
+		t.Errorf("expected 0.95, got %f", got)
+	}
+	if got := getFloatArg(args, "non_existent", 1.0); got != 1.0 {
+		t.Errorf("expected default 1.0, got %f", got)
+	}
+}

@@ -153,10 +153,7 @@ func SpawnSubagentTool(runner SubagentRunner) Tool {
 				}
 			}
 
-			isolateWorktree := true
-			if iw, ok := args["isolate_worktree"].(bool); ok {
-				isolateWorktree = iw
-			}
+			isolateWorktree := getBoolArg(args, "isolate_worktree", true)
 
 			if !isolateWorktree {
 				if !explicitPreset {
@@ -168,12 +165,7 @@ func SpawnSubagentTool(runner SubagentRunner) Tool {
 				}
 			}
 
-			maxSteps := 10
-			if ms, ok := args["max_steps"].(float64); ok && ms > 0 {
-				maxSteps = int(ms)
-			} else if ms, ok := args["max_steps"].(int); ok && ms > 0 {
-				maxSteps = ms
-			}
+			maxSteps := getIntArg(args, "max_steps", 10)
 			if maxSteps > 25 {
 				maxSteps = 25
 			}
@@ -261,10 +253,7 @@ func ReconcileSubagentTool(reconciler SubagentReconciler) Tool {
 				strategy = strings.ToLower(strings.TrimSpace(s))
 			}
 
-			cleanupWorktree := true
-			if cw, ok := args["cleanup_worktree"].(bool); ok {
-				cleanupWorktree = cw
-			}
+			cleanupWorktree := getBoolArg(args, "cleanup_worktree", true)
 
 			req := ReconcileSubagentRequest{
 				SessionID:       sessionID,
