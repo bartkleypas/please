@@ -318,3 +318,7 @@ All updates and modifications to this knowledge bundle are tracked chronological
     * Supported backward-compatible aliases in `SpawnSubagentTool` (`step_budget`, `step_limit`, and legacy `max_steps`).
     * Surfaced `StepBudget` alongside `StepsUsed` in `SubagentResult` across [tools/delegate.go](internal/tools/delegate.go) and [engine/delegate.go](internal/engine/delegate.go) for transparent telemetry.
     * Added unit test coverage for `step_budget` and `step_limit` aliases in [delegate_test.go](internal/tools/delegate_test.go).
+* **TUI Memory Card Double-Rendering Fix**:
+    * Fixed double rendering in [view.go](internal/tui/view.go) where `MemoryCardOverlay` caused `Model.View()` to append `renderMemoryCard` below `m.Viewport.View()`, which already contained the rendered card. This overflowed the terminal height and pushed the upper viewport off-screen.
+    * Added regression unit tests in [tui_test.go](internal/tui/tui_test.go) verifying single-instance card rendering across deck selection and `/memories inspect <key>`.
+

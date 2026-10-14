@@ -1573,6 +1573,7 @@ func TestMemoriesCommand(t *testing.T) {
 	cfg := config.NewDefaultConfig()
 
 	m := NewModel(cfg, graph, store, mockProvider, "")
+	m.SetupMode = false
 
 	// 1. /memories listing transitions into ModeMemories deck
 	m.HandleCommand("/memories")
@@ -1604,6 +1605,10 @@ func TestMemoriesCommand(t *testing.T) {
 	cardView := m.renderMemoriesView()
 	if !strings.Contains(cardView, "Card: tui_key") || !strings.Contains(cardView, "TUI memory testing invariant") {
 		t.Errorf("expected /memories inspect output, got:\n%s", cardView)
+	}
+	fullInspectView := m.View()
+	if count := strings.Count(fullInspectView, "Card: tui_key"); count != 1 {
+		t.Fatalf("expected /memories inspect to render card exactly once in m.View(), got %d occurrences:\n%s", count, fullInspectView)
 	}
 
 	// 4. /memory search
@@ -1993,6 +1998,7 @@ func TestViewStack_MapAndMemoriesLayers(t *testing.T) {
 	mockProvider := &providers.MockLLMProvider{ResponseContent: "OK"}
 	cfg := config.NewDefaultConfig()
 	m := NewModel(cfg, g, store, mockProvider, "")
+	m.SetupMode = false
 
 	// 1. Initial stack should have chat as root layer
 	if m.ViewStack.Len() != 1 || m.ViewStack.Top().Name() != "chat" {
@@ -2036,6 +2042,10 @@ func TestViewStack_MapAndMemoriesLayers(t *testing.T) {
 	}
 	if !m.ViewStack.Top().IsOverlay() {
 		t.Errorf("memory_card layer should be an overlay")
+	}
+	renderedView := m.View()
+	if count := strings.Count(renderedView, "Card: test_key"); count != 1 {
+		t.Fatalf("expected memory card to be rendered exactly once in View(), got %d occurrences:\n%s", count, renderedView)
 	}
 
 	// 6. Press esc -> pops back to memories deck
