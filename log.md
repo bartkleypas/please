@@ -310,3 +310,11 @@ All updates and modifications to this knowledge bundle are tracked chronological
     * Replaced fragile manual type assertions in `SpawnSubagentTool` and `ReconcileSubagentTool` in [delegate.go](internal/tools/delegate.go) (`max_steps`, `isolate_worktree`, `cleanup_worktree`), resolving silent fallbacks to default values when models send stringified numbers or booleans.
     * Upgraded `InspectReceiptTool` in [receipt.go](internal/tools/receipt.go) (`start_line`, `line_count`) and `Memory*` tools in [memory.go](internal/tools/memory.go) (`confidence`, `limit`, `detailed`) to use unified argument coercion helpers.
     * Added comprehensive unit test coverage in [sandbox_test.go](internal/tools/sandbox_test.go), [delegate_test.go](internal/tools/delegate_test.go), and [receipt_test.go](internal/tools/receipt_test.go).
+
+## 2026-10-14
+
+* **Subagent Cognitive Schema Alignment (`step_budget`)**:
+    * Re-anchored `SpawnSubagentTool` parameter definition in [delegate.go](internal/tools/delegate.go) from `max_steps` to `step_budget` with actionable guidance ("Increase to 20-25 for complex code forensics or multi-file audits") matching LLM planning vocabulary.
+    * Supported backward-compatible aliases in `SpawnSubagentTool` (`step_budget`, `step_limit`, and legacy `max_steps`).
+    * Surfaced `StepBudget` alongside `StepsUsed` in `SubagentResult` across [tools/delegate.go](internal/tools/delegate.go) and [engine/delegate.go](internal/engine/delegate.go) for transparent telemetry.
+    * Added unit test coverage for `step_budget` and `step_limit` aliases in [delegate_test.go](internal/tools/delegate_test.go).

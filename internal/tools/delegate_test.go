@@ -149,6 +149,32 @@ func TestSpawnSubagentTool_Validation(t *testing.T) {
 	if runner.lastReq.IsolateWorktree {
 		t.Errorf("expected string 'false' to be coerced to false")
 	}
+
+	// 9. Primary step_budget parameter
+	_, err = tool.Function(ctx, map[string]interface{}{
+		"task":          "Deep audit",
+		"session_label": "audit-step-budget",
+		"step_budget":   20,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error with step_budget: %v", err)
+	}
+	if runner.lastReq.MaxSteps != 20 {
+		t.Errorf("expected step_budget 20, got %d", runner.lastReq.MaxSteps)
+	}
+
+	// 10. Alias step_limit parameter
+	_, err = tool.Function(ctx, map[string]interface{}{
+		"task":          "Deep audit",
+		"session_label": "audit-step-limit",
+		"step_limit":    "15",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error with step_limit: %v", err)
+	}
+	if runner.lastReq.MaxSteps != 15 {
+		t.Errorf("expected step_limit 15, got %d", runner.lastReq.MaxSteps)
+	}
 }
 
 func TestSpawnSubagentTool_ParentSessionContext(t *testing.T) {

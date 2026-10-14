@@ -262,6 +262,7 @@ func (o *SubagentOrchestrator) SpawnSubagent(ctx context.Context, req tools.Suba
 		SessionID:         subID,
 		Status:            status,
 		StepsUsed:         stepsUsed,
+		StepBudget:        req.MaxSteps,
 		Summary:           summary,
 		Synthesis:         synthesis,
 		Branch:            branchName,
