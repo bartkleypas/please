@@ -1867,11 +1867,27 @@ func TestMemoryCardWrapping(t *testing.T) {
 		t.Fatalf("expected card title in view, got:\n%s", cardView)
 	}
 
+	dividerCount := 0
 	for _, line := range strings.Split(cardView, "\n") {
 		lineWidth := lipgloss.Width(line)
 		if lineWidth > m.Viewport.Width {
 			t.Errorf("line exceeded viewport width (%d > %d): %q", lineWidth, m.Viewport.Width, line)
 		}
+		// Outer border lines (top/bottom) must match viewport width exactly for symmetry
+		if strings.HasPrefix(line, "╭") || strings.HasPrefix(line, "╰") {
+			if lineWidth != m.Viewport.Width {
+				t.Errorf("outer border line width %d does not match viewport width %d: %q", lineWidth, m.Viewport.Width, line)
+			}
+		}
+		// Count inner divider lines inside the box (excluding top/bottom border corners)
+		if strings.Contains(line, "│  ───") {
+			dividerCount++
+		}
+	}
+
+	// There should be exactly two inner divider lines (above and below content)
+	if dividerCount != 2 {
+		t.Errorf("expected exactly 2 inner divider lines, got %d:\n%s", dividerCount, cardView)
 	}
 }
 

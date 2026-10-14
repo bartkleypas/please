@@ -127,7 +127,7 @@ func (m *Model) renderMemoriesDeck() string {
 func (m *Model) renderMemoryCard(card *storage.Memory) string {
 	var sb strings.Builder
 
-	// Calculate content width based on viewport or terminal dimensions
+	// Calculate available viewport width for the memory card
 	availWidth := m.Viewport.Width
 	if availWidth <= 0 {
 		availWidth = m.Width - 4
@@ -136,10 +136,17 @@ func (m *Model) renderMemoryCard(card *storage.Memory) string {
 		availWidth = 80
 	}
 
-	// Account for memCardBoxStyle overhead: border (2) + padding (left 2 + right 2 = 4) + safety margin (2)
-	contentWidth := availWidth - 8
+	// In Lipgloss, style.Width(w) sets width inside borders (including padding).
+	// Total rendered width = styleWidth + horizontalBorderSize.
+	// Inner content width = styleWidth - horizontalPadding = availWidth - horizontalFrameSize.
+	borderWidth := memCardBoxStyle.GetHorizontalBorderSize()
+	frameWidth := memCardBoxStyle.GetHorizontalFrameSize()
+
+	styleWidth := availWidth - borderWidth
+	contentWidth := availWidth - frameWidth
 	if contentWidth < 40 {
 		contentWidth = 40
+		styleWidth = contentWidth + memCardBoxStyle.GetHorizontalPadding()
 	}
 
 	divider := strings.Repeat("─", contentWidth)
@@ -175,5 +182,5 @@ func (m *Model) renderMemoryCard(card *storage.Memory) string {
 	footer := "  [Esc/Backspace/q: Return to Deck | x/d: Prune Card]"
 	sb.WriteString(memFooterStyle.Render(footer))
 
-	return memCardBoxStyle.Copy().Width(contentWidth).Render(sb.String())
+	return memCardBoxStyle.Copy().Width(styleWidth).Render(sb.String())
 }
