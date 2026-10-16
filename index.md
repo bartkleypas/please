@@ -32,7 +32,7 @@ Per [ADR-018](decisions/018-package-stratification-and-domain-decoupling.md), pa
 * [internal/graph](internal/graph/index.md) - Pure in-memory DAG conversation `Graph` and `Node` structures with cycle detection ([ADR-010](decisions/010-pure-dag-graph-extraction.md)).
 * [internal/storage](internal/storage/index.md) - Persistence abstractions: SQLite (WAL mode) for DAG `nodes`, `sessions`, `observation_blobs`, and FTS5 `memories`, plus JSONL, remote HTTP proxy, and AES-256-GCM vault encryption ([ADR-009](decisions/009-modular-storage-extraction.md), [ADR-014](decisions/014-persistent-agent-memory-and-cybernetic-recall.md), [ADR-021](decisions/021-tiered-sensory-storage-and-observation-compaction.md)).
 * [internal/tools](internal/tools/index.md) - Tool registry, 3-tier sandbox policy enforcement (`strict`, `standard`, `permissive`), sensory/mutation/execution tools, `inspect_receipt` paging, cybernetic `memory_*` tools, and `spawn_subagent` delegation ([ADR-005](decisions/005-modular-tools-extraction.md), [ADR-011](decisions/011-agent-sandboxing-execution-isolation.md)).
-* [internal/providers](internal/providers/index.md) - LLM provider drivers (Ollama, OpenAI, Remote Daemon SSE, Mock), wire protocols, and reasoning stream parsers ([ADR-006](decisions/006-modular-providers-extraction.md)).
+* [internal/providers](internal/providers/index.md) - LLM provider drivers (Ollama, OpenAI, Raw Wire, Remote Daemon SSE, Mock), wire protocols, client-side control token lexing, and reasoning stream parsers ([ADR-006](decisions/006-modular-providers-extraction.md), [ADR-024](decisions/024-raw-wire-inference-and-canonical-tool-loop-streaming.md)).
 * [internal/config](internal/config/index.md) - Configuration loading, `.please/` workspace discovery ladder ([ADR-016](decisions/016-workspace-dot-directory-hermeticity-and-init-ceremony.md)), and Schema v2 migration utilities ([ADR-008](decisions/008-modular-config-extraction.md)).
 * [internal/worktree](internal/worktree/index.md) - Ephemeral out-of-tree Git worktree manager for sandboxed concurrent sessions and delegated subagents ([ADR-007](decisions/007-multi-session-daemon-branch-concurrency.md), [ADR-022](decisions/022-native-delegated-multi-agent-topologies.md)).
 
@@ -41,7 +41,7 @@ Per [ADR-018](decisions/018-package-stratification-and-domain-decoupling.md), pa
 
 ## Architecture Decisions & Specifications
 
-* [decisions](decisions/index.md) - Complete index of Architecture Decision Records (`ADR-001` through `ADR-022`).
+* [decisions](decisions/index.md) - Complete index of Architecture Decision Records (`ADR-001` through `ADR-025`).
 * [bootstrap_memory](GEMINI.md) - Agent wakeup orientation document detailing architectural layers, memory tiers, and development conventions.
 * [v0.3.0_roadmap](docs/roadmap_v0.3.0.md) - Authoritative v0.3.0 architectural blueprint for lifecycle convergence, context shaping, three-tier memory, and delegated agents.
 * [daemon_protocol](docs/daemon_protocol_spec.md) - Authoritative REST v1 and SSE streaming wire protocol specification for multi-platform clients.

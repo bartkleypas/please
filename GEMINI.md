@@ -25,21 +25,19 @@ For detailed and authoritative documentation, consult these dedicated files inst
 * [Daemon Protocol Spec](docs/daemon_protocol_spec.md) - Authoritative REST v1 and SSE streaming wire protocol specification.
 * [Context Shaping & Resonance Spec](docs/context_resonance.md) - Cache-stable `ContextShaper` projections (`SigmoidShaper`, `WindowShaper`, `ResonanceShaper`) and `SmartReceipt` paging.
 * [Natural Pacing Spec](docs/natural_pacing.md) - Stream buffering and punctuation-sensitive pacing rules.
-* [Architecture Decisions (ADRs)](decisions/index.md) - Authoritative record of all 22 architectural decisions (`ADR-001` through `ADR-022`).
+* [Architecture Decisions (ADRs)](decisions/index.md) - Authoritative record of all 25 architectural decisions (`ADR-001` through `ADR-025`).
 * [Change Log](log.md) - Chronological ledger of all modifications.
 
 ---
 
-## 🏗️ Active Design Context & Baseline (`v0.3.1`)
+## 🏗️ Active Design Context & Baseline (`v0.3.2`)
 
-* **Current Baseline (`v0.3.1`)**: All four pillars of the [v0.3.0 Roadmap](docs/roadmap_v0.3.0.md) and `v0.3.1` ergonomic refinements are implemented and verified:
+* **Current Baseline (`v0.3.2`)**: Builds upon the four pillars of the [v0.3.0 Roadmap](docs/roadmap_v0.3.0.md) and introduces critical inference, sandbox, and context projection refinements:
   1. **Canonical Execution Lifecycle ([ADR-019](decisions/019-lifecycle-convergence-and-canonical-harness-standardization.md))**: `SessionHarness` ([`internal/engine/harness.go`](internal/engine/harness.go)) is the single authoritative execution runner across standalone TUI (`LocalHarnessProvider`), headless daemon (`SessionActor`), and IDE ACP (`please acp`).
-  2. **Cache-Stable Context Shaping ([ADR-020](decisions/020-cache-stable-context-shaping-and-pure-prompt-projections.md))**: Pure read-only `ContextShaper` projections (`sigmoid` default, `window`, `exponential`) in [`internal/engine/shaper.go`](internal/engine/shaper.go) driven strictly by topological step distance ($\Delta d$) and token fill ratio—zero wall-clock time decay, preserving monotonic prefix invariance for KV-cache reuse.
-  3. **Three-Tier Memory & Smart Receipts ([ADR-014](decisions/014-persistent-agent-memory-and-cybernetic-recall.md), [ADR-021](decisions/021-tiered-sensory-storage-and-observation-compaction.md))**:
-     * **L1 (Working Context Window)**: Ephemeral in-flight prompt buffer shaped by `ContextShaper`.
-     * **L2 (Sensory Observation Vault)**: Out-of-band gzipped telemetry in SQLite `observation_blobs` paired with deterministic in-DAG `SmartReceipt` (`obs_<hash>`) and on-demand paging via `inspect_receipt`.
-     * **L3 (Cybernetic Semantic Store)**: Durable FTS5-indexed knowledge in SQLite `memories` managed via `memory_store`, `memory_recall`, `memory_delete`, and `memory_diagnose`.
-  4. **Native Delegated Multi-Agent Topologies ([ADR-022](decisions/022-native-delegated-multi-agent-topologies.md))**: First-class sub-session delegation (`spawn_subagent`, `inspect_subagent`, `reconcile_subagent`) with isolated out-of-tree Git worktrees, `target_dir` nested repository support, and synthesized perception shielding.
+  2. **Cache-Stable Context Shaping & Projections ([ADR-020](decisions/020-cache-stable-context-shaping-and-pure-prompt-projections.md), [ADR-025](decisions/025-cache-stable-prompt-projections-and-temporal-pinning.md))**: Pure read-only `ContextShaper` projections with system block inversion (shared invariant prefix first, persona last) and leaf telemetry inversion (`<ADDITIONAL_METADATA>` before `<USER_REQUEST>`) pinned to `userNode.Timestamp` across intra-turn hops.
+  3. **Three-Tier Memory & Smart Receipts ([ADR-014](decisions/014-persistent-agent-memory-and-cybernetic-recall.md), [ADR-021](decisions/021-tiered-sensory-storage-and-observation-compaction.md))**: L1 working window, L2 sensory observation vault (`observation_blobs` + `SmartReceipt`), and L3 cybernetic store (`memories`).
+  4. **Native Delegated Topologies & Self-Hosting Isolation ([ADR-022](decisions/022-native-delegated-multi-agent-topologies.md), [ADR-023](decisions/023-subprocess-recursion-guardrails-and-self-hosting-isolation.md))**: Subagent delegation with Git worktrees, cross-process recursion guardrails (`PLEASE_HARNESS_DEPTH`), `.please/config.json` quarantine, and dispatch-level sandbox policy enforcement.
+  5. **Raw Wire Inference & Canonical Continuous-Turn Tool Grammar ([ADR-024](decisions/024-raw-wire-inference-and-canonical-tool-loop-streaming.md))**: `RawWireProvider` bypassing Jinja templates (`/api/generate`), client-side `Gemma4StreamLexer` with lookahead buffering and rehearsal protection, single continuous `<|turn>model` multi-step tool streaming, and configurable reasoning effort (`off`, `low`, `medium`, `high`).
 * **Clients & Surfaces**: Standalone Go TUI (`please`), Headless Daemon (`please serve`), Connected Go TUI (`please connect`), IDE Agent Client Protocol (`please acp` / `please-acp`), and the native Apple companion client ([please-swift](../please-swift/index.md)).
 
 ---
