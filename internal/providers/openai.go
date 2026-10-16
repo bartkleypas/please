@@ -110,6 +110,7 @@ type openAIRequest struct {
 	TopP             *float64        `json:"top_p,omitempty"`
 	MaxTokens        *int            `json:"max_tokens,omitempty"`
 	FrequencyPenalty *float64        `json:"frequency_penalty,omitempty"`
+	ReasoningEffort  string          `json:"reasoning_effort,omitempty"`
 }
 
 type openAIResponse struct {
@@ -189,6 +190,9 @@ func (o *OpenAIProvider) GenerateResponse(ctx context.Context, messages []domain
 		reqBody.TopP = o.Options.TopP
 		reqBody.MaxTokens = o.Options.MaxTokens
 		reqBody.FrequencyPenalty = o.Options.FrequencyPenalty
+		if o.Options.ReasoningEffort != "" && o.Options.ReasoningEffort != "off" {
+			reqBody.ReasoningEffort = o.Options.ReasoningEffort
+		}
 	}
 
 	if len(reqBody.Tools) == 0 {
@@ -268,6 +272,9 @@ func (o *OpenAIProvider) GenerateResponseStream(ctx context.Context, messages []
 			reqBody.TopP = o.Options.TopP
 			reqBody.MaxTokens = o.Options.MaxTokens
 			reqBody.FrequencyPenalty = o.Options.FrequencyPenalty
+			if o.Options.ReasoningEffort != "" && o.Options.ReasoningEffort != "off" {
+				reqBody.ReasoningEffort = o.Options.ReasoningEffort
+			}
 		}
 
 		if len(reqBody.Tools) == 0 {

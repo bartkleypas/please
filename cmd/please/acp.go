@@ -11,8 +11,8 @@ import (
 
 	"github.com/bartkleypas/please/internal/acp"
 	"github.com/bartkleypas/please/internal/config"
+	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/engine"
-	"github.com/bartkleypas/please/internal/providers"
 	"github.com/bartkleypas/please/internal/storage"
 )
 
@@ -26,6 +26,9 @@ func runACP(args []string) {
 
 	workspacePath := fs.String("workspace", "", "Path to the project workspace directory")
 	fs.StringVar(workspacePath, "w", "", "Path to the project workspace directory (shorthand)")
+
+	reasoningFlag := fs.String("reasoning", "", "Reasoning effort level ('off', 'low', 'medium', 'high')")
+	fs.StringVar(reasoningFlag, "r", "", "Reasoning effort level (shorthand)")
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: please acp [options]\n\n")
@@ -63,6 +66,12 @@ func runACP(args []string) {
 	if *workspacePath != "" {
 		cfg.Server.WorkspaceDir = *workspacePath
 	}
+	if *reasoningFlag != "" {
+		if cfg.Server.Options == nil {
+			cfg.Server.Options = &domain.ModelOptions{}
+		}
+		cfg.Server.Options.ReasoningEffort = *reasoningFlag
+	}
 
 	finalVaultPath := cfg.Server.VaultPath
 	if *vaultPath != "" {
@@ -93,12 +102,7 @@ func runACP(args []string) {
 		os.Exit(1)
 	}
 
-	var provider providers.Provider
-	if cfg.Server.Provider == "openai" {
-		provider = providers.NewOpenAIProvider(cfg.Server.Endpoint, cfg.Server.Model, cfg.Server.APIKey, cfg.Server.Options)
-	} else {
-		provider = providers.NewOllamaProvider(cfg.Server.Endpoint, cfg.Server.Model, cfg.Server.Options)
-	}
+	provider := createProvider(cfg)
 
 	mgr := engine.NewManager(graph, strg)
 	mgr.SignatSteering = cfg.EnableSignatSteering()

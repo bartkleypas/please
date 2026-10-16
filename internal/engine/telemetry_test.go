@@ -59,9 +59,9 @@ func TestFormatTelemetryEnvelope(t *testing.T) {
 	prompt := "What is the capital of France?"
 	telem := "cwd: /tmp\nlocal_time: 2026-09-05T08:00:00-07:00"
 
-	// 1. Full envelope with telemetry
+	// 1. Full envelope with telemetry (<ADDITIONAL_METADATA> precedes <USER_REQUEST>)
 	enveloped := FormatTelemetryEnvelope(prompt, telem)
-	expected := "<USER_REQUEST>\nWhat is the capital of France?\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\ncwd: /tmp\nlocal_time: 2026-09-05T08:00:00-07:00\n</ADDITIONAL_METADATA>"
+	expected := "<ADDITIONAL_METADATA>\ncwd: /tmp\nlocal_time: 2026-09-05T08:00:00-07:00\n</ADDITIONAL_METADATA>\n<USER_REQUEST>\nWhat is the capital of France?\n</USER_REQUEST>"
 	if enveloped != expected {
 		t.Errorf("expected:\n%s\ngot:\n%s", expected, enveloped)
 	}

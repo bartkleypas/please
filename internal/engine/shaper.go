@@ -356,6 +356,16 @@ func projectPathToMessages(
 	}
 	fillRatio := float64(estimatedTokens) / float64(limit)
 
+	// Identify the active user turn index (either the leaf RoleUser node, or the parent RoleUser
+	// node when the leaf is an in-flight/active RoleAssistant turn during tool execution).
+	activeUserIdx := -1
+	for idx := len(path) - 1; idx >= 0; idx-- {
+		if path[idx].Role == domain.RoleUser {
+			activeUserIdx = idx
+			break
+		}
+	}
+
 	var messages []domain.Message
 	for i, node := range path {
 		distance := len(path) - 1 - i
@@ -408,10 +418,16 @@ func projectPathToMessages(
 			}
 
 			if len(segments) > 0 {
+				tcCursor := 0
 				for j, seg := range segments {
 					var tCalls []domain.ToolCall
-					if j < len(node.ToolCalls) {
-						tCalls = []domain.ToolCall{node.ToolCalls[j]}
+					count := seg.ToolCount
+					if count == 0 && tcCursor < len(node.ToolCalls) {
+						count = 1
+					}
+					for k := 0; k < count && tcCursor < len(node.ToolCalls); k++ {
+						tCalls = append(tCalls, node.ToolCalls[tcCursor])
+						tcCursor++
 					}
 
 					content := seg.Content
@@ -428,12 +444,13 @@ func projectPathToMessages(
 					msg.ToolCalls = tCalls
 					messages = append(messages, msg)
 
-					for _, tc := range tCalls {
+					for k, tc := range tCalls {
+						callIdx := tcCursor - len(tCalls) + k
 						toolName := tc.Function.Name
 						if obs, ok := obsMap[tc.ID]; ok {
 							messages = append(messages, domain.Message{
 								Role:       domain.RoleTool,
-								Content:    formatObs(toolName, obs, j),
+								Content:    formatObs(toolName, obs, callIdx),
 								ToolCallID: tc.ID,
 								Internal:   node.Internal,
 							})
@@ -448,9 +465,9 @@ func projectPathToMessages(
 					}
 				}
 
-				// Defensive fallback: if there are more ToolCalls than segments,
+				// Defensive fallback: if there are more ToolCalls than accounted for by segments,
 				// emit them sequentially so the model is never blinded to tool execution results.
-				for j := len(segments); j < len(node.ToolCalls); j++ {
+				for j := tcCursor; j < len(node.ToolCalls); j++ {
 					tc := node.ToolCalls[j]
 					toolName := tc.Function.Name
 					messages = append(messages, domain.Message{
@@ -502,54 +519,44 @@ func projectPathToMessages(
 		}
 
 		content := node.Content + signatSuffix + metadataText
-		// Layered Genesis Prompt for Ambient Telemetry (ADR 003 Synthesis):
-		// Dynamically layer the attentional de-weighting contract onto the root node (messages[0])
-		// if ambient_telemetry is enabled, keeping SQLite storage 100% pure persona.
-		if opts.AmbientTelemetry && (node.Role == domain.RoleSystem || (i == 0 && node.Role != domain.RoleUser)) {
-			if !strings.Contains(content, "ADDITIONAL_METADATA") && !strings.Contains(content, "peripheral environmental telemetry") {
-				content += "\n\n" + AmbientTelemetryContract
-			}
-		}
 
-		// Layered Genesis Prompt for Signat Steering (ADR 003 refined):
-		// Dynamically layer the signat formatting contract onto the root node (messages[0])
-		// if signat_steering is enabled, keeping SQLite storage 100% pure persona.
-		if opts.SignatSteering && (node.Role == domain.RoleSystem || (i == 0 && node.Role != domain.RoleUser)) {
-			if !strings.Contains(content, "signat") && !strings.Contains(content, "emoji signature") {
-				content += "\n\n" + SignatSteeringContract
-			}
-		}
-
-		// Layered Genesis Prompt for Persistent Memory (ADR 014):
-		// Dynamically layer active workspace constraints into the root node prefix (<RECALLED_MEMORIES>)
-		// to guarantee 100% KV-cache hit rates while protecting the reasoning token budget.
+		// Layered Genesis System Prefix (ADR 003, ADR 014, ADR 022):
+		// Assemble static workspace harness contracts and <RECALLED_MEMORIES> BEFORE the Genesis
+		// persona so all /persona roots share a common KV-cache prefix, and the specific persona
+		// identity sits at the final high-salience boundary of the system block.
 		if node.Role == domain.RoleSystem || (i == 0 && node.Role != domain.RoleUser) {
-			if opts.MemoryStore != nil {
-				if !strings.Contains(content, "RECALLED_MEMORIES") {
-					recalledBlock := DeriveRecalledMemoriesPrefix(opts.MemoryStore)
-					if recalledBlock != "" {
-						content += "\n\n" + MemorySteeringContract + "\n\n" + recalledBlock
-					}
+			var contracts []string
+			if opts.AmbientTelemetry && !strings.Contains(content, "ADDITIONAL_METADATA") && !strings.Contains(content, "peripheral environmental telemetry") {
+				contracts = append(contracts, AmbientTelemetryContract)
+			}
+			if opts.SignatSteering && !strings.Contains(content, "signat") && !strings.Contains(content, "emoji signature") {
+				contracts = append(contracts, SignatSteeringContract)
+			}
+			if opts.MemoryStore != nil && !strings.Contains(content, "RECALLED_MEMORIES") {
+				if recalledBlock := DeriveRecalledMemoriesPrefix(opts.MemoryStore); recalledBlock != "" {
+					contracts = append(contracts, MemorySteeringContract+"\n\n"+recalledBlock)
 				}
 			}
-		}
-
-		// Layered Genesis Prompt for Subagent Delegation (ADR 022):
-		// Dynamically layer delegation guidance onto the root node (messages[0])
-		// when delegation is available, keeping SQLite storage 100% pure persona.
-		if node.Role == domain.RoleSystem || (i == 0 && node.Role != domain.RoleUser) {
-			if opts.HasDelegation {
-				if !strings.Contains(content, "spawn_subagent") {
-					content += "\n\n" + DelegationSteeringContract
+			if opts.HasDelegation && !strings.Contains(content, "spawn_subagent") {
+				contracts = append(contracts, DelegationSteeringContract)
+			}
+			if len(contracts) > 0 {
+				prefix := strings.Join(contracts, "\n\n")
+				if content != "" {
+					content = prefix + "\n\n" + content
+				} else {
+					content = prefix
 				}
 			}
 		}
 
 		// Ephemeral Leaf Telemetry Envelope (ADR 003 Synthesis):
-		// Wrap only the active user turn (distance == 0 && RoleUser) in <USER_REQUEST> and <ADDITIONAL_METADATA>.
-		// Historical user turns (distance > 0) remain 100% clean, un-bumpered user text.
-		if opts.AmbientTelemetry && distance == 0 && node.Role == domain.RoleUser {
-			telem := DeriveAmbientTelemetry(opts.WorkspaceDir, opts.ClientContext)
+		// Wrap only the active user turn (i == activeUserIdx) in <ADDITIONAL_METADATA> and <USER_REQUEST>,
+		// pinned to node.Timestamp so intra-turn tool hops preserve 100% KV-cache prefix invariance
+		// and situational context across multi-step tool chains.
+		// Historical user turns (i < activeUserIdx) remain 100% clean, un-bumpered user text.
+		if opts.AmbientTelemetry && i == activeUserIdx && node.Role == domain.RoleUser {
+			telem := DeriveAmbientTelemetryAt(opts.WorkspaceDir, opts.ClientContext, node.Timestamp)
 			content = FormatTelemetryEnvelope(content, telem)
 		}
 

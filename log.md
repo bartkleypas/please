@@ -324,3 +324,17 @@ All updates and modifications to this knowledge bundle are tracked chronological
     * Fixed indentation preservation in `wrapText` in [utils.go](internal/tui/utils.go) so that indented lines (markdown lists and blockquotes) maintain indentation across wrapped lines without overflowing the line width budget.
     * Added and updated regression unit tests in [tui_test.go](internal/tui/tui_test.go) verifying single-instance card rendering, exact viewport border alignment, and non-wrapping horizontal dividers.
 
+## 2026-10-16
+
+* **Raw Wire Inference Provider & Gemma 4 Streaming Lexer (`ollama-raw`)**:
+    * Implemented `RawWireProvider` in [internal/providers/raw_wire.go](internal/providers/raw_wire.go) communicating directly with Ollama's `POST /api/generate` (`"raw": true`), bypassing Jinja templates and giving `please` direct token-level control over prompt structure and state transitions.
+    * Implemented `Gemma4Codec` and stateful `Gemma4StreamLexer` in [internal/providers/wire/gemma4.go](internal/providers/wire/gemma4.go) with directional control token parsing (`<|turn>`, `<turn|>`, `<|channel>thought`, `<channel|>`, `<|tool_call>`, `<tool_call|>`, `<|tool_response>`, `<tool_response|>`).
+    * Aligned multi-step tool execution with Google's canonical `chat_template.jinja`: tool calls and tool responses execute within a single continuous `<|turn>model` turn, eliminating out-of-distribution turn transitions and ensuring strictly append-only KV-cache continuity across tool iterations.
+    * Added reasoning effort modulation (`off`, `low`, `medium`, `high`) supporting `<|think|>` token injection and empty-thought prefill suppression.
+    * Added comprehensive unit and living scenario tests in [gemma4_test.go](internal/providers/wire/gemma4_test.go), [raw_wire_test.go](internal/providers/raw_wire_test.go), and [raw_wire_scenario_test.go](internal/engine/raw_wire_scenario_test.go).
+* **Context Projection Inversion & KV-Cache Stability**:
+    * **System Block Reordering**: Reordered `<|turn>system` assembly across [shaper.go](internal/engine/shaper.go) and [gemma4.go](internal/providers/wire/gemma4.go) so static wire guidelines, tool declarations, workspace contracts, and `<RECALLED_MEMORIES>` form a shared KV-cache prefix across all `/persona` roots, placing the specific persona identity last for maximum recency salience.
+    * **Leaf Telemetry Ordering & Pinning**: Inverted `FormatTelemetryEnvelope` in [telemetry.go](internal/engine/telemetry.go) so `<ADDITIONAL_METADATA>` precedes `<USER_REQUEST>`, ensuring the human request directly abuts generation. Added `DeriveAmbientTelemetryAt` pinned to `userNode.Timestamp` and tracked `activeUserIdx` across intra-turn tool hops in [shaper.go](internal/engine/shaper.go) to eliminate timestamp drift and KV-cache invalidation during multi-step tool loops.
+    * **Multi-Tool Segment Unpacking**: Added `ToolCount` to `AssistantSegment` across [service.go](internal/engine/service.go), [harness.go](internal/engine/harness.go), [shaper.go](internal/engine/shaper.go), and [chat.go](internal/tui/chat.go) to guarantee 1:1 narration-to-tool alignment when a single model step dispatches multiple tool calls.
+
+

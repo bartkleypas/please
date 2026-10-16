@@ -287,11 +287,19 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 		}
 
 		// Intra-turn working memory continuity:
-		// Attach in-flight thoughts to active assistant messages so reasoning models (Gemma 4, DeepSeek-R1)
-		// maintain continuous awareness of their plan across multi-step tool iterations.
+		// Attach in-flight thoughts to active assistant messages (after the active user turn)
+		// so reasoning models (Gemma 4, DeepSeek-R1) maintain continuous awareness of their plan
+		// across multi-step tool iterations without polluting historical turns.
 		if asstNode != nil && len(segments) > 0 {
+			lastUserIdx := -1
+			for mIdx := len(messages) - 1; mIdx >= 0; mIdx-- {
+				if messages[mIdx].Role == domain.RoleUser {
+					lastUserIdx = mIdx
+					break
+				}
+			}
 			segIdx := 0
-			for mIdx := range messages {
+			for mIdx := lastUserIdx + 1; mIdx < len(messages); mIdx++ {
 				if messages[mIdx].Role == domain.RoleAssistant && len(messages[mIdx].ToolCalls) > 0 {
 					if segIdx < len(segments) {
 						messages[mIdx].Thought = segments[segIdx].Thought
@@ -390,8 +398,9 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 		}
 
 		segments = append(segments, AssistantSegment{
-			Content: segContent,
-			Thought: thoughtChunk,
+			Content:   segContent,
+			Thought:   thoughtChunk,
+			ToolCount: len(accumulatedToolCalls),
 		})
 		segBytes, _ := json.Marshal(segments)
 

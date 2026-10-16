@@ -24,8 +24,9 @@ import (
 // AssistantSegment represents a single turn segment of the assistant's generation,
 // allowing sequential reconstruction of tool executions and narration.
 type AssistantSegment struct {
-	Content string `json:"content"`
-	Thought string `json:"thought"`
+	Content   string `json:"content"`
+	Thought   string `json:"thought"`
+	ToolCount int    `json:"tool_count,omitempty"`
 }
 
 // SignatSteeringContract defines the invariant output formatting instruction for turn signatures.
@@ -229,8 +230,9 @@ func (m *Manager) CreateAssistantNode(parentID string, content string, thought s
 
 	segments := []AssistantSegment{
 		{
-			Content: cleanContent,
-			Thought: thought,
+			Content:   cleanContent,
+			Thought:   thought,
+			ToolCount: len(toolCalls),
 		},
 	}
 	if segJSON, err := json.Marshal(segments); err == nil {

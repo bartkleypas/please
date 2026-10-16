@@ -45,8 +45,9 @@ func (m *Model) renderNode(node *graph.Node) string {
 
 	// 1. Check for segments in metadata for chronological rendering
 	var segments []struct {
-		Content string `json:"content"`
-		Thought string `json:"thought"`
+		Content   string `json:"content"`
+		Thought   string `json:"thought"`
+		ToolCount int    `json:"tool_count,omitempty"`
 	}
 	if node.Role == domain.RoleAssistant && node.Metadata != nil && node.Metadata["segments"] != "" {
 		_ = json.Unmarshal([]byte(node.Metadata["segments"]), &segments)
@@ -57,7 +58,7 @@ func (m *Model) renderNode(node *graph.Node) string {
 	if len(segments) > 0 {
 		var totalThoughtChars int
 		for _, seg := range segments {
-			totalThoughtChars += len(seg.Thought)
+			totalThoughtChars += len(strings.TrimSpace(seg.Thought))
 		}
 
 		if totalThoughtChars > 0 {
@@ -70,18 +71,23 @@ func (m *Model) renderNode(node *graph.Node) string {
 			}
 		}
 
-		for j, seg := range segments {
-			if seg.Thought != "" && expanded {
+		tcCursor := 0
+		for _, seg := range segments {
+			if strings.TrimSpace(seg.Thought) != "" && expanded {
 				s.WriteString(thoughtStyle.Render(wrapText(seg.Thought, wrapWidth)))
 				s.WriteString("\n")
 			}
-			if j < len(node.ToolCalls) {
-				call := node.ToolCalls[j]
+			count := seg.ToolCount
+			if count == 0 && tcCursor < len(node.ToolCalls) {
+				count = 1
+			}
+			for k := 0; k < count && tcCursor < len(node.ToolCalls); k++ {
+				call := node.ToolCalls[tcCursor]
 				s.WriteString(markStyle.Render(fmt.Sprintf("⚒️  Executing %s(%s)...", call.Function.Name, string(call.Function.Arguments))))
 				s.WriteString("\n")
 
-				if j < len(node.Observations) {
-					obs := node.Observations[j]
+				if tcCursor < len(node.Observations) {
+					obs := node.Observations[tcCursor]
 					summary := obs.Result
 					if len(summary) > 200 {
 						summary = summary[:200] + "... (truncated)"
@@ -89,6 +95,7 @@ func (m *Model) renderNode(node *graph.Node) string {
 					s.WriteString(helpStyle.Render(fmt.Sprintf("  ✅ Result: %s", summary)))
 					s.WriteString("\n")
 				}
+				tcCursor++
 			}
 			if seg.Content != "" {
 				cleanSeg, _ := engine.ExtractSignat(seg.Content)
@@ -96,15 +103,30 @@ func (m *Model) renderNode(node *graph.Node) string {
 				s.WriteString("\n")
 			}
 		}
+		for ; tcCursor < len(node.ToolCalls); tcCursor++ {
+			call := node.ToolCalls[tcCursor]
+			s.WriteString(markStyle.Render(fmt.Sprintf("⚒️  Executing %s(%s)...", call.Function.Name, string(call.Function.Arguments))))
+			s.WriteString("\n")
+
+			if tcCursor < len(node.Observations) {
+				obs := node.Observations[tcCursor]
+				summary := obs.Result
+				if len(summary) > 200 {
+					summary = summary[:200] + "... (truncated)"
+				}
+				s.WriteString(helpStyle.Render(fmt.Sprintf("  ✅ Result: %s", summary)))
+				s.WriteString("\n")
+			}
+		}
 	} else {
 		// Fallback to non-segmented rendering
-		// 1. Render Thought (Lane A)
-		if node.Thought != "" {
+		trimmedThought := strings.TrimSpace(node.Thought)
+		if trimmedThought != "" {
 			if !expanded {
-				s.WriteString(thoughtBadgeStyle.Render(fmt.Sprintf("▶ Thought Process (%d chars) • [Tab to expand]", len(node.Thought))))
+				s.WriteString(thoughtBadgeStyle.Render(fmt.Sprintf("▶ Thought Process (%d chars) • [Tab to expand]", len(trimmedThought))))
 				s.WriteString("\n")
 			} else {
-				s.WriteString(thoughtBadgeStyle.Render(fmt.Sprintf("▼ Thought Process (%d chars) • [Tab to collapse]", len(node.Thought))))
+				s.WriteString(thoughtBadgeStyle.Render(fmt.Sprintf("▼ Thought Process (%d chars) • [Tab to collapse]", len(trimmedThought))))
 				s.WriteString("\n")
 				s.WriteString(thoughtStyle.Render(wrapText(node.Thought, wrapWidth)))
 				s.WriteString("\n")
