@@ -165,7 +165,11 @@ func (m Model) View() string {
 				aware.setModel(&m)
 			}
 		}
-		s += "\n" + m.ViewStack.Top().View(m.Width, m.Height)
+		if m.ViewStack.Top().Name() != "memory_card" {
+			if ov := m.ViewStack.Top().View(m.Width, m.Height); ov != "" {
+				s += "\n" + ov
+			}
+		}
 	} else if m.IsCompressing {
 		s += "\n" + botStyle.Render("Compressing narrative into Supernode...") + "\n"
 	} else if m.IsThinking {

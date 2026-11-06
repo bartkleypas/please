@@ -78,6 +78,19 @@ func TestInspectReceiptTool_Paging(t *testing.T) {
 	if strings.Contains(res2, "more lines omitted") {
 		t.Errorf("expected no lines omitted on last page, got:\n%s", res2)
 	}
+
+	// Page 3: string-encoded arguments "51" and "50"
+	res3, err := tool.Function(context.Background(), map[string]interface{}{
+		"receipt_id": receiptID,
+		"start_line": "51",
+		"line_count": "50",
+	})
+	if err != nil {
+		t.Fatalf("page 3 failed with string args: %v", err)
+	}
+	if !strings.Contains(res3, "Showing lines 51-100 of 100") {
+		t.Errorf("expected header with lines 51-100 from string args, got:\n%s", res3)
+	}
 }
 
 func TestInspectReceiptTool_Grep(t *testing.T) {

@@ -38,6 +38,7 @@ type SubagentResult struct {
 	SessionID         string            `json:"session_id"`
 	Status            string            `json:"status"` // "completed", "budget_exhausted", "failed", "cancelled"
 	StepsUsed         int               `json:"steps_used"`
+	StepBudget        int               `json:"step_budget,omitempty"`
 	Summary           string            `json:"summary"`
 	Synthesis         string            `json:"synthesis"`
 	Branch            string            `json:"branch,omitempty"`
@@ -112,10 +113,10 @@ func SpawnSubagentTool(runner SubagentRunner) Tool {
 					"default":     true,
 					"description": "Whether to provision an isolated Git worktree branch. Set true (default) for tasks modifying files or running builds. If false, tool_preset must be 'read_only' to protect the primary workspace.",
 				},
-				"max_steps": map[string]interface{}{
+				"step_budget": map[string]interface{}{
 					"type":        "integer",
 					"default":     10,
-					"description": "Maximum autonomous tool iteration steps (ceiling: 25).",
+					"description": "Maximum autonomous tool iteration steps allocated for this investigation (ceiling: 25, default: 10). Increase to 20-25 for complex code forensics or multi-file audits.",
 				},
 			},
 			"required": []string{"task", "session_label"},
@@ -153,10 +154,7 @@ func SpawnSubagentTool(runner SubagentRunner) Tool {
 				}
 			}
 
-			isolateWorktree := true
-			if iw, ok := args["isolate_worktree"].(bool); ok {
-				isolateWorktree = iw
-			}
+			isolateWorktree := getBoolArg(args, "isolate_worktree", true)
 
 			if !isolateWorktree {
 				if !explicitPreset {
@@ -168,17 +166,18 @@ func SpawnSubagentTool(runner SubagentRunner) Tool {
 				}
 			}
 
-			maxSteps := 10
-			if ms, ok := args["max_steps"].(float64); ok && ms > 0 {
-				maxSteps = int(ms)
-			} else if ms, ok := args["max_steps"].(int); ok && ms > 0 {
-				maxSteps = ms
+			stepBudget := getIntArg(args, "step_budget", 0)
+			if stepBudget <= 0 {
+				stepBudget = getIntArg(args, "step_limit", 0)
 			}
-			if maxSteps > 25 {
-				maxSteps = 25
+			if stepBudget <= 0 {
+				stepBudget = getIntArg(args, "max_steps", 10)
 			}
-			if maxSteps <= 0 {
-				maxSteps = 10
+			if stepBudget > 25 {
+				stepBudget = 25
+			}
+			if stepBudget <= 0 {
+				stepBudget = 10
 			}
 
 			parentSessionID, _ := MemoryContextFromContext(ctx)
@@ -193,7 +192,7 @@ func SpawnSubagentTool(runner SubagentRunner) Tool {
 				TargetDir:       targetDir,
 				ToolPreset:      toolPreset,
 				IsolateWorktree: isolateWorktree,
-				MaxSteps:        maxSteps,
+				MaxSteps:        stepBudget,
 			}
 
 			result, err := runner.SpawnSubagent(ctx, req)
@@ -261,10 +260,7 @@ func ReconcileSubagentTool(reconciler SubagentReconciler) Tool {
 				strategy = strings.ToLower(strings.TrimSpace(s))
 			}
 
-			cleanupWorktree := true
-			if cw, ok := args["cleanup_worktree"].(bool); ok {
-				cleanupWorktree = cw
-			}
+			cleanupWorktree := getBoolArg(args, "cleanup_worktree", true)
 
 			req := ReconcileSubagentRequest{
 				SessionID:       sessionID,

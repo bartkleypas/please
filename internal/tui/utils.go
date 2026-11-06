@@ -41,15 +41,25 @@ func wrapText(text string, width int) string {
 
 		// 2. Wrap the trimmed content
 		words := strings.Fields(trimmed)
+		if len(words) == 0 {
+			wrapped.WriteString(line)
+			if i < len(lines)-1 {
+				wrapped.WriteString("\n")
+			}
+			continue
+		}
+
 		var lineBuilder strings.Builder
-		currentLineLength := 0
+		lineBuilder.WriteString(indent)
+		currentLineLength := len(indent)
 
 		for _, word := range words {
 			wordLen := len(word)
-			if currentLineLength+wordLen+1 > width {
+			if currentLineLength > len(indent) && currentLineLength+wordLen+1 > width {
 				lineBuilder.WriteString("\n")
-				currentLineLength = 0
-			} else if currentLineLength > 0 {
+				lineBuilder.WriteString(indent)
+				currentLineLength = len(indent)
+			} else if currentLineLength > len(indent) {
 				lineBuilder.WriteString(" ")
 				currentLineLength++
 			}
@@ -57,8 +67,6 @@ func wrapText(text string, width int) string {
 			currentLineLength += wordLen
 		}
 
-		// 3. Prepend the original indentation to the first line of the wrapped result
-		wrapped.WriteString(indent)
 		wrapped.WriteString(lineBuilder.String())
 
 		if i < len(lines)-1 {

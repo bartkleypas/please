@@ -209,11 +209,11 @@ func MemoryStoreTool(store MemoryStore, defaultScope string) Tool {
 
 			sessID, nodeID := MemoryContextFromContext(ctx)
 
-			confidence := 1.0
-			if cf, ok := args["confidence"].(float64); ok && cf > 0 {
-				confidence = cf
-			} else if ci, ok := args["confidence"].(int); ok && ci > 0 {
-				confidence = float64(ci)
+			confidence := getFloatArg(args, "confidence", 1.0)
+			if confidence < 0 {
+				confidence = 0
+			} else if confidence > 1.0 {
+				confidence = 1.0
 			}
 
 			var tags []string
@@ -308,9 +308,7 @@ func MemoryRecallTool(store MemoryStore, defaultScope string) Tool {
 			} else if defaultScope != "" {
 				filter.Scope = defaultScope
 			}
-			if l, ok := args["limit"].(float64); ok && l > 0 {
-				filter.Limit = int(l)
-			}
+			filter.Limit = getIntArg(args, "limit", 10)
 
 			if rawTags, ok := args["tags"].([]interface{}); ok {
 				for _, t := range rawTags {
@@ -474,7 +472,7 @@ func MemoryDiagnoseTool(store MemoryStore) Tool {
 			if scopeStr == "" {
 				scopeStr = "all"
 			}
-			detailed, _ := args["detailed"].(bool)
+			detailed := getBoolArg(args, "detailed", false)
 
 			sessID, _ := MemoryContextFromContext(ctx)
 			diag, err := store.DiagnoseMemories(scopeStr, sessID)

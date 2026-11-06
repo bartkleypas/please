@@ -86,6 +86,12 @@ type ToolSpec struct {
 	Interactive bool         `json:"interactive,omitempty"`
 }
 
+// ToolDefinition represents the schema definition required by LLMs for function calling (ADR-018).
+type ToolDefinition = ToolSpec
+
+// TurnNode represents an individual turn or prompt segment prepared for an LLM provider (ADR-018).
+type TurnNode = Message
+
 // ModelOptions specifies runtime inference parameters for LLM providers.
 type ModelOptions struct {
 	Temperature      *float64 `json:"temperature,omitempty"`
@@ -97,6 +103,7 @@ type ModelOptions struct {
 	RepeatPenalty    *float64 `json:"repeat_penalty,omitempty"`
 	RepeatLastN      *int     `json:"repeat_last_n,omitempty"`
 	FrequencyPenalty *float64 `json:"frequency_penalty,omitempty"`
+	ReasoningEffort  string   `json:"reasoning_effort,omitempty"` // "off", "low", "medium", "high"
 }
 
 // SandboxPolicy represents security containment levels.

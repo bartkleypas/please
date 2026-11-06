@@ -1045,12 +1045,12 @@ func TestBuildLLMContext_AmbientTelemetrySynthesis(t *testing.T) {
 		t.Fatalf("failed to build telem context: %v", err)
 	}
 
-	// Check Genesis contract layering
+	// Check Genesis contract layering: contracts precede pure rootPrompt so persona has final salience
 	if !strings.Contains(msgsTelem[0].Content, AmbientTelemetryContract) {
 		t.Errorf("expected root to contain AmbientTelemetryContract, got: %q", msgsTelem[0].Content)
 	}
-	if !strings.HasPrefix(msgsTelem[0].Content, rootPrompt) {
-		t.Errorf("expected root to start with pure rootPrompt, got: %q", msgsTelem[0].Content)
+	if !strings.HasSuffix(msgsTelem[0].Content, rootPrompt) {
+		t.Errorf("expected root to end with pure rootPrompt for recency salience, got: %q", msgsTelem[0].Content)
 	}
 
 	// Check Historical Turn remains 100% sacred and un-bumpered
@@ -1058,13 +1058,13 @@ func TestBuildLLMContext_AmbientTelemetrySynthesis(t *testing.T) {
 		t.Errorf("expected historical user turn 1 to remain pure, got: %q", msgsTelem[1].Content)
 	}
 
-	// Check Active Leaf has <USER_REQUEST> and <ADDITIONAL_METADATA>
+	// Check Active Leaf has <ADDITIONAL_METADATA> followed by <USER_REQUEST>
 	leafContent := msgsTelem[len(msgsTelem)-1].Content
-	if !strings.Contains(leafContent, "<USER_REQUEST>\nActive Leaf Turn 2\n</USER_REQUEST>") {
-		t.Errorf("expected leaf to contain USER_REQUEST envelope, got: %q", leafContent)
+	if !strings.HasSuffix(leafContent, "<USER_REQUEST>\nActive Leaf Turn 2\n</USER_REQUEST>") {
+		t.Errorf("expected leaf to end with USER_REQUEST envelope, got: %q", leafContent)
 	}
-	if !strings.Contains(leafContent, "<ADDITIONAL_METADATA>") {
-		t.Errorf("expected leaf to contain ADDITIONAL_METADATA tag, got: %q", leafContent)
+	if !strings.HasPrefix(leafContent, "<ADDITIONAL_METADATA>") {
+		t.Errorf("expected leaf to start with ADDITIONAL_METADATA tag, got: %q", leafContent)
 	}
 	if !strings.Contains(leafContent, "cwd: /Users/bart/Code/please") {
 		t.Errorf("expected leaf to contain cwd, got: %q", leafContent)
@@ -1074,6 +1074,21 @@ func TestBuildLLMContext_AmbientTelemetrySynthesis(t *testing.T) {
 	}
 	if !strings.Contains(leafContent, "cursor_line: 10") {
 		t.Errorf("expected leaf to contain cursor_line, got: %q", leafContent)
+	}
+
+	// Verify intra-turn tool hop stability: when an in-flight Assistant node is created on Hop 1,
+	// user2 (now distance == 1) must retain the exact same byte-for-byte telemetry envelope!
+	tc := domain.ToolCall{ID: "call_hop1"}
+	tc.Function.Name = "list_directory"
+	asst2, _ := mgr.CreateAssistantNode(user2.ID, "", "Thinking...", []domain.ToolCall{tc}, false)
+	_ = mgr.UpdateAssistantObservations(asst2.ID, "call_hop1", "README.md")
+
+	msgsHop1, err := mgr.BuildLLMContext(asst2.ID, false)
+	if err != nil {
+		t.Fatalf("failed to build Hop 1 context: %v", err)
+	}
+	if msgsHop1[3].Content != leafContent {
+		t.Errorf("expected active user turn telemetry to remain byte-for-byte identical on Hop 1!\nHop 0: %q\nHop 1: %q", leafContent, msgsHop1[3].Content)
 	}
 
 	// Check Storage Invariant: SQLite/MockStorage holds pure un-bumpered text

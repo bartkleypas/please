@@ -173,8 +173,32 @@ func getIntArg(args map[string]interface{}, key string, defaultVal int) int {
 			return n
 		}
 	case string:
-		if parsed, err := strconv.Atoi(n); err == nil && parsed > 0 {
+		trimmed := strings.TrimSpace(n)
+		if parsed, err := strconv.Atoi(trimmed); err == nil && parsed > 0 {
 			return parsed
+		}
+		if f, err := strconv.ParseFloat(trimmed, 64); err == nil && int(f) > 0 {
+			return int(f)
+		}
+	}
+	return defaultVal
+}
+
+// getFloatArg extracts a float64 argument with fallback to defaultVal.
+func getFloatArg(args map[string]interface{}, key string, defaultVal float64) float64 {
+	v, ok := args[key]
+	if !ok {
+		return defaultVal
+	}
+	switch n := v.(type) {
+	case float64:
+		return n
+	case int:
+		return float64(n)
+	case string:
+		trimmed := strings.TrimSpace(n)
+		if f, err := strconv.ParseFloat(trimmed, 64); err == nil {
+			return f
 		}
 	}
 	return defaultVal
@@ -190,7 +214,13 @@ func getBoolArg(args map[string]interface{}, key string, defaultVal bool) bool {
 	case bool:
 		return val
 	case string:
-		return strings.ToLower(val) == "true"
+		s := strings.ToLower(strings.TrimSpace(val))
+		if s == "true" || s == "1" || s == "yes" {
+			return true
+		}
+		if s == "false" || s == "0" || s == "no" {
+			return false
+		}
 	}
 	return defaultVal
 }

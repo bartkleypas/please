@@ -107,14 +107,8 @@ func InspectReceiptTool(store ObservationStore, legacyResolver LegacyObservation
 				return fmt.Sprintf("[Receipt %s: No lines matched pattern %q across %d total lines.]", receiptID, grepPattern, len(allLines)), nil
 			}
 
-			startLine := 1
-			if slVal, ok := args["start_line"].(float64); ok && slVal > 0 {
-				startLine = int(slVal)
-			}
-			lineCount := 50
-			if lcVal, ok := args["line_count"].(float64); ok && lcVal > 0 {
-				lineCount = int(lcVal)
-			}
+			startLine := getIntArg(args, "start_line", 1)
+			lineCount := getIntArg(args, "line_count", 50)
 			if lineCount > 200 {
 				lineCount = 200
 			}

@@ -15,6 +15,7 @@ import (
 	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/engine"
 	"github.com/bartkleypas/please/internal/providers"
+	"github.com/bartkleypas/please/internal/providers/wire"
 	"github.com/bartkleypas/please/internal/server"
 	"github.com/bartkleypas/please/internal/storage"
 	"github.com/bartkleypas/please/internal/tui"
@@ -111,6 +112,9 @@ func main() {
 	maxTokensFlag := flag.Int("max-tokens", 0, "Maximum response tokens to generate (e.g., 2048)")
 	sessionFlag := flag.String("session", "", "Named session identifier (default: from config or 'main')")
 	worktreeFlag := flag.Bool("worktree", false, "Enable isolated Git worktree sandboxing for named sessions")
+	providerFlag := flag.String("provider", "", "LLM provider backend ('ollama', 'ollama-raw', 'openai')")
+	reasoningFlag := flag.String("reasoning", "", "Reasoning effort level ('off', 'low', 'medium', 'high')")
+	flag.StringVar(reasoningFlag, "r", "", "Reasoning effort level (shorthand)")
 
 	var images arrayFlags
 	flag.Var(&images, "image", "Path to an image to attach (can be specified multiple times)")
@@ -142,6 +146,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "      --ctx, --num-ctx   Context window size in tokens\n")
 		fmt.Fprintf(os.Stderr, "      --max-tokens <i>   Maximum generation tokens\n")
 		fmt.Fprintf(os.Stderr, "      --no-gen           Disable auto-generation when passing a message\n")
+		fmt.Fprintf(os.Stderr, "      --provider <name>  LLM provider backend ('ollama', 'ollama-raw', 'openai')\n")
+		fmt.Fprintf(os.Stderr, "  -r, --reasoning <lvl>  Reasoning effort level ('off', 'low', 'medium', 'high')\n")
 		fmt.Fprintf(os.Stderr, "      --role <role>      Override role (user, tool, system, assistant)\n")
 		fmt.Fprintf(os.Stderr, "\nCommands inside the TUI:\n")
 		fmt.Fprintf(os.Stderr, "  /help    Show internal command list\n")
@@ -181,7 +187,7 @@ func main() {
 	}
 
 	// Apply CLI flag overrides to cfg.Server.Options
-	if *tempFlag >= 0 || *topPFlag >= 0 || *topKFlag >= 0 || *ctxFlag > 0 || *maxTokensFlag > 0 {
+	if *tempFlag >= 0 || *topPFlag >= 0 || *topKFlag >= 0 || *ctxFlag > 0 || *maxTokensFlag > 0 || *reasoningFlag != "" {
 		if cfg.Server.Options == nil {
 			cfg.Server.Options = &domain.ModelOptions{}
 		}
@@ -199,6 +205,9 @@ func main() {
 		}
 		if *maxTokensFlag > 0 {
 			cfg.Server.Options.MaxTokens = maxTokensFlag
+		}
+		if *reasoningFlag != "" {
+			cfg.Server.Options.ReasoningEffort = *reasoningFlag
 		}
 	}
 
@@ -232,12 +241,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	var provider providers.Provider
-	if cfg.Server.Provider == "openai" {
-		provider = providers.NewOpenAIProvider(cfg.Server.Endpoint, cfg.Server.Model, cfg.Server.APIKey, cfg.Server.Options)
-	} else {
-		provider = providers.NewOllamaProvider(cfg.Server.Endpoint, cfg.Server.Model, cfg.Server.Options)
+	if *providerFlag != "" {
+		cfg.Server.Provider = *providerFlag
 	}
+
+	provider := createProvider(cfg)
 	mgr := engine.NewManager(graph, strg)
 	mgr.SignatSteering = cfg.EnableSignatSteering()
 	mgr.AmbientTelemetry = cfg.EnableAmbientTelemetry()
@@ -388,6 +396,9 @@ func runServe(args []string) {
 	vaultPath := fs.String("vault", "", "Path to vault file")
 	workspacePath := fs.String("workspace", "", "Path to workspace directory")
 	worktreeFlag := fs.Bool("worktree", false, "Enable isolated Git worktree sandboxing for concurrent sessions")
+	providerFlag := fs.String("provider", "", "LLM provider backend ('ollama', 'ollama-raw', 'openai')")
+	reasoningFlag := fs.String("reasoning", "", "Reasoning effort level ('off', 'low', 'medium', 'high')")
+	fs.StringVar(reasoningFlag, "r", "", "Reasoning effort level (shorthand)")
 	configPath := fs.String("config", "", "Path to configuration file")
 	fs.StringVar(configPath, "c", "", "Path to configuration file (shorthand)")
 
@@ -413,6 +424,15 @@ func runServe(args []string) {
 	}
 	if *tokenFlag != "" {
 		cfg.Server.AuthToken = *tokenFlag
+	}
+	if *providerFlag != "" {
+		cfg.Server.Provider = *providerFlag
+	}
+	if *reasoningFlag != "" {
+		if cfg.Server.Options == nil {
+			cfg.Server.Options = &domain.ModelOptions{}
+		}
+		cfg.Server.Options.ReasoningEffort = *reasoningFlag
 	}
 
 	finalVaultPath := cfg.Server.VaultPath
@@ -444,12 +464,7 @@ func runServe(args []string) {
 		os.Exit(1)
 	}
 
-	var provider providers.Provider
-	if cfg.Server.Provider == "openai" {
-		provider = providers.NewOpenAIProvider(cfg.Server.Endpoint, cfg.Server.Model, cfg.Server.APIKey, cfg.Server.Options)
-	} else {
-		provider = providers.NewOllamaProvider(cfg.Server.Endpoint, cfg.Server.Model, cfg.Server.Options)
-	}
+	provider := createProvider(cfg)
 
 	mgr := engine.NewManager(graph, strg)
 	mgr.SignatSteering = cfg.EnableSignatSteering()
@@ -673,4 +688,20 @@ func runCertGenerate(args []string) {
 	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 	fmt.Printf("To use with daemon:\n")
 	fmt.Printf("  please serve --tls --cert %s --key %s\n\n", bundle.ServerCertPath, bundle.ServerKeyPath)
+}
+
+func createProvider(cfg *config.Config) providers.Provider {
+	switch strings.ToLower(strings.TrimSpace(cfg.Server.Provider)) {
+	case "openai":
+		return providers.NewOpenAIProvider(cfg.Server.Endpoint, cfg.Server.Model, cfg.Server.APIKey, cfg.Server.Options)
+	case "ollama-raw", "raw", "raw-wire", "ollama_raw":
+		effort := "medium"
+		if cfg.Server.Options != nil && cfg.Server.Options.ReasoningEffort != "" {
+			effort = cfg.Server.Options.ReasoningEffort
+		}
+		codec := wire.NewGemma4Codec(wire.WithReasoningEffort(effort))
+		return providers.NewRawWireProvider(cfg.Server.Endpoint, cfg.Server.Model, codec, cfg.Server.Options)
+	default:
+		return providers.NewOllamaProvider(cfg.Server.Endpoint, cfg.Server.Model, cfg.Server.Options)
+	}
 }

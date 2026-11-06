@@ -14,6 +14,15 @@ import (
 // Captures workspace directory, git branch, local timestamp, and optional client context
 // (e.g. active file focus and cursor line). Strictly bounded in size (<256 bytes).
 func DeriveAmbientTelemetry(workspaceDir string, clientContext map[string]string) string {
+	return DeriveAmbientTelemetryAt(workspaceDir, clientContext, time.Now())
+}
+
+// DeriveAmbientTelemetryAt constructs ambient telemetry using the provided timestamp
+// (falling back to time.Now() if ts is zero), preserving KV-cache prefix invariance across tool hops.
+func DeriveAmbientTelemetryAt(workspaceDir string, clientContext map[string]string, ts time.Time) string {
+	if ts.IsZero() {
+		ts = time.Now()
+	}
 	var lines []string
 
 	// 1. Current working directory (normalized workspace path)
@@ -34,7 +43,7 @@ func DeriveAmbientTelemetry(workspaceDir string, clientContext map[string]string
 	}
 
 	// 3. Local timestamp (RFC 3339 with local timezone offset)
-	lines = append(lines, fmt.Sprintf("local_time: %s", time.Now().Format("2006-01-02T15:04:05-07:00")))
+	lines = append(lines, fmt.Sprintf("local_time: %s", ts.Local().Format("2006-01-02T15:04:05-07:00")))
 
 	// 4. Workspace Index file (fast stat check for canonical entry point)
 	if indexFile := findWorkspaceIndex(workspaceDir); indexFile != "" {
@@ -60,7 +69,9 @@ func DeriveAmbientTelemetry(workspaceDir string, clientContext map[string]string
 	return strings.Join(lines, "\n")
 }
 
-// FormatTelemetryEnvelope wraps the user prompt and peripheral telemetry in isolated XML tags.
+// FormatTelemetryEnvelope wraps peripheral telemetry and the user prompt in isolated XML tags.
+// Places <ADDITIONAL_METADATA> before <USER_REQUEST> so the user's explicit prompt occupies
+// the final high-salience token boundary immediately preceding model generation.
 // If telemetry is empty, it returns the prompt wrapped only in <USER_REQUEST>.
 func FormatTelemetryEnvelope(userPrompt string, telemetryData string) string {
 	trimmedPrompt := strings.TrimSpace(userPrompt)
@@ -70,7 +81,7 @@ func FormatTelemetryEnvelope(userPrompt string, telemetryData string) string {
 		return fmt.Sprintf("<USER_REQUEST>\n%s\n</USER_REQUEST>", trimmedPrompt)
 	}
 
-	return fmt.Sprintf("<USER_REQUEST>\n%s\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\n%s\n</ADDITIONAL_METADATA>", trimmedPrompt, trimmedTelem)
+	return fmt.Sprintf("<ADDITIONAL_METADATA>\n%s\n</ADDITIONAL_METADATA>\n<USER_REQUEST>\n%s\n</USER_REQUEST>", trimmedTelem, trimmedPrompt)
 }
 
 // getGitBranch executes `git rev-parse --abbrev-ref HEAD` with a 200ms timeout.
