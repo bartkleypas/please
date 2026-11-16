@@ -22,6 +22,7 @@ For detailed and authoritative documentation, consult these dedicated files inst
 * [Project Index](index.md) - The central directory of packages, concepts, and specifications.
 * [Technical README](README.md) - Features list, CLI examples, setup, TUI controls table, and testing instructions.
 * [v0.3.0 Roadmap](docs/roadmap_v0.3.0.md) - Completed strategic architecture for execution lifecycle convergence, three-tier memory, pluggable context shaping, and delegated multi-agent topologies.
+* [v0.3.3 & v0.4.0 Roadmap](docs/roadmap_v0.3.3.md) - Active engineering audit ledger for ADR-023 security boundaries, v0.3.3 lifecycle/storage hardening, and v0.4.0 features.
 * [Daemon Protocol Spec](docs/daemon_protocol_spec.md) - Authoritative REST v1 and SSE streaming wire protocol specification.
 * [Context Shaping & Resonance Spec](docs/context_resonance.md) - Cache-stable `ContextShaper` projections (`SigmoidShaper`, `WindowShaper`, `ResonanceShaper`) and `SmartReceipt` paging.
 * [Natural Pacing Spec](docs/natural_pacing.md) - Stream buffering and punctuation-sensitive pacing rules.
