@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"github.com/bartkleypas/please/internal/engine"
 	"github.com/bartkleypas/please/internal/graph"
 	"github.com/bartkleypas/please/internal/providers"
+	"github.com/bartkleypas/please/internal/tools"
 )
 
 //go:embed assets/*
@@ -294,13 +296,35 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+func isAllowedOrigin(origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	return host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]" || strings.HasSuffix(host, ".local")
+}
+
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+		allowedOrigin := ""
+		if origin != "" && isAllowedOrigin(origin) {
+			allowedOrigin = origin
+		}
+
+		if allowedOrigin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+			w.Header().Set("Vary", "Origin")
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept, X-Requested-With, X-Please-Session-ID")
 
 		if r.Method == http.MethodOptions {
+			if origin != "" && allowedOrigin == "" {
+				http.Error(w, "Forbidden: untrusted CORS origin", http.StatusForbidden)
+				return
+			}
 			w.WriteHeader(http.StatusOK)
 			return
 		}
@@ -692,18 +716,21 @@ func (s *Server) handleImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stat, err := os.Stat(imagePath)
-	if err != nil {
-		http.Error(w, "File not found", http.StatusNotFound)
-		return
+	wsDir := "."
+	if s.Manager != nil && s.Manager.WorkspaceDir != "" {
+		wsDir = s.Manager.WorkspaceDir
+	} else if s.Config != nil {
+		wsDir = s.Config.GetWorkspaceDir()
 	}
-	if stat.IsDir() {
-		http.Error(w, "Path is a directory", http.StatusBadRequest)
+
+	safePath, err := tools.ValidateSafePath(wsDir, imagePath)
+	if err != nil {
+		http.Error(w, "Forbidden: "+err.Error(), http.StatusForbidden)
 		return
 	}
 
-	mimeType := "application/octet-stream"
-	ext := strings.ToLower(filepath.Ext(imagePath))
+	ext := strings.ToLower(filepath.Ext(safePath))
+	var mimeType string
 	switch ext {
 	case ".jpg", ".jpeg":
 		mimeType = "image/jpeg"
@@ -715,9 +742,22 @@ func (s *Server) handleImage(w http.ResponseWriter, r *http.Request) {
 		mimeType = "image/webp"
 	case ".svg":
 		mimeType = "image/svg+xml"
+	default:
+		http.Error(w, "Forbidden: unsupported image file type", http.StatusForbidden)
+		return
 	}
 
-	data, err := os.ReadFile(imagePath)
+	stat, err := os.Stat(safePath)
+	if err != nil {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+	if stat.IsDir() {
+		http.Error(w, "Path is a directory", http.StatusBadRequest)
+		return
+	}
+
+	data, err := os.ReadFile(safePath)
 	if err != nil {
 		http.Error(w, "Failed to read image", http.StatusInternalServerError)
 		return

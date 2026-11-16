@@ -20,6 +20,7 @@ var SensitivePathPatterns = []string{
 	".config/gcloud",
 	".gnupg",
 	"vault.db",
+	"config.json",
 }
 
 // isQuarantinedPath checks if a path matches quarantined credential or conversation database patterns.

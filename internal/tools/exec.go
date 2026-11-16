@@ -6,10 +6,18 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/bartkleypas/please/internal/domain"
+)
+
+const (
+	// EnvHarnessDepth tracks cross-process recursion depth when execute_command spawns child processes (ADR 023).
+	EnvHarnessDepth = "PLEASE_HARNESS_DEPTH"
+	// EnvParentSession records the active parent session ID to prevent child processes from hijacking its head.
+	EnvParentSession = "PLEASE_PARENT_SESSION"
 )
 
 // ExecTools returns the host execution tools.
@@ -173,7 +181,26 @@ func ExecuteCommandTool(workspaceDir string, allowedList ...[]string) Tool {
 				absRoot, _ = filepath.Abs(".")
 			}
 			cmd.Dir = absRoot
-			cmd.Env = append(sanitizeEnvironment(), "PWD="+absRoot)
+
+			currentDepth := 0
+			if rawDepth := strings.TrimSpace(os.Getenv(EnvHarnessDepth)); rawDepth != "" {
+				if d, convErr := strconv.Atoi(rawDepth); convErr == nil && d >= 0 {
+					currentDepth = d
+				}
+			}
+			parentSession, _ := MemoryContextFromContext(ctx)
+			if parentSession == "" {
+				parentSession = strings.TrimSpace(os.Getenv(EnvParentSession))
+			}
+			if parentSession == "" {
+				parentSession = "main"
+			}
+
+			cmd.Env = append(sanitizeEnvironment(),
+				"PWD="+absRoot,
+				fmt.Sprintf("%s=%d", EnvHarnessDepth, currentDepth+1),
+				fmt.Sprintf("%s=%s", EnvParentSession, parentSession),
+			)
 
 			output, err := cmd.CombinedOutput()
 

@@ -77,6 +77,13 @@ func walkSensoryTree(root string, maxEntries int, onFile func(relPath, absPath s
 			return nil
 		}
 
+		// Validate symlinks do not escape root or point to quarantined targets
+		if d.Type()&os.ModeSymlink != 0 {
+			if _, err := ValidateSafePath(root, path); err != nil {
+				return nil
+			}
+		}
+
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			return nil

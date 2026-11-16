@@ -1046,3 +1046,106 @@ func TestServer_SessionActor_WorktreeIsolation(t *testing.T) {
 		t.Errorf("beta.txt was not found in beta's isolated worktree under %s", worktreeRoot)
 	}
 }
+
+func TestServer_HandleImage_PathConfinement(t *testing.T) {
+	wsDir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(wsDir, "valid.png"), []byte{0x89, 0x50, 0x4E, 0x47}, 0644)
+	_ = os.WriteFile(filepath.Join(wsDir, "main.go"), []byte("package main"), 0644)
+	_ = os.MkdirAll(filepath.Join(wsDir, ".please"), 0755)
+	_ = os.WriteFile(filepath.Join(wsDir, ".please", "config.json"), []byte(`{"api_key":"secret"}`), 0644)
+
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	strg, _ := storage.NewSQLiteStorage(dbPath, "")
+	mgr := engine.NewManager(graph.NewGraph(), strg)
+	mgr.WorkspaceDir = wsDir
+	srv := NewServer(mgr)
+	handler := srv.Handler()
+
+	// 1. Valid image inside workspace -> 200 OK
+	req := httptest.NewRequest("GET", "/api/image?path=valid.png", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 OK for valid image in workspace, got %d: %s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "image/png" {
+		t.Errorf("expected image/png Content-Type, got %q", ct)
+	}
+
+	// 2. Path traversal outside workspace -> 403 Forbidden
+	req = httptest.NewRequest("GET", "/api/image?path=../../etc/passwd", nil)
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 Forbidden for path traversal, got %d", w.Code)
+	}
+
+	// 3. Quarantined config.json -> 403 Forbidden
+	req = httptest.NewRequest("GET", "/api/image?path=.please/config.json", nil)
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 Forbidden for .please/config.json, got %d", w.Code)
+	}
+
+	// 4. Non-image extension inside workspace -> 403 Forbidden
+	req = httptest.NewRequest("GET", "/api/image?path=main.go", nil)
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 Forbidden for non-image file main.go, got %d", w.Code)
+	}
+}
+
+func TestServer_CORS_OriginConfinement(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	strg, _ := storage.NewSQLiteStorage(dbPath, "")
+	mgr := engine.NewManager(graph.NewGraph(), strg)
+	srv := NewServer(mgr)
+	handler := srv.Handler()
+
+	// 1. Allowed localhost origin
+	req := httptest.NewRequest("GET", "/api/v1/health", nil)
+	req.Header.Set("Origin", "http://localhost:3000")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", w.Code)
+	}
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:3000" {
+		t.Errorf("expected Access-Control-Allow-Origin 'http://localhost:3000', got %q", got)
+	}
+	if got := w.Header().Get("Vary"); got != "Origin" {
+		t.Errorf("expected Vary: Origin, got %q", got)
+	}
+
+	// 2. Allowed *.local origin
+	req = httptest.NewRequest("GET", "/api/v1/health", nil)
+	req.Header.Set("Origin", "https://please.local:8443")
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "https://please.local:8443" {
+		t.Errorf("expected Access-Control-Allow-Origin 'https://please.local:8443', got %q", got)
+	}
+
+	// 3. Disallowed external origin must not receive CORS header
+	req = httptest.NewRequest("GET", "/api/v1/health", nil)
+	req.Header.Set("Origin", "https://evil.example.com")
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("expected empty Access-Control-Allow-Origin for external origin, got %q", got)
+	}
+
+	// 4. Disallowed external OPTIONS preflight returns 403 Forbidden
+	req = httptest.NewRequest("OPTIONS", "/api/v1/graph", nil)
+	req.Header.Set("Origin", "https://evil.example.com")
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 Forbidden for external OPTIONS preflight, got %d", w.Code)
+	}
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("expected empty Access-Control-Allow-Origin on rejected preflight, got %q", got)
+	}
+}

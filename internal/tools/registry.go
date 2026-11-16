@@ -115,6 +115,24 @@ func GetDefaultTools(workspaceDir ...string) []Tool {
 	return reg.GetTools()
 }
 
+// IsToolAllowedForPolicy reports whether tool t is permitted under the given sandbox policy.
+func IsToolAllowedForPolicy(t Tool, policy string) bool {
+	pol := strings.ToLower(strings.TrimSpace(policy))
+	if pol == "" {
+		pol = string(domain.SandboxPolicyStandard)
+	}
+	switch pol {
+	case string(domain.SandboxPolicyPermissive):
+		return true
+	case string(domain.SandboxPolicyStrict):
+		return t.Category == domain.CategorySensory
+	case string(domain.SandboxPolicyStandard):
+		fallthrough
+	default:
+		return t.Name != "execute_command"
+	}
+}
+
 // Dispatch parses raw JSON arguments and invokes the named tool.
 func (r *ToolRegistry) Dispatch(ctx context.Context, name string, rawArgs json.RawMessage) (string, error) {
 	tool, ok := r.Tools[name]
@@ -132,6 +150,23 @@ func (r *ToolRegistry) Dispatch(ctx context.Context, name string, rawArgs json.R
 	}
 
 	return tool.Function(ctx, args)
+}
+
+// DispatchWithPolicy validates that the named tool is permitted under the active sandbox policy
+// before parsing arguments and invoking the tool function (ADR 023).
+func (r *ToolRegistry) DispatchWithPolicy(ctx context.Context, policy string, name string, rawArgs json.RawMessage) (string, error) {
+	tool, ok := r.Tools[name]
+	if !ok {
+		return "", fmt.Errorf("tool not found: %s", name)
+	}
+	if !IsToolAllowedForPolicy(tool, policy) {
+		pol := strings.ToLower(strings.TrimSpace(policy))
+		if pol == "" {
+			pol = string(domain.SandboxPolicyStandard)
+		}
+		return "", fmt.Errorf("security error: tool %q (category %q) is prohibited under %q sandbox policy", name, tool.Category, pol)
+	}
+	return r.Dispatch(ctx, name, rawArgs)
 }
 
 // categoryPriority maps ToolCategory to deterministic sequence weights.

@@ -281,6 +281,13 @@ func main() {
 
 	// Handle Message Mode
 	if pipedContent != "" || argContent != "" {
+		if depth, parentSess, recursed := engine.IsSubprocessRecursion(); recursed {
+			if parentSess != "" && sessionName == parentSess {
+				fmt.Fprintf(os.Stderr, "security error: subprocess at PLEASE_HARNESS_DEPTH=%d is prohibited from mutating active parent session %q\n", depth, parentSess)
+				os.Exit(1)
+			}
+		}
+
 		parentID := *parent
 		if parentID == "" {
 			if pipedContent != "" && pipedRole == domain.RoleSystem {

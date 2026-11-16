@@ -76,6 +76,12 @@ func TestValidateSafePath_Quarantine(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(wsDir, ".env"), []byte("SECRET=1"), 0644)
 	_ = os.WriteFile(filepath.Join(wsDir, ".env.local"), []byte("SECRET=2"), 0644)
 	_ = os.WriteFile(filepath.Join(wsDir, "vault.db"), []byte("sqlite"), 0644)
+	_ = os.WriteFile(filepath.Join(wsDir, "config.json"), []byte(`{"api_key":"secret"}`), 0644)
+
+	pleaseDir := filepath.Join(wsDir, ".please")
+	_ = os.MkdirAll(pleaseDir, 0755)
+	_ = os.WriteFile(filepath.Join(pleaseDir, "config.json"), []byte(`{"sandbox_policy":"standard"}`), 0644)
+	_ = os.Symlink(filepath.Join(pleaseDir, "config.json"), filepath.Join(wsDir, "link_to_config"))
 
 	secretsDir := filepath.Join(wsDir, ".secrets")
 	_ = os.MkdirAll(secretsDir, 0755)
@@ -98,6 +104,9 @@ func TestValidateSafePath_Quarantine(t *testing.T) {
 		{"Quarantined .ssh private key", ".ssh/id_ed25519", true},
 		{"Quarantined standalone private key name", "id_ed25519", true},
 		{"Quarantined vault database", "vault.db", true},
+		{"Quarantined root config.json", "config.json", true},
+		{"Quarantined .please/config.json", ".please/config.json", true},
+		{"Quarantined symlink to config.json", "link_to_config", true},
 	}
 
 	for _, tt := range tests {
@@ -309,5 +318,50 @@ func TestArgumentHelpers(t *testing.T) {
 	}
 	if got := getFloatArg(args, "non_existent", 1.0); got != 1.0 {
 		t.Errorf("expected default 1.0, got %f", got)
+	}
+}
+
+func TestGrepSearch_SkipsConfigAndSymlinks(t *testing.T) {
+	wsDir := t.TempDir()
+	outsideDir := t.TempDir()
+
+	_ = os.WriteFile(filepath.Join(wsDir, "app.go"), []byte("package main\nconst marker = \"find_secret_target\"\n"), 0644)
+	_ = os.WriteFile(filepath.Join(wsDir, "config.json"), []byte(`{"token":"find_secret_target"}`), 0644)
+
+	pleaseDir := filepath.Join(wsDir, ".please")
+	_ = os.MkdirAll(pleaseDir, 0755)
+	_ = os.WriteFile(filepath.Join(pleaseDir, "config.json"), []byte(`{"key":"find_secret_target"}`), 0644)
+
+	_ = os.WriteFile(filepath.Join(outsideDir, "external.txt"), []byte("find_secret_target\n"), 0644)
+	_ = os.Symlink(filepath.Join(wsDir, "config.json"), filepath.Join(wsDir, "leak_link.txt"))
+	_ = os.Symlink(filepath.Join(outsideDir, "external.txt"), filepath.Join(wsDir, "outside_link.txt"))
+
+	ctx := context.Background()
+	grepTool := GrepSearchTool(wsDir)
+	res, err := grepTool.Function(ctx, map[string]interface{}{
+		"pattern": "find_secret_target",
+	})
+	if err != nil {
+		t.Fatalf("grep_search failed: %v", err)
+	}
+
+	if !strings.Contains(res, "app.go") {
+		t.Errorf("expected grep_search to match app.go, got: %s", res)
+	}
+	for _, forbidden := range []string{"config.json", "leak_link.txt", "outside_link.txt"} {
+		if strings.Contains(res, forbidden) {
+			t.Errorf("grep_search leaked %q: %s", forbidden, res)
+		}
+	}
+
+	listTool := ListFilesRecursiveTool(wsDir)
+	listRes, err := listTool.Function(ctx, map[string]interface{}{})
+	if err != nil {
+		t.Fatalf("list_files_recursive failed: %v", err)
+	}
+	for _, forbidden := range []string{"config.json", "leak_link.txt", "outside_link.txt"} {
+		if strings.Contains(listRes, forbidden) {
+			t.Errorf("list_files_recursive leaked %q: %s", forbidden, listRes)
+		}
 	}
 }

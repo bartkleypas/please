@@ -365,6 +365,14 @@ func (m *Manager) ExecuteToolCall(ctx context.Context, call domain.ToolCall) (st
 	return m.Registry.Dispatch(ctx, call.Function.Name, call.Function.Arguments)
 }
 
+// ExecuteToolCallWithPolicy validates the active sandbox policy before dispatching the tool call (ADR 023).
+func (m *Manager) ExecuteToolCallWithPolicy(ctx context.Context, policy string, call domain.ToolCall) (string, error) {
+	if m.Registry == nil {
+		return "", fmt.Errorf("tool registry is nil")
+	}
+	return m.Registry.DispatchWithPolicy(ctx, policy, call.Function.Name, call.Function.Arguments)
+}
+
 // Sync reloads the graph from storage, effectively synchronizing the in-memory state
 // with any external changes (e.g., from other 'please' sessions).
 func (m *Manager) Sync() (*graph.Graph, string, error) {

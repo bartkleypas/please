@@ -3,6 +3,9 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/bartkleypas/please/internal/domain"
@@ -142,5 +145,40 @@ func TestToolCategory_TaxonomyAndPolicyFiltering(t *testing.T) {
 	}
 	if len(strictTools) == 0 {
 		t.Errorf("expected strict policy to retain sensory tools, got 0")
+	}
+}
+
+func TestToolRegistry_DispatchWithPolicy(t *testing.T) {
+	ws := t.TempDir()
+	_ = os.WriteFile(filepath.Join(ws, "sample.txt"), []byte("hello\n"), 0644)
+
+	registry := NewToolRegistry()
+	RegisterDefaultTools(registry, ws)
+
+	ctx := context.Background()
+
+	// 1. Strict policy: allows sensory, rejects mutate and execute
+	if _, err := registry.DispatchWithPolicy(ctx, string(domain.SandboxPolicyStrict), "read_file", json.RawMessage(`{"path":"sample.txt"}`)); err != nil {
+		t.Fatalf("expected read_file to succeed under strict policy, got: %v", err)
+	}
+	if _, err := registry.DispatchWithPolicy(ctx, string(domain.SandboxPolicyStrict), "write_file", json.RawMessage(`{"path":"out.txt","content":"x"}`)); err == nil || !strings.Contains(err.Error(), "prohibited under") {
+		t.Fatalf("expected write_file to be blocked under strict policy, got: %v", err)
+	}
+	if _, err := registry.DispatchWithPolicy(ctx, string(domain.SandboxPolicyStrict), "execute_command", json.RawMessage(`{"command":"echo ok"}`)); err == nil || !strings.Contains(err.Error(), "prohibited under") {
+		t.Fatalf("expected execute_command to be blocked under strict policy, got: %v", err)
+	}
+
+	// 2. Standard policy: allows mutate, rejects execute_command
+	if _, err := registry.DispatchWithPolicy(ctx, string(domain.SandboxPolicyStandard), "write_file", json.RawMessage(`{"path":"out.txt","content":"x"}`)); err != nil {
+		t.Fatalf("expected write_file to succeed under standard policy, got: %v", err)
+	}
+	if _, err := registry.DispatchWithPolicy(ctx, string(domain.SandboxPolicyStandard), "execute_command", json.RawMessage(`{"command":"echo ok"}`)); err == nil || !strings.Contains(err.Error(), "prohibited under") {
+		t.Fatalf("expected execute_command to be blocked under standard policy, got: %v", err)
+	}
+
+	// 3. Permissive policy: allows execute_command
+	res, err := registry.DispatchWithPolicy(ctx, string(domain.SandboxPolicyPermissive), "execute_command", json.RawMessage(`{"command":"echo ok"}`))
+	if err != nil || !strings.Contains(res, "ok") {
+		t.Fatalf("expected execute_command to succeed under permissive policy, got res=%q err=%v", res, err)
 	}
 }

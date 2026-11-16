@@ -3,7 +3,10 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -83,6 +86,25 @@ type SessionHarness struct {
 	IsSubagent     bool
 }
 
+// IsSubprocessRecursion checks whether the current process is executing inside a child
+// subprocess spawned by execute_command (PLEASE_HARNESS_DEPTH >= 1) per ADR 023.
+// Hermetic unit test binaries (go test) are exempted unless PLEASE_ENFORCE_DEPTH_IN_TEST=1 is set.
+func IsSubprocessRecursion() (int, string, bool) {
+	rawDepth := strings.TrimSpace(os.Getenv(tools.EnvHarnessDepth))
+	if rawDepth == "" {
+		return 0, "", false
+	}
+	depth, err := strconv.Atoi(rawDepth)
+	if err != nil || depth < 1 {
+		return 0, "", false
+	}
+	if flag.Lookup("test.v") != nil && os.Getenv("PLEASE_ENFORCE_DEPTH_IN_TEST") != "1" {
+		return 0, "", false
+	}
+	parentSession := strings.TrimSpace(os.Getenv(tools.EnvParentSession))
+	return depth, parentSession, true
+}
+
 // NewSessionHarness creates an initialized SessionHarness instance.
 func NewSessionHarness(mgr *Manager, provider providers.Provider, cfg *config.Config) *SessionHarness {
 	h := &SessionHarness{
@@ -90,18 +112,31 @@ func NewSessionHarness(mgr *Manager, provider providers.Provider, cfg *config.Co
 		Provider: provider,
 		Config:   cfg,
 	}
+	if _, _, recursed := IsSubprocessRecursion(); recursed {
+		h.IsSubagent = true
+		if h.Manager != nil && h.Manager.Registry != nil {
+			delete(h.Manager.Registry.Tools, "execute_command")
+			delete(h.Manager.Registry.Tools, "spawn_subagent")
+			delete(h.Manager.Registry.Tools, "reconcile_subagent")
+		}
+	}
 	h.EnableDelegation()
 	return h
 }
 
 // NewSubagentHarness creates an initialized SessionHarness instance for an isolated child subagent (ADR 022).
-// Child subagents have IsSubagent=true, PermissionGate=nil, and cannot recursively spawn further subagents.
-func NewSubagentHarness(mgr *Manager, provider providers.Provider, cfg *config.Config) *SessionHarness {
+// Child subagents have IsSubagent=true, inherit any supplied PermissionGate (ADR 023), and cannot recursively spawn further subagents.
+func NewSubagentHarness(mgr *Manager, provider providers.Provider, cfg *config.Config, gate ...PermissionGate) *SessionHarness {
+	var pg PermissionGate
+	if len(gate) > 0 {
+		pg = gate[0]
+	}
 	return &SessionHarness{
-		Manager:    mgr,
-		Provider:   provider,
-		Config:     cfg,
-		IsSubagent: true,
+		Manager:        mgr,
+		Provider:       provider,
+		Config:         cfg,
+		PermissionGate: pg,
+		IsSubagent:     true,
 	}
 }
 
@@ -112,6 +147,7 @@ func (h *SessionHarness) EnableDelegation() {
 		return
 	}
 	orchestrator := NewSubagentOrchestrator(h.Manager, h.Provider, h.Config)
+	orchestrator.ParentHarness = h
 	h.Manager.Registry.RegisterDelegation(orchestrator)
 }
 
@@ -170,6 +206,14 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 	sessionID := req.SessionID
 	if sessionID == "" {
 		sessionID = "main"
+	}
+
+	if depth, parentSess, recursed := IsSubprocessRecursion(); recursed {
+		if parentSess != "" && sessionID == parentSess {
+			err := fmt.Errorf("security error: subprocess at PLEASE_HARNESS_DEPTH=%d is prohibited from mutating active parent session %q", depth, parentSess)
+			emit(HarnessEvent{Kind: HarnessEventError, Err: err})
+			return nil, err
+		}
 	}
 
 	if userNode == nil && parentID == "" {
@@ -514,47 +558,62 @@ func (h *SessionHarness) ExecuteTurn(ctx context.Context, req TurnRequest, event
 				errStr = execErr.Error()
 				result = fmt.Sprintf("Error: %s. You already have this output in your context from an earlier step. Please proceed with your task or synthesize your final response.", execErr.Error())
 			} else {
-				// Check PermissionGate if tool requires human consent
-				requiresGate := false
+				policy := ""
+				if h.Config != nil {
+					policy = h.Config.GetSandboxPolicy()
+				}
+
+				// Enforce active SandboxPolicy before prompting PermissionGate or invoking the tool (ADR 023)
+				policyAllowed := true
 				if h.Manager != nil && h.Manager.Registry != nil {
-					if t, ok := h.Manager.Registry.Tools[call.Function.Name]; ok {
-						if t.Interactive || t.Category == domain.CategoryExecute {
-							requiresGate = true
-						}
-					} else {
-						requiresGate = true // Unknown tools default to gated
+					if t, ok := h.Manager.Registry.Tools[call.Function.Name]; ok && !tools.IsToolAllowedForPolicy(t, policy) {
+						policyAllowed = false
 					}
 				}
 
-				if requiresGate && h.PermissionGate != nil {
-					allowed, gateErr := h.PermissionGate(ctx, sessionID, call)
-					if gateErr != nil {
-						emit(HarnessEvent{Kind: HarnessEventError, Err: gateErr})
-						return asstNode, gateErr
+				if policyAllowed {
+					// Check PermissionGate if tool requires human consent
+					requiresGate := false
+					if h.Manager != nil && h.Manager.Registry != nil {
+						if t, ok := h.Manager.Registry.Tools[call.Function.Name]; ok {
+							if t.Interactive || t.Category == domain.CategoryExecute {
+								requiresGate = true
+							}
+						} else {
+							requiresGate = true // Unknown tools default to gated
+						}
 					}
-					if !allowed {
-						result = fmt.Sprintf("User denied execution of tool: %s", call.Function.Name)
-						deniedObs := domain.ToolObservation{
-							ToolCallID: call.ID,
-							Result:     result,
-							Error:      result,
+
+					if requiresGate && h.PermissionGate != nil {
+						allowed, gateErr := h.PermissionGate(ctx, sessionID, call)
+						if gateErr != nil {
+							emit(HarnessEvent{Kind: HarnessEventError, Err: gateErr})
+							return asstNode, gateErr
 						}
-						_ = h.Manager.UpdateAssistantObservationRecord(asstNode.ID, deniedObs)
-						if latest, err := h.Manager.GetNode(asstNode.ID); err == nil && latest != nil {
-							asstNode = latest
+						if !allowed {
+							result = fmt.Sprintf("User denied execution of tool: %s", call.Function.Name)
+							deniedObs := domain.ToolObservation{
+								ToolCallID: call.ID,
+								Result:     result,
+								Error:      result,
+							}
+							_ = h.Manager.UpdateAssistantObservationRecord(asstNode.ID, deniedObs)
+							if latest, err := h.Manager.GetNode(asstNode.ID); err == nil && latest != nil {
+								asstNode = latest
+							}
+							emit(HarnessEvent{
+								Kind:       HarnessEventToolResult,
+								ToolCallID: call.ID,
+								ToolName:   call.Function.Name,
+								ToolResult: result,
+							})
+							continue
 						}
-						emit(HarnessEvent{
-							Kind:       HarnessEventToolResult,
-							ToolCallID: call.ID,
-							ToolName:   call.Function.Name,
-							ToolResult: result,
-						})
-						continue
 					}
 				}
 
 				toolCtx := tools.WithMemoryContext(ctx, sessionID, asstNode.ID)
-				result, execErr = h.Manager.ExecuteToolCall(toolCtx, call)
+				result, execErr = h.Manager.ExecuteToolCallWithPolicy(toolCtx, policy, call)
 				if execErr != nil {
 					errStr = execErr.Error()
 					result = fmt.Sprintf("Error: %s", execErr.Error())

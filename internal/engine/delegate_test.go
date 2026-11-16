@@ -831,3 +831,261 @@ func TestSubagentOrchestrator_InheritsParentBranchGenesisRoot(t *testing.T) {
 		t.Errorf("expected LLM context to contain Root B persona ('George the Archivist'), got: %+v", contextMsgs)
 	}
 }
+
+func TestSubagentOrchestrator_PolicyCeilingAndGateInheritance(t *testing.T) {
+	// 1. Standard parent policy + tool_preset: "full" -> MutateTools allowed in worktree, execute_command blocked
+	t.Run("standard parent blocks child execute_command", func(t *testing.T) {
+		repoDir, configDir := setupScenarioGitRepo(t)
+		t.Setenv("PLEASE_CONFIG_DIR", configDir)
+
+		dbPath := filepath.Join(t.TempDir(), "vault.db")
+		sqlStore, _ := storage.NewSQLiteStorage(dbPath, "")
+		g := graph.NewGraph()
+		mgr := NewManager(g, sqlStore)
+		mgr.WorkspaceDir = repoDir
+		mgr.RegisterDefaultTools(repoDir)
+
+		cfg := config.NewDefaultConfig()
+		cfg.Server.SandboxPolicy = string(domain.SandboxPolicyStandard)
+
+		step := 0
+		var childExecErr string
+		mockProvider := &providers.MockLLMProvider{
+			StreamHandler: func(messages []domain.Message, specs []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
+				step++
+				for _, s := range specs {
+					if s.Name == "execute_command" {
+						t.Errorf("execute_command leaked into child specs under standard parent policy")
+					}
+				}
+				switch step {
+				case 1:
+					return "", "", []domain.ToolCall{
+						{
+							ID:   "call_w_1",
+							Type: "function",
+							Function: struct {
+								Name      string          `json:"name"`
+								Arguments json.RawMessage `json:"arguments"`
+							}{
+								Name:      "write_file",
+								Arguments: json.RawMessage(`{"path":"std_note.txt","content":"allowed mutate"}`),
+							},
+						},
+					}, nil
+				case 2:
+					return "", "", []domain.ToolCall{
+						{
+							ID:   "call_e_2",
+							Type: "function",
+							Function: struct {
+								Name      string          `json:"name"`
+								Arguments json.RawMessage `json:"arguments"`
+							}{
+								Name:      "execute_command",
+								Arguments: json.RawMessage(`{"command":"echo should_fail"}`),
+							},
+						},
+					}, nil
+				default:
+					for _, m := range messages {
+						if m.Role == domain.RoleTool && strings.Contains(m.Content, "Error:") {
+							childExecErr = m.Content
+						}
+					}
+					return "Done with standard checks.", "", nil, nil
+				}
+			},
+		}
+
+		orchestrator := NewSubagentOrchestrator(mgr, mockProvider, cfg)
+		res, err := orchestrator.SpawnSubagent(context.Background(), tools.SubagentRequest{
+			ParentSessionID: "main",
+			Task:            "Write note and attempt shell",
+			SessionLabel:    "std-ceiling-test",
+			ToolPreset:      "full",
+			IsolateWorktree: true,
+			MaxSteps:        5,
+		})
+		if err != nil {
+			t.Fatalf("SpawnSubagent failed: %v", err)
+		}
+		if res.Status != "completed" {
+			t.Errorf("expected completed, got %s", res.Status)
+		}
+		if !strings.Contains(childExecErr, "prohibited under") && !strings.Contains(childExecErr, "tool not found: execute_command") {
+			t.Errorf("expected child execute_command to be blocked, got observation: %q", childExecErr)
+		}
+	})
+
+	// 2. Strict parent policy + tool_preset: "full" -> restricted to SensoryTools only
+	t.Run("strict parent restricts child to sensory only", func(t *testing.T) {
+		repoDir, configDir := setupScenarioGitRepo(t)
+		t.Setenv("PLEASE_CONFIG_DIR", configDir)
+
+		dbPath := filepath.Join(t.TempDir(), "vault.db")
+		sqlStore, _ := storage.NewSQLiteStorage(dbPath, "")
+		g := graph.NewGraph()
+		mgr := NewManager(g, sqlStore)
+		mgr.WorkspaceDir = repoDir
+		mgr.RegisterDefaultTools(repoDir)
+
+		cfg := config.NewDefaultConfig()
+		cfg.Server.SandboxPolicy = string(domain.SandboxPolicyStrict)
+
+		step := 0
+		var childWriteErr string
+		mockProvider := &providers.MockLLMProvider{
+			StreamHandler: func(messages []domain.Message, specs []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
+				step++
+				for _, s := range specs {
+					if s.Name == "write_file" || s.Name == "execute_command" {
+						t.Errorf("non-sensory tool %q leaked into child specs under strict parent policy", s.Name)
+					}
+				}
+				if step == 1 {
+					return "", "", []domain.ToolCall{
+						{
+							ID:   "call_strict_w",
+							Type: "function",
+							Function: struct {
+								Name      string          `json:"name"`
+								Arguments json.RawMessage `json:"arguments"`
+							}{
+								Name:      "write_file",
+								Arguments: json.RawMessage(`{"path":"strict_blocked.txt","content":"nope"}`),
+							},
+						},
+					}, nil
+				}
+				for _, m := range messages {
+					if m.Role == domain.RoleTool && strings.Contains(m.Content, "Error:") {
+						childWriteErr = m.Content
+					}
+				}
+				return "Strict read-only check finished.", "", nil, nil
+			},
+		}
+
+		orchestrator := NewSubagentOrchestrator(mgr, mockProvider, cfg)
+		res, err := orchestrator.SpawnSubagent(context.Background(), tools.SubagentRequest{
+			ParentSessionID: "main",
+			Task:            "Attempt write under strict parent",
+			SessionLabel:    "strict-ceiling-test",
+			ToolPreset:      "full",
+			IsolateWorktree: true,
+			MaxSteps:        5,
+		})
+		if err != nil {
+			t.Fatalf("SpawnSubagent failed: %v", err)
+		}
+		if res.Status != "completed" {
+			t.Errorf("expected completed, got %s", res.Status)
+		}
+		if childWriteErr == "" {
+			t.Errorf("expected write_file error in child under strict parent policy")
+		}
+	})
+
+	// 3. Permissive parent with PermissionGate inherits gate into child harness with sub_ session ID
+	t.Run("permissive parent propagates PermissionGate to child", func(t *testing.T) {
+		repoDir, configDir := setupScenarioGitRepo(t)
+		t.Setenv("PLEASE_CONFIG_DIR", configDir)
+
+		dbPath := filepath.Join(t.TempDir(), "vault.db")
+		sqlStore, _ := storage.NewSQLiteStorage(dbPath, "")
+		g := graph.NewGraph()
+		mgr := NewManager(g, sqlStore)
+		mgr.WorkspaceDir = repoDir
+		mgr.RegisterDefaultTools(repoDir)
+
+		cfg := config.NewDefaultConfig()
+		cfg.Server.SandboxPolicy = string(domain.SandboxPolicyPermissive)
+
+		var mu sync.Mutex
+		parentStep := 0
+		childStep := 0
+		mockProvider := &providers.MockLLMProvider{
+			StreamHandler: func(messages []domain.Message, specs []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
+				mu.Lock()
+				defer mu.Unlock()
+				hasSpawn := false
+				for _, s := range specs {
+					if s.Name == "spawn_subagent" {
+						hasSpawn = true
+						break
+					}
+				}
+				if hasSpawn {
+					parentStep++
+					if parentStep == 1 {
+						return "", "", []domain.ToolCall{
+							{
+								ID:   "call_spawn_gate",
+								Type: "function",
+								Function: struct {
+									Name      string          `json:"name"`
+									Arguments json.RawMessage `json:"arguments"`
+								}{
+									Name:      "spawn_subagent",
+									Arguments: json.RawMessage(`{"task":"Run echo in child","session_label":"gate-inherit","tool_preset":"full","isolate_worktree":true,"step_budget":3}`),
+								},
+							},
+						}, nil
+					}
+					return "Parent finished.", "", nil, nil
+				}
+
+				childStep++
+				if childStep == 1 {
+					return "", "", []domain.ToolCall{
+						{
+							ID:   "call_child_exec",
+							Type: "function",
+							Function: struct {
+								Name      string          `json:"name"`
+								Arguments json.RawMessage `json:"arguments"`
+							}{
+								Name:      "execute_command",
+								Arguments: json.RawMessage(`{"command":"echo gated_ok"}`),
+							},
+						},
+					}, nil
+				}
+				return "Child finished.", "", nil, nil
+			},
+		}
+
+		harness := NewSessionHarness(mgr, mockProvider, cfg)
+		type gateCall struct {
+			sessionID string
+			toolName  string
+		}
+		var gated []gateCall
+		harness.PermissionGate = func(ctx context.Context, sessionID string, call domain.ToolCall) (bool, error) {
+			mu.Lock()
+			gated = append(gated, gateCall{sessionID: sessionID, toolName: call.Function.Name})
+			mu.Unlock()
+			return true, nil
+		}
+
+		_, err := harness.ExecuteTurn(context.Background(), TurnRequest{
+			SessionID:    "main",
+			Message:      "Delegate command",
+			MaxToolDepth: 4,
+		}, nil)
+		if err != nil {
+			t.Fatalf("ExecuteTurn failed: %v", err)
+		}
+
+		sawChildExecGate := false
+		for _, gc := range gated {
+			if gc.toolName == "execute_command" && strings.HasPrefix(gc.sessionID, "sub_") {
+				sawChildExecGate = true
+			}
+		}
+		if !sawChildExecGate {
+			t.Errorf("expected parent PermissionGate to be invoked for child execute_command with sub_ session ID, got: %+v", gated)
+		}
+	})
+}

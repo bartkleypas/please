@@ -44,6 +44,7 @@ func TestScenario_RawWireProvider_MultiTurnSubagentToolLoop(t *testing.T) {
 	mgr.RegisterDefaultTools(repoDir)
 
 	cfg := config.NewDefaultConfig()
+	cfg.Server.SandboxPolicy = string(domain.SandboxPolicyPermissive)
 
 	codec := wire.NewGemma4Codec()
 	provider := providers.NewRawWireProvider("http://localhost:11434", "gemma4:e4b", codec, nil)

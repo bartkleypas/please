@@ -133,3 +133,42 @@ func TestExecuteCommandTool_AllowListEnforcement(t *testing.T) {
 		t.Errorf("expected security error, got: %v", err)
 	}
 }
+
+func TestExecuteCommandTool_RecursionSentinels(t *testing.T) {
+	wsDir := t.TempDir()
+	tool := ExecuteCommandTool(wsDir)
+
+	// Host secret must be stripped while recursion sentinels are injected
+	t.Setenv("PLEASE_SECRET_KEY", "super-secret-value")
+	t.Setenv(EnvHarnessDepth, "")
+	t.Setenv(EnvParentSession, "")
+
+	ctx := WithMemoryContext(context.Background(), "sess_parent_99", "node_1")
+	out, err := tool.Function(ctx, map[string]interface{}{
+		"command": "echo DEPTH=$PLEASE_HARNESS_DEPTH SESS=$PLEASE_PARENT_SESSION SEC=$PLEASE_SECRET_KEY",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "DEPTH=1") {
+		t.Errorf("expected DEPTH=1 in output, got: %q", out)
+	}
+	if !strings.Contains(out, "SESS=sess_parent_99") {
+		t.Errorf("expected SESS=sess_parent_99 in output, got: %q", out)
+	}
+	if strings.Contains(out, "super-secret-value") {
+		t.Errorf("host PLEASE_SECRET_KEY leaked into subprocess env: %q", out)
+	}
+
+	// Verify depth increments when already inside a nested harness
+	t.Setenv(EnvHarnessDepth, "1")
+	out2, err := tool.Function(ctx, map[string]interface{}{
+		"command": "echo DEPTH=$PLEASE_HARNESS_DEPTH",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error at depth 1: %v", err)
+	}
+	if !strings.Contains(out2, "DEPTH=2") {
+		t.Errorf("expected DEPTH=2 when parent depth was 1, got: %q", out2)
+	}
+}
