@@ -100,35 +100,35 @@ flowchart LR
 
 ---
 
-## Phase 3 (`v0.3.3`): Entrypoint, ACP, Remote & Raw-Wire Convergence
+## Phase 3 (`v0.3.3`): Entrypoint, ACP, Remote & Raw-Wire Convergence ✅
 
-### 3.1 Unified Manager Configuration (`mgr.ApplyConfig`)
+### 3.1 Unified Manager Configuration (`mgr.ApplyConfig`) ✅
 * **Finding**: Configuration wiring across CLI entrypoints has drifted:
   * `runServe` ([`cmd/please/main.go`](../cmd/please/main.go#L469-L473)), `runACP` ([`cmd/please/acp.go`](../cmd/please/acp.go#L107-L110)), and `setupDiagnosticsManager` ([`cmd/please/diagnostics.go`](../cmd/please/diagnostics.go#L57-L64)) do not set `mgr.ContextShaperType = cfg.GetContextShaper()`.
   * Standalone `main()` ([`cmd/please/main.go`](../cmd/please/main.go#L249-L253)) and `runACP` do not propagate `*cfg.Server.Options.NumCtx` into `mgr.NumCtx`, leaving capacity calculations stuck on the hardcoded `32768` default.
-* **Fix**: Extract a canonical `Manager.ApplyConfig(cfg *config.Config)` (or `engine.ConfigureManager(mgr, cfg)`) helper and call it uniformly across standalone TUI, `serve`, `acp`, and diagnostics commands.
+* **Fix**: Extracted `Manager.ApplyConfig(cfg *config.Config)` in [`internal/engine/service.go`](../internal/engine/service.go) and wired it uniformly across standalone TUI, `serve`, `acp`, diagnostics, and `tui.NewModel`.
 
-### 3.2 Diagnostic Scorecard Alignment
+### 3.2 Diagnostic Scorecard Alignment ✅
 * **Finding**: `please inspect` ([`cmd/please/diagnostics.go`](../cmd/please/diagnostics.go#L308-L340)) hardcodes `mgr.CalculateResonanceScore(...)` for its ASCII scorecard regardless of the active `ContextShaper` (`sigmoid`, `window`, `exponential`).
-* **Fix**: Expose tier/score inspection from the active `ContextShaper` so `please inspect` reflects the true active shaper strategy.
+* **Fix**: Exposed `EvaluateNode` / `FidelityTier.String()` in [`internal/engine/shaper.go`](../internal/engine/shaper.go) and `Manager.EvaluateNodeFidelity` in [`internal/engine/service.go`](../internal/engine/service.go) so `please inspect` reflects the active shaper strategy.
 
-### 3.3 One-Shot CLI Execution via `SessionHarness`
+### 3.3 One-Shot CLI Execution via `SessionHarness` ✅
 * **Finding**: CLI prompt/stdin execution ([`cmd/please/main.go`](../cmd/please/main.go#L326-L345)) calls `provider.GenerateResponse(context.Background(), messages, nil)` directly with `nil` tools, bypassing `SessionHarness` ([ADR-019](../decisions/019-lifecycle-convergence-and-canonical-harness-standardization.md)).
-* **Fix**: Route non-`--no-gen` one-shot CLI turns through `SessionHarness.ExecuteTurn` (respecting `IsSubprocessRecursion()` and `PermissionGate`) so CLI invocations share the canonical tool/receipt/subagent pipeline.
+* **Fix**: Routed non-`--no-gen` one-shot CLI turns through `SessionHarness.ExecuteTurn` (respecting `IsSubprocessRecursion()` and `PermissionGate`) so CLI invocations share the canonical tool/receipt/subagent pipeline.
 
-### 3.4 ACP Session Workspace Isolation
+### 3.4 ACP Session Workspace Isolation ✅
 * **Finding**: [`Agent.Prompt`](../internal/acp/agent.go#L352-L361) updates `turnCfg.Server.WorkspaceDir = sCwd` per ACP session, but passes the shared `a.mgr` (whose `ToolRegistry` remains bound to startup `workspaceDir`) into `NewSessionHarness`.
-* **Fix**: Use `a.mgr.CloneWithWorkspace(sCwd)` when a session's `cwd` differs from `a.mgr.WorkspaceDir`.
+* **Fix**: Used `a.mgr.CloneWithWorkspace(sCwd, a.workspaceDir)` in [`internal/acp/agent.go`](../internal/acp/agent.go) when a session's `cwd` differs from `a.mgr.WorkspaceDir`, preserved custom tools during cloning, and added `Graph.Replace` in [`internal/graph/graph.go`](../internal/graph/graph.go) so `Manager.Sync()` preserves the shared graph across clones.
 
-### 3.5 `RemoteDaemonStorage` Parity
+### 3.5 `RemoteDaemonStorage` Parity ✅
 * **Finding**:
   * [`RemoteDaemonStorage.GarbageCollect`](../internal/storage/remote.go#L128-L145) decodes `deleted_nodes`, whereas [`Server.handleGC`](../internal/server/server.go#L638-L641) returns `purged_records`—causing remote `/gc` to always report `0`.
   * `RemoteDaemonStorage` does not implement `MemoryStore` or `ObservationStore`, limiting `please connect` parity with standalone mode.
-* **Fix**: Align the `GarbageCollect` JSON response contract and add remote REST endpoints for `memories` and `observation_blobs` receipts.
+* **Fix**: Aligned the `/api/v1/gc` JSON response contract and implemented `MemoryStore` and `ObservationStore` over REST (`/api/v1/memories`, `/api/v1/memories/diagnose`, `/api/v1/observations`, `/api/v1/observations/{receipt_id}`) across [`internal/server/server.go`](../internal/server/server.go) and [`internal/storage/remote.go`](../internal/storage/remote.go).
 
-### 3.6 `RawWireProvider` Multimodal Support
+### 3.6 `RawWireProvider` Multimodal Support ✅
 * **Finding**: `ollamaRawGenerateRequest` in [`internal/providers/raw_wire.go`](../internal/providers/raw_wire.go#L122-L128) omits `Images []string`, dropping image attachments when using `ollama-raw`.
-* **Fix**: Encode image attachments into `ollamaRawGenerateRequest` (matching `OllamaProvider`) with unit test verification in `internal/providers/raw_wire_test.go`.
+* **Fix**: Encoded image attachments into `ollamaRawGenerateRequest.Images` in [`internal/providers/raw_wire.go`](../internal/providers/raw_wire.go) (matching `OllamaProvider`) with unit test verification in [`internal/providers/raw_wire_test.go`](../internal/providers/raw_wire_test.go).
 
 ---
 

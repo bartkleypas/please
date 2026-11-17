@@ -29,6 +29,25 @@ func NewGraph() *Graph {
 	}
 }
 
+// Replace updates the contents of g in-place from other under g.mu, preserving the
+// shared *Graph pointer across Manager clones and UI/server consumers.
+func (g *Graph) Replace(other *Graph) {
+	if g == nil || other == nil || g == other {
+		return
+	}
+	other.mu.RLock()
+	nodes := other.Nodes
+	children := other.Children
+	roots := other.Roots
+	other.mu.RUnlock()
+
+	g.mu.Lock()
+	g.Nodes = nodes
+	g.Children = children
+	g.Roots = roots
+	g.mu.Unlock()
+}
+
 // AddNode inserts a node into the graph and maintains sorted order for children and roots.
 // Re-sorting by timestamp on every insertion ensures that the DAG always reflects
 // a consistent chronological narrative, even if nodes are loaded out of order.

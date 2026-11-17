@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -1147,5 +1148,108 @@ func TestServer_CORS_OriginConfinement(t *testing.T) {
 	}
 	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "" {
 		t.Errorf("expected empty Access-Control-Allow-Origin on rejected preflight, got %q", got)
+	}
+}
+
+func TestServer_RemoteDaemonStorage_Parity(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "parity.db")
+	sqlStrg, err := storage.NewSQLiteStorage(dbPath, "")
+	if err != nil {
+		t.Fatalf("NewSQLiteStorage failed: %v", err)
+	}
+	mgr := engine.NewManager(graph.NewGraph(), sqlStrg)
+	srv := NewServer(mgr)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	remote, err := storage.NewRemoteDaemonStorage(ts.URL, "", "")
+	if err != nil {
+		t.Fatalf("NewRemoteDaemonStorage failed: %v", err)
+	}
+
+	// 1. Pruned node + GarbageCollect purged_records parity
+	sysNode, err := mgr.CreateNode("", domain.RoleSystem, "System root", false)
+	if err != nil {
+		t.Fatalf("CreateNode sys failed: %v", err)
+	}
+	prunable, err := mgr.CreateNode(sysNode.ID, domain.RoleUser, "To prune", false)
+	if err != nil {
+		t.Fatalf("CreateNode user failed: %v", err)
+	}
+	if err := mgr.PruneBranch(prunable.ID); err != nil {
+		t.Fatalf("PruneBranch failed: %v", err)
+	}
+	purged, err := remote.GarbageCollect()
+	if err != nil {
+		t.Fatalf("remote.GarbageCollect failed: %v", err)
+	}
+	if purged != 1 {
+		t.Errorf("expected remote.GarbageCollect to report 1 purged record, got %d", purged)
+	}
+
+	// 2. MemoryStore end-to-end CRUD & diagnostics
+	mem := &storage.Memory{
+		Key:          "arch_layering",
+		Content:      "Respect 4-tier package boundaries.",
+		Category:     storage.CategoryArchitecture,
+		Scope:        storage.ScopeWorkspace,
+		Tags:         []string{"adr-018", "go"},
+		SourceNodeID: sysNode.ID,
+	}
+	if err := remote.SaveMemory(mem); err != nil {
+		t.Fatalf("remote.SaveMemory failed: %v", err)
+	}
+
+	gotMem, err := remote.GetMemory(storage.ScopeWorkspace, "", "arch_layering")
+	if err != nil || gotMem == nil {
+		t.Fatalf("remote.GetMemory failed: mem=%+v, err=%v", gotMem, err)
+	}
+	if gotMem.Content != mem.Content {
+		t.Errorf("expected memory content %q, got %q", mem.Content, gotMem.Content)
+	}
+
+	mems, err := remote.QueryMemories(storage.MemoryFilter{
+		Query: "layering",
+		Scope: storage.ScopeWorkspace,
+		Tags:  []string{"adr-018"},
+		Limit: 10,
+	})
+	if err != nil || len(mems) != 1 {
+		t.Fatalf("remote.QueryMemories failed: len=%d, err=%v", len(mems), err)
+	}
+
+	diag, err := remote.DiagnoseMemories(storage.ScopeWorkspace, "")
+	if err != nil || diag.TotalMemories != 1 {
+		t.Fatalf("remote.DiagnoseMemories failed: diag=%+v, err=%v", diag, err)
+	}
+
+	if err := remote.DeleteMemory(storage.ScopeWorkspace, "", "arch_layering"); err != nil {
+		t.Fatalf("remote.DeleteMemory failed: %v", err)
+	}
+	missing, err := remote.GetMemory(storage.ScopeWorkspace, "", "arch_layering")
+	if err != nil || missing != nil {
+		t.Errorf("expected nil memory after deletion, got mem=%+v, err=%v", missing, err)
+	}
+	if err := remote.DeleteMemory(storage.ScopeWorkspace, "", "arch_layering"); !errors.Is(err, storage.ErrMemoryNotFound) {
+		t.Errorf("expected ErrMemoryNotFound after deletion, got %v", err)
+	}
+
+	// 3. ObservationStore end-to-end blob persistence & retrieval
+	blob := &storage.ObservationBlob{
+		ReceiptID: "obs_1234abcd",
+		NodeID:    sysNode.ID,
+		CreatedAt: time.Now(),
+		Tool:      "read_file",
+		Payload:   []byte("line 1\nline 2\nline 3\n"),
+	}
+	if err := remote.SaveObservationBlob(blob); err != nil {
+		t.Fatalf("remote.SaveObservationBlob failed: %v", err)
+	}
+	gotBlob, err := remote.GetObservationBlob("obs_1234abcd")
+	if err != nil {
+		t.Fatalf("remote.GetObservationBlob failed: %v", err)
+	}
+	if string(gotBlob.Payload) != string(blob.Payload) {
+		t.Errorf("blob payload mismatch: got %q, want %q", string(gotBlob.Payload), string(blob.Payload))
 	}
 }

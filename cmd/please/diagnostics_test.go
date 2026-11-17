@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -111,6 +113,89 @@ func TestNormalizeFlagArgs(t *testing.T) {
 			if out[i] != c.expected[i] {
 				t.Errorf("index %d mismatch: got %q, expected %q", i, out[i], c.expected[i])
 			}
+		}
+	}
+}
+
+func TestSetupDiagnosticsManager_AppliesConfigAndShaper(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "diag_vault.db")
+	strg, err := storage.NewSQLiteStorage(dbPath, "")
+	if err != nil {
+		t.Fatalf("failed to create sqlite storage: %v", err)
+	}
+	root := &graph.Node{
+		ID:        "root-1",
+		Role:      domain.RoleSystem,
+		Content:   "System",
+		Timestamp: time.Now(),
+	}
+	if err := strg.SaveNode(root); err != nil {
+		t.Fatalf("failed to save root node: %v", err)
+	}
+
+	cfgPath := filepath.Join(tempDir, "config.json")
+	cfgJSON := fmt.Sprintf(`{
+  "version": 2,
+  "server": {
+    "workspace_dir": %q,
+    "vault_path": %q,
+    "context_shaper": "window",
+    "options": {
+      "num_ctx": 65536
+    }
+  }
+}`, tempDir, dbPath)
+	if err := os.WriteFile(cfgPath, []byte(cfgJSON), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	mgr, _, err := setupDiagnosticsManager("", cfgPath)
+	if err != nil {
+		t.Fatalf("setupDiagnosticsManager failed: %v", err)
+	}
+
+	if mgr.NumCtx != 65536 {
+		t.Errorf("expected NumCtx 65536 from config, got %d", mgr.NumCtx)
+	}
+	if mgr.ContextShaperType != "window" {
+		t.Errorf("expected ContextShaperType 'window', got %q", mgr.ContextShaperType)
+	}
+
+	histNode := &graph.Node{
+		ID:      "hist-user",
+		Role:    domain.RoleUser,
+		Content: "old question",
+	}
+
+	// Verify EvaluateNodeFidelity diverges appropriately by active ContextShaper under capacity pressure
+	curves := []struct {
+		name      string
+		wantScore float64
+		wantTier  engine.FidelityTier
+	}{
+		{name: "window", wantScore: 0.1, wantTier: engine.FidelityLow},
+		{name: "sigmoid"},
+		{name: "exponential"},
+	}
+
+	for _, c := range curves {
+		mgr.Shaper = nil
+		mgr.ContextShaperType = c.name
+		score, tier := mgr.EvaluateNodeFidelity(histNode, 2, 12, 0.80, 15)
+		if c.name == "window" {
+			if score != c.wantScore || tier != c.wantTier {
+				t.Errorf("window EvaluateNodeFidelity = (%v, %v), want (%v, %v)", score, tier, c.wantScore, c.wantTier)
+			}
+		} else if c.name == "sigmoid" {
+			if tier != engine.FidelityLow || score <= 0 || score >= 0.15 {
+				t.Errorf("sigmoid EvaluateNodeFidelity at d=12 = (%v, %v), expected low tier with (0, 0.15)", score, tier)
+			}
+		} else if c.name == "exponential" {
+			if score <= 0 {
+				t.Errorf("exponential EvaluateNodeFidelity expected positive score, got %v", score)
+			}
+			_ = tier.String()
 		}
 	}
 }

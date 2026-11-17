@@ -349,16 +349,20 @@ func (a *Agent) Prompt(ctx context.Context, params acpsdk.PromptRequest) (acpsdk
 		turnCfg.Server.SandboxPolicy = mode
 	}
 
+	turnMgr := a.mgr
 	// Bind session working directory if provided by client
 	if val, ok := a.sessionCwd.Load(params.SessionId); ok {
 		if sCwd, ok := val.(string); ok && sCwd != "" {
 			if turnCfg.Server != nil {
 				turnCfg.Server.WorkspaceDir = sCwd
 			}
+			if a.mgr != nil && sCwd != a.mgr.WorkspaceDir {
+				turnMgr = a.mgr.CloneWithWorkspace(sCwd, a.workspaceDir)
+			}
 		}
 	}
 
-	harness := engine.NewSessionHarness(a.mgr, a.provider, turnCfg)
+	harness := engine.NewSessionHarness(turnMgr, a.provider, turnCfg)
 
 	// Configure interactive permission gate
 

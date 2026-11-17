@@ -29,6 +29,37 @@ const (
 	FidelityDrop
 )
 
+// String returns a human-readable label for the FidelityTier.
+func (t FidelityTier) String() string {
+	switch t {
+	case FidelityFull:
+		return "Full Fidelity"
+	case FidelityMedium:
+		return "Medium"
+	case FidelityLow:
+		return "Low (Compact)"
+	case FidelityDrop:
+		return "Dropped"
+	default:
+		return "Unknown"
+	}
+}
+
+func isPinnedNode(node *graph.Node, idx int) bool {
+	return idx == 0 || (idx == 1 && node.Role == domain.RoleUser) || node.Role == domain.RoleSystem || node.Role == domain.RoleSummary
+}
+
+func nodeCharCost(node *graph.Node) int {
+	cost := len(node.Content) + len(node.Thought)
+	for _, obs := range node.Observations {
+		cost += len(obs.Result)
+	}
+	if cost == 0 {
+		return 1
+	}
+	return cost
+}
+
 // ShapeOptions holds contextual execution parameters for prompt projection.
 type ShapeOptions struct {
 	SupportsVision   bool
@@ -77,6 +108,44 @@ func NewSigmoidShaper(opts ...func(*SigmoidShaper)) *SigmoidShaper {
 	return s
 }
 
+// EvaluateNode computes the retention score and FidelityTier for a single node under SigmoidShaper.
+func (s *SigmoidShaper) EvaluateNode(node *graph.Node, idx int, distance int, fillRatio float64, totalPathLen int) (float64, FidelityTier) {
+	// Monotonic Prefix Invariance: Genesis Root & initial user goal are permanently pinned
+	if isPinnedNode(node, idx) {
+		return math.MaxFloat64, FidelityFull
+	}
+
+	d := float64(distance)
+	sVal := 1.0 / (1.0 + math.Exp(s.K*(d-s.D0)))
+
+	// Active leaf is always full fidelity
+	if distance == 0 {
+		return 1.0, FidelityFull
+	}
+
+	// Capacity Pressure Check: Under 60% capacity, all public nodes retain full fidelity
+	if fillRatio < 0.60 && !node.Internal {
+		return sVal, FidelityFull
+	}
+
+	if node.Internal {
+		cost := nodeCharCost(node)
+		internalScore := (0.05 * 1000.0 / float64(cost)) * sVal
+		if internalScore <= 0.5 {
+			return internalScore, FidelityDrop
+		}
+		return internalScore, FidelityMedium
+	}
+
+	if sVal >= 0.5 {
+		return sVal, FidelityFull
+	} else if sVal >= 0.15 {
+		return sVal, FidelityMedium
+	}
+	// Stable Floor / Frozen Asymptote: Settles onto discrete low-fidelity baseline
+	return sVal, FidelityLow
+}
+
 // ShapeContext implements ContextShaper for SigmoidShaper.
 func (s *SigmoidShaper) ShapeContext(ctx context.Context, path []*graph.Node, budget int) ([]domain.Message, error) {
 	effectiveOpts := s.Options
@@ -85,46 +154,8 @@ func (s *SigmoidShaper) ShapeContext(ctx context.Context, path []*graph.Node, bu
 	}
 
 	return projectPathToMessages(path, budget, effectiveOpts, func(node *graph.Node, idx int, distance int, fillRatio float64) FidelityTier {
-		// Monotonic Prefix Invariance: Genesis Root & initial user goal are permanently pinned
-		if idx == 0 || (idx == 1 && node.Role == domain.RoleUser) {
-			return FidelityFull
-		}
-		// Active leaf is always full fidelity
-		if distance == 0 {
-			return FidelityFull
-		}
-
-		// Capacity Pressure Check: Under 60% capacity, all public nodes retain full fidelity
-		if fillRatio < 0.60 && !node.Internal {
-			return FidelityFull
-		}
-
-		// Compute logistic retention value
-		d := float64(distance)
-		sVal := 1.0 / (1.0 + math.Exp(s.K*(d-s.D0)))
-
-		if node.Internal {
-			cost := len(node.Content) + len(node.Thought)
-			for _, obs := range node.Observations {
-				cost += len(obs.Result)
-			}
-			if cost == 0 {
-				cost = 1
-			}
-			internalScore := (0.05 * 1000.0 / float64(cost)) * sVal
-			if internalScore <= 0.5 {
-				return FidelityDrop
-			}
-			return FidelityMedium
-		}
-
-		if sVal >= 0.5 {
-			return FidelityFull
-		} else if sVal >= 0.15 {
-			return FidelityMedium
-		}
-		// Stable Floor / Frozen Asymptote: Settles onto discrete low-fidelity baseline
-		return FidelityLow
+		_, tier := s.EvaluateNode(node, idx, distance, fillRatio, len(path))
+		return tier
 	})
 }
 
@@ -149,6 +180,36 @@ func NewWindowShaper(windowSize int, opts ...func(*WindowShaper)) *WindowShaper 
 	return s
 }
 
+// EvaluateNode computes the retention score and FidelityTier for a single node under WindowShaper.
+func (s *WindowShaper) EvaluateNode(node *graph.Node, idx int, distance int, fillRatio float64, totalPathLen int) (float64, FidelityTier) {
+	// Monotonic Prefix Invariance: Genesis Root & initial user goal are permanently pinned
+	if isPinnedNode(node, idx) {
+		return math.MaxFloat64, FidelityFull
+	}
+	if distance == 0 {
+		return 1.0, FidelityFull
+	}
+	if fillRatio < 0.60 && !node.Internal {
+		return 1.0, FidelityFull
+	}
+
+	if distance < s.WindowSize {
+		if node.Internal {
+			if nodeCharCost(node) > 500 {
+				return 0.0, FidelityDrop
+			}
+			return 0.5, FidelityMedium
+		}
+		return 1.0, FidelityFull
+	}
+
+	// Historical turns outside window
+	if node.Internal {
+		return 0.0, FidelityDrop
+	}
+	return 0.1, FidelityLow
+}
+
 // ShapeContext implements ContextShaper for WindowShaper.
 func (s *WindowShaper) ShapeContext(ctx context.Context, path []*graph.Node, budget int) ([]domain.Message, error) {
 	effectiveOpts := s.Options
@@ -157,37 +218,8 @@ func (s *WindowShaper) ShapeContext(ctx context.Context, path []*graph.Node, bud
 	}
 
 	return projectPathToMessages(path, budget, effectiveOpts, func(node *graph.Node, idx int, distance int, fillRatio float64) FidelityTier {
-		// Monotonic Prefix Invariance: Genesis Root & initial user goal are permanently pinned
-		if idx == 0 || (idx == 1 && node.Role == domain.RoleUser) {
-			return FidelityFull
-		}
-		if distance == 0 {
-			return FidelityFull
-		}
-
-		if fillRatio < 0.60 && !node.Internal {
-			return FidelityFull
-		}
-
-		if distance < s.WindowSize {
-			if node.Internal {
-				cost := len(node.Content) + len(node.Thought)
-				for _, obs := range node.Observations {
-					cost += len(obs.Result)
-				}
-				if cost > 500 {
-					return FidelityDrop
-				}
-				return FidelityMedium
-			}
-			return FidelityFull
-		}
-
-		// Historical turns outside window
-		if node.Internal {
-			return FidelityDrop
-		}
-		return FidelityLow
+		_, tier := s.EvaluateNode(node, idx, distance, fillRatio, len(path))
+		return tier
 	})
 }
 
@@ -206,6 +238,27 @@ func NewResonanceShaper(opts ...func(*ResonanceShaper)) *ResonanceShaper {
 	return s
 }
 
+// EvaluateNode computes the retention score and FidelityTier for a single node under ResonanceShaper.
+func (s *ResonanceShaper) EvaluateNode(node *graph.Node, idx int, distance int, fillRatio float64, totalPathLen int) (float64, FidelityTier) {
+	if isPinnedNode(node, idx) {
+		return math.MaxFloat64, FidelityFull
+	}
+	if distance == 0 {
+		return 999.9, FidelityFull
+	}
+
+	score := CalculateTopologicalResonanceScore(node, distance, fillRatio, totalPathLen)
+	if node.Internal && score <= 0.5 {
+		return score, FidelityDrop
+	}
+	if score > 5.0 {
+		return score, FidelityFull
+	} else if score > 0.5 {
+		return score, FidelityMedium
+	}
+	return score, FidelityLow
+}
+
 // ShapeContext implements ContextShaper for ResonanceShaper.
 func (s *ResonanceShaper) ShapeContext(ctx context.Context, path []*graph.Node, budget int) ([]domain.Message, error) {
 	effectiveOpts := s.Options
@@ -214,23 +267,8 @@ func (s *ResonanceShaper) ShapeContext(ctx context.Context, path []*graph.Node, 
 	}
 
 	return projectPathToMessages(path, budget, effectiveOpts, func(node *graph.Node, idx int, distance int, fillRatio float64) FidelityTier {
-		if idx == 0 || (idx == 1 && node.Role == domain.RoleUser) {
-			return FidelityFull
-		}
-		if distance == 0 {
-			return FidelityFull
-		}
-
-		score := CalculateTopologicalResonanceScore(node, distance, fillRatio, len(path))
-		if node.Internal && score <= 0.5 {
-			return FidelityDrop
-		}
-		if score > 5.0 {
-			return FidelityFull
-		} else if score > 0.5 {
-			return FidelityMedium
-		}
-		return FidelityLow
+		_, tier := s.EvaluateNode(node, idx, distance, fillRatio, len(path))
+		return tier
 	})
 }
 

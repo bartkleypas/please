@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bartkleypas/please/internal/config"
 	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/graph"
 	"github.com/bartkleypas/please/internal/providers"
@@ -75,6 +76,25 @@ func NewManager(g *graph.Graph, s storage.Storage) *Manager {
 	}
 }
 
+// ApplyConfig synchronizes runtime configuration parameters (steering flags, context shaper,
+// context window budget, and workspace directory) from cfg onto the Manager.
+func (m *Manager) ApplyConfig(cfg *config.Config) {
+	if m == nil || cfg == nil {
+		return
+	}
+	m.SignatSteering = cfg.EnableSignatSteering()
+	m.AmbientTelemetry = cfg.EnableAmbientTelemetry()
+	if shaper := cfg.GetContextShaper(); shaper != "" {
+		m.ContextShaperType = shaper
+	}
+	if ws := cfg.GetWorkspaceDir(); ws != "" {
+		m.WorkspaceDir = ws
+	}
+	if cfg.Server != nil && cfg.Server.Options != nil && cfg.Server.Options.NumCtx != nil && *cfg.Server.Options.NumCtx > 0 {
+		m.NumCtx = *cfg.Server.Options.NumCtx
+	}
+}
+
 // CloneWithWorkspace creates a lightweight copy of the manager scoped to a new workspace directory
 // (such as a Git worktree), while sharing the same underlying Graph DAG, Storage vault, and
 // runtime tuning parameters.
@@ -107,6 +127,13 @@ func (m *Manager) CloneWithWorkspace(workspaceDir string, primaryWorkspace ...st
 		return cloned.lookupLegacyObservation(receiptID)
 	})
 	cloned.RegisterDelegation(NewSubagentOrchestrator(cloned, nil, nil))
+	if m.Registry != nil {
+		for name, tool := range m.Registry.Tools {
+			if _, exists := cloned.Registry.Tools[name]; !exists {
+				cloned.Registry.Register(tool)
+			}
+		}
+	}
 	return cloned
 }
 
@@ -380,6 +407,10 @@ func (m *Manager) Sync() (*graph.Graph, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
+	if m.Graph != nil {
+		m.Graph.Replace(g)
+		return m.Graph, lastID, nil
+	}
 	m.Graph = g
 	return g, lastID, nil
 }
@@ -412,6 +443,27 @@ func (m *Manager) calculateResonanceScore(node *graph.Node, distance int, fillRa
 // CalculateResonanceScore computes the Context Resonance Score for a node given its distance and context metrics.
 func (m *Manager) CalculateResonanceScore(node *graph.Node, distance int, fillRatio float64, totalPathLen int) float64 {
 	return CalculateTopologicalResonanceScore(node, distance, fillRatio, totalPathLen)
+}
+
+// EvaluateNodeFidelity computes the retention score and FidelityTier for a node using the manager's active ContextShaper.
+func (m *Manager) EvaluateNodeFidelity(node *graph.Node, idx int, distance int, fillRatio float64, totalPathLen int) (float64, FidelityTier) {
+	shaper := m.GetShaper()
+	switch s := shaper.(type) {
+	case *SigmoidShaper:
+		return s.EvaluateNode(node, idx, distance, fillRatio, totalPathLen)
+	case *WindowShaper:
+		return s.EvaluateNode(node, idx, distance, fillRatio, totalPathLen)
+	case *ResonanceShaper:
+		return s.EvaluateNode(node, idx, distance, fillRatio, totalPathLen)
+	default:
+		score := CalculateTopologicalResonanceScore(node, distance, fillRatio, totalPathLen)
+		if score > 5.0 {
+			return score, FidelityFull
+		} else if score > 0.5 {
+			return score, FidelityMedium
+		}
+		return score, FidelityLow
+	}
 }
 
 // formatCompactedToolObservation produces a concise summary of a completed tool observation,
