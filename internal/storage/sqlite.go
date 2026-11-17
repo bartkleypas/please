@@ -311,6 +311,8 @@ func (s *SQLiteStorage) GarbageCollect() (int64, error) {
 
 	count, _ := res.RowsAffected()
 
+	_, _ = s.db.Exec(`DELETE FROM observation_blobs WHERE node_id NOT IN (SELECT id FROM nodes)`)
+
 	if _, err := s.db.Exec("VACUUM;"); err != nil {
 		return count, fmt.Errorf("failed to vacuum sqlite: %w", err)
 	}
@@ -1212,6 +1214,14 @@ func (s *SQLiteStorage) SaveObservationBlob(blob *ObservationBlob) error {
 		payloadToStore = blob.Payload
 	}
 
+	if s.encryptionKey != "" && !strings.HasPrefix(string(payloadToStore), encryptionPrefix) {
+		encPayload, err := EncryptField(string(payloadToStore), s.encryptionKey)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt observation blob: %w", err)
+		}
+		payloadToStore = []byte(encPayload)
+	}
+
 	createdAt := blob.CreatedAt
 	if createdAt.IsZero() {
 		createdAt = time.Now()
@@ -1252,6 +1262,14 @@ func (s *SQLiteStorage) GetObservationBlob(receiptID string) (*ObservationBlob, 
 
 	blob.CreatedAt = parseFlexibleTimestamp(createdAtStr)
 	blob.Compressed = false
+
+	if strings.HasPrefix(string(rawPayload), encryptionPrefix) {
+		decPayload, err := DecryptField(string(rawPayload), s.encryptionKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decrypt observation blob: %w", err)
+		}
+		rawPayload = []byte(decPayload)
+	}
 
 	if compressed {
 		gr, err := gzip.NewReader(bytes.NewReader(rawPayload))

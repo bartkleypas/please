@@ -653,7 +653,26 @@ Format your response as a clean, direct summary paragraph.`
 		}
 	}
 
-	// 6. Sync to reflect structural changes
+	// 6. Evict bulky raw observation payloads at rest on compacted ancestor nodes (ADR 021)
+	for _, id := range nodeIDs {
+		if n, err := m.Graph.GetNode(id); err == nil && n != nil && len(n.Observations) > 0 {
+			changed := false
+			for idx, obs := range n.Observations {
+				if len(obs.Result) > 1000 && obs.Receipt != nil && obs.Receipt.HasBlob {
+					compactStr := FormatReceiptString(*obs.Receipt)
+					if obs.Result != compactStr {
+						n.Observations[idx].Result = compactStr
+						changed = true
+					}
+				}
+			}
+			if changed && m.Storage != nil {
+				_ = m.Storage.UpdateNodeObservations(n.ID, n.Observations)
+			}
+		}
+	}
+
+	// 7. Sync to reflect structural changes
 	_, _, err = m.Sync()
 	return superNode, err
 }

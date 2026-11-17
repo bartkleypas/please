@@ -107,6 +107,8 @@ func TestValidateSafePath_Quarantine(t *testing.T) {
 		{"Quarantined root config.json", "config.json", true},
 		{"Quarantined .please/config.json", ".please/config.json", true},
 		{"Quarantined symlink to config.json", "link_to_config", true},
+		{"Quarantined .please directory", ".please", true},
+		{"Quarantined file inside .please", ".please/config.default.json", true},
 	}
 
 	for _, tt := range tests {
@@ -363,5 +365,62 @@ func TestGrepSearch_SkipsConfigAndSymlinks(t *testing.T) {
 		if strings.Contains(listRes, forbidden) {
 			t.Errorf("list_files_recursive leaked %q: %s", forbidden, listRes)
 		}
+	}
+}
+
+func TestListDirectory_MatchesRecursiveVisibility(t *testing.T) {
+	wsDir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(wsDir, "main.go"), []byte("package main\n"), 0644)
+	_ = os.MkdirAll(filepath.Join(wsDir, "sub"), 0755)
+	_ = os.WriteFile(filepath.Join(wsDir, "sub", "helper.go"), []byte("package sub\n"), 0644)
+	_ = os.MkdirAll(filepath.Join(wsDir, ".git"), 0755)
+	_ = os.WriteFile(filepath.Join(wsDir, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0644)
+	_ = os.MkdirAll(filepath.Join(wsDir, ".please"), 0755)
+	_ = os.WriteFile(filepath.Join(wsDir, ".please", "config.default.json"), []byte("{}"), 0644)
+	_ = os.WriteFile(filepath.Join(wsDir, "config.json"), []byte("{}"), 0644)
+	_ = os.WriteFile(filepath.Join(wsDir, "vault.db"), []byte("sqlite"), 0644)
+	_ = os.WriteFile(filepath.Join(wsDir, ".env"), []byte("SECRET=1"), 0644)
+	_ = os.Symlink("/etc/passwd", filepath.Join(wsDir, "bad_link"))
+
+	ctx := context.Background()
+	listDirTool := ListDirectoryTool(wsDir)
+	listRecTool := ListFilesRecursiveTool(wsDir)
+
+	dirOut, err := listDirTool.Function(ctx, map[string]interface{}{"path": "."})
+	if err != nil {
+		t.Fatalf("list_directory failed: %v", err)
+	}
+	recOut, err := listRecTool.Function(ctx, map[string]interface{}{"path": "."})
+	if err != nil {
+		t.Fatalf("list_files_recursive failed: %v", err)
+	}
+
+	if !strings.Contains(dirOut, "main.go") || !strings.Contains(dirOut, "sub/") {
+		t.Errorf("expected main.go and sub/ in list_directory output, got:\n%s", dirOut)
+	}
+	if !strings.Contains(recOut, "main.go") || !strings.Contains(recOut, filepath.Join("sub", "helper.go")) {
+		t.Errorf("expected main.go and sub/helper.go in list_files_recursive output, got:\n%s", recOut)
+	}
+
+	for _, hidden := range []string{".git", ".please", "config.json", "vault.db", ".env", "bad_link"} {
+		if strings.Contains(dirOut, hidden) {
+			t.Errorf("list_directory leaked hidden/quarantined entry %q in:\n%s", hidden, dirOut)
+		}
+		if strings.Contains(recOut, hidden) {
+			t.Errorf("list_files_recursive leaked hidden/quarantined entry %q in:\n%s", hidden, recOut)
+		}
+	}
+
+	// Direct list_directory(".please") must fail with security error
+	if _, err := listDirTool.Function(ctx, map[string]interface{}{"path": ".please"}); err == nil || !strings.Contains(err.Error(), "quarantined") {
+		t.Errorf("expected security error listing .please directory, got: %v", err)
+	}
+
+	// Out-of-tree worktree nested under <tmp>/.please/worktrees/repo-1234/sub_1 must remain accessible
+	wtRoot := filepath.Join(wsDir, ".please", "worktrees", "repo-1234", "sub_1")
+	_ = os.MkdirAll(wtRoot, 0755)
+	_ = os.WriteFile(filepath.Join(wtRoot, "main.go"), []byte("package main\n"), 0644)
+	if _, err := ValidateSafePath(wtRoot, "main.go"); err != nil {
+		t.Errorf("expected ValidateSafePath inside out-of-tree worktree to succeed, got: %v", err)
 	}
 }

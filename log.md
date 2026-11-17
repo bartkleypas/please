@@ -353,4 +353,15 @@ All updates and modifications to this knowledge bundle are tracked chronological
     * **Daemon `/api/image` Path Confinement & CORS Hardening**: Hardened `Server.handleImage` ([server.go](internal/server/server.go)) with `tools.ValidateSafePath` and strict image extension validation, and constrained `corsMiddleware` to trusted local/loopback origins (`localhost`, `127.0.0.1`, `::1`, `*.local`).
     * Promoted ADR-023 status from `Proposed` to `Accepted` and added comprehensive unit tests across `internal/tools`, `internal/engine`, and `internal/server`.
 
+## 2026-11-17
+
+* **Directory Visibility Alignment & `.please` Quarantine ([sandbox.go](internal/tools/sandbox.go), [sense.go](internal/tools/sense.go))**:
+    * Added workspace-relative `.please` directory quarantine in `ValidateSafePath` so `list_directory(".please")` and direct `.please/*` file access are blocked while preserving out-of-tree worktree execution under `~/.please/worktrees/`.
+    * Aligned `ListDirectoryTool` with `walkSensoryTree` (`list_files_recursive`) to filter out `.git`, `.please`, `SensitivePathPatterns`, and escaping/quarantined symlinks.
+* **Phase 2 (`v0.3.3`): Vault Encryption Completeness & L2 Storage Hygiene**:
+    * **Encrypted `observation_blobs` ([sqlite.go](internal/storage/sqlite.go), [vault.go](cmd/please/vault.go))**: Encrypted gzipped blob payloads with `EncryptField` / `DecryptField` when `encryption_key` is configured, and extended `please vault decrypt` (`decryptSQLiteVault`) to decrypt `observation_blobs`.
+    * **Orphaned Blob Purge & Cold Observation Eviction ([sqlite.go](internal/storage/sqlite.go), [service.go](internal/engine/service.go))**: Purged orphaned `observation_blobs` inside `SQLiteStorage.GarbageCollect()` and evicted bulky raw `obs.Result` payloads to compact `SmartReceipt` strings at rest during `CompactRangeWithDirective`.
+    * **Orphaned Subsession Cleanup ([worktree.go](internal/worktree/worktree.go), [vault.go](cmd/please/vault.go))**: Added `Manager.CleanOrphanedSubsessions` to prune stale `subsession/sub_*` worktrees and branches, wired into `please vault clean`.
+    * Added unit tests in [sandbox_test.go](internal/tools/sandbox_test.go), [blob_test.go](internal/storage/blob_test.go), [vault_test.go](cmd/please/vault_test.go), and [worktree_test.go](internal/worktree/worktree_test.go).
+
 

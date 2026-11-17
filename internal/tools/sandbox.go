@@ -119,6 +119,12 @@ func ValidateSafePath(workspaceDir, path string, primaryWorkspace ...string) (st
 		return "", fmt.Errorf("security error: path '%s' resolves to quarantined sensitive pattern '%s'", path, matched)
 	}
 
+	// Quarantine workspace-relative .please runtime directory without blocking worktrees rooted under ~/.please/worktrees
+	relSlash := filepath.ToSlash(rel)
+	if relSlash == ".please" || strings.HasPrefix(relSlash, ".please/") || strings.Contains(relSlash, "/.please/") {
+		return "", fmt.Errorf("security error: path '%s' matches quarantined sensitive pattern '.please'", path)
+	}
+
 	return canonicalPath, nil
 }
 

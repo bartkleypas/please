@@ -11,6 +11,7 @@ import (
 
 	"github.com/bartkleypas/please/internal/config"
 	"github.com/bartkleypas/please/internal/storage"
+	"github.com/bartkleypas/please/internal/worktree"
 	_ "modernc.org/sqlite"
 )
 
@@ -342,6 +343,41 @@ func decryptSQLiteVault(dbPath string, key string) (int, int, error) {
 		}
 	}
 
+	// 3. Decrypt Observation Blobs
+	blobUpdates := make(map[string][]byte)
+	blobRows, err := tx.Query("SELECT receipt_id, payload FROM observation_blobs;")
+	if err == nil {
+		for blobRows.Next() {
+			var rID string
+			var rawPayload []byte
+			if err := blobRows.Scan(&rID, &rawPayload); err == nil {
+				if strings.HasPrefix(string(rawPayload), "enc:v1:") {
+					dec, err := storage.DecryptField(string(rawPayload), key)
+					if err != nil {
+						blobRows.Close()
+						return len(updates), len(memUpdates), fmt.Errorf("failed to decrypt observation blob %s: %w", rID, err)
+					}
+					blobUpdates[rID] = []byte(dec)
+				}
+			}
+		}
+		blobRows.Close()
+
+		if len(blobUpdates) > 0 {
+			blobStmt, err := tx.Prepare("UPDATE observation_blobs SET payload = ? WHERE receipt_id = ?;")
+			if err != nil {
+				return len(updates), len(memUpdates), fmt.Errorf("failed to prepare blob update statement: %w", err)
+			}
+			defer blobStmt.Close()
+
+			for rID, decBytes := range blobUpdates {
+				if _, err := blobStmt.Exec(decBytes, rID); err != nil {
+					return len(updates), len(memUpdates), fmt.Errorf("failed to update observation blob %s: %w", rID, err)
+				}
+			}
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		return 0, 0, fmt.Errorf("failed to commit decryption transaction: %w", err)
 	}
@@ -405,5 +441,18 @@ func runVaultClean(args []string) {
 		os.Exit(1)
 	}
 
+	sessions, _ := storage.ListSessions()
+	activeMap := make(map[string]bool, len(sessions))
+	for sID := range sessions {
+		activeMap[sID] = true
+	}
+
+	cfgDir, _ := config.GetConfigDir()
+	wtMgr := worktree.NewManager(cfgDir, ".")
+	cleanedBranches, _ := wtMgr.CleanOrphanedSubsessions(activeMap)
+
 	fmt.Printf("🧹 Vault Cleaned! Removed %d orphaned observations and reclaimed space.\n", deleted)
+	if len(cleanedBranches) > 0 {
+		fmt.Printf("🌿 Pruned %d orphaned subsession branch(es).\n", len(cleanedBranches))
+	}
 }
