@@ -300,6 +300,10 @@ func decryptSQLiteVault(dbPath string, key string) (int, int, error) {
 			})
 		}
 	}
+	if err := nodeRows.Err(); err != nil {
+		nodeRows.Close()
+		return 0, 0, fmt.Errorf("error iterating node rows: %w", err)
+	}
 	nodeRows.Close()
 
 	stmt, err := tx.Prepare("UPDATE nodes SET content = ?, thought = ?, tool_calls = ?, observations = ?, images = ? WHERE id = ?;")
@@ -320,11 +324,20 @@ func decryptSQLiteVault(dbPath string, key string) (int, int, error) {
 	if err == nil {
 		for memRows.Next() {
 			var id, encContent string
-			if err := memRows.Scan(&id, &encContent); err == nil {
-				if decContent, err := storage.DecryptField(encContent, key); err == nil {
-					memUpdates[id] = decContent
-				}
+			if err := memRows.Scan(&id, &encContent); err != nil {
+				memRows.Close()
+				return len(updates), 0, fmt.Errorf("failed to scan memory: %w", err)
 			}
+			decContent, err := storage.DecryptField(encContent, key)
+			if err != nil {
+				memRows.Close()
+				return len(updates), 0, fmt.Errorf("failed to decrypt memory %s: %w", id, err)
+			}
+			memUpdates[id] = decContent
+		}
+		if err := memRows.Err(); err != nil {
+			memRows.Close()
+			return len(updates), 0, fmt.Errorf("error iterating memory rows: %w", err)
 		}
 		memRows.Close()
 
@@ -350,16 +363,22 @@ func decryptSQLiteVault(dbPath string, key string) (int, int, error) {
 		for blobRows.Next() {
 			var rID string
 			var rawPayload []byte
-			if err := blobRows.Scan(&rID, &rawPayload); err == nil {
-				if strings.HasPrefix(string(rawPayload), "enc:v1:") {
-					dec, err := storage.DecryptField(string(rawPayload), key)
-					if err != nil {
-						blobRows.Close()
-						return len(updates), len(memUpdates), fmt.Errorf("failed to decrypt observation blob %s: %w", rID, err)
-					}
-					blobUpdates[rID] = []byte(dec)
-				}
+			if err := blobRows.Scan(&rID, &rawPayload); err != nil {
+				blobRows.Close()
+				return len(updates), len(memUpdates), fmt.Errorf("failed to scan observation blob: %w", err)
 			}
+			if strings.HasPrefix(string(rawPayload), "enc:v1:") {
+				dec, err := storage.DecryptField(string(rawPayload), key)
+				if err != nil {
+					blobRows.Close()
+					return len(updates), len(memUpdates), fmt.Errorf("failed to decrypt observation blob %s: %w", rID, err)
+				}
+				blobUpdates[rID] = []byte(dec)
+			}
+		}
+		if err := blobRows.Err(); err != nil {
+			blobRows.Close()
+			return len(updates), len(memUpdates), fmt.Errorf("error iterating observation blob rows: %w", err)
 		}
 		blobRows.Close()
 
