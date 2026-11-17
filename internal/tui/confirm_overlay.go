@@ -89,16 +89,22 @@ func (o *ConfirmOverlay) IsOverlay() bool {
 func (o *ConfirmOverlay) View(width, height int) string {
 	var sb strings.Builder
 	if o.title != "" {
-		sb.WriteString(markStyle.Render(o.title) + "\n")
+		sb.WriteString(markStyle.Render(o.title))
+		sb.WriteByte('\n')
 	}
 	for _, d := range o.details {
-		sb.WriteString(d + "\n")
+		sb.WriteString(d)
+		sb.WriteByte('\n')
 	}
 	if o.warning != "" {
-		sb.WriteString("\n" + warningStyle.Render(o.warning) + "\n")
+		sb.WriteByte('\n')
+		sb.WriteString(warningStyle.Render(o.warning))
+		sb.WriteByte('\n')
 	}
 	if o.prompt != "" {
-		sb.WriteString("\n" + markStyle.Render(o.prompt) + "\n")
+		sb.WriteByte('\n')
+		sb.WriteString(markStyle.Render(o.prompt))
+		sb.WriteByte('\n')
 	}
 	return sb.String()
 }

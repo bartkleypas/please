@@ -1158,6 +1158,10 @@ func (s *SQLiteStorage) DiagnoseMemories(scope MemoryScope, sessionID string) (*
 				diag.MostAccessed = append(diag.MostAccessed, *mem)
 			}
 		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return nil, fmt.Errorf("error iterating most accessed memory rows: %w", err)
+		}
 		_ = rows.Close()
 	}
 
@@ -1182,6 +1186,10 @@ func (s *SQLiteStorage) DiagnoseMemories(scope MemoryScope, sessionID string) (*
 			if mem, err := s.scanMemory(rows); err == nil && mem != nil {
 				diag.StaleCandidates = append(diag.StaleCandidates, *mem)
 			}
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return nil, fmt.Errorf("error iterating stale memory rows: %w", err)
 		}
 		_ = rows.Close()
 	}

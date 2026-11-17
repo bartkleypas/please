@@ -782,9 +782,12 @@ func formatStepsTable(steps []toolStepRecord) string {
 	header := fmt.Sprintf("| %-4s | %-*s | %-*s | %-6s |", "Step", maxToolLen, "Tool", maxArgsLen, "Arguments", "Status")
 
 	var sb strings.Builder
-	sb.WriteString(lineSep + "\n")
-	sb.WriteString(header + "\n")
-	sb.WriteString(lineSep + "\n")
+	sb.WriteString(lineSep)
+	sb.WriteByte('\n')
+	sb.WriteString(header)
+	sb.WriteByte('\n')
+	sb.WriteString(lineSep)
+	sb.WriteByte('\n')
 	for _, s := range steps {
 		toolStr := s.Tool
 		if len(toolStr) > maxToolLen {
@@ -796,8 +799,10 @@ func formatStepsTable(steps []toolStepRecord) string {
 			argStr = argStr[:maxArgsLen-3] + "..."
 		}
 		row := fmt.Sprintf("| %-4d | %-*s | %-*s | %-6s |", s.Step, maxToolLen, toolStr, maxArgsLen, argStr, s.Status)
-		sb.WriteString(row + "\n")
+		sb.WriteString(row)
+		sb.WriteByte('\n')
 	}
-	sb.WriteString(lineSep + "\n")
+	sb.WriteString(lineSep)
+	sb.WriteByte('\n')
 	return sb.String()
 }

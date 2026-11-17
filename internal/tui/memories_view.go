@@ -174,10 +174,13 @@ func (m *Model) renderMemoryCard(card *storage.Memory) string {
 	sb.WriteString(fmt.Sprintf("  • Created:      %s\n", card.CreatedAt.Format("2006-01-02 15:04:05")))
 	sb.WriteString(fmt.Sprintf("  • Updated:      %s (%s ago)\n", card.UpdatedAt.Format("2006-01-02 15:04:05"), time.Since(card.UpdatedAt).Round(time.Minute)))
 
-	sb.WriteString("\n" + divider + "\n")
-	sb.WriteString("Content:\n\n")
+	sb.WriteByte('\n')
+	sb.WriteString(divider)
+	sb.WriteString("\nContent:\n\n")
 	sb.WriteString(wrapText(card.Content, contentWidth))
-	sb.WriteString("\n" + divider + "\n\n")
+	sb.WriteByte('\n')
+	sb.WriteString(divider)
+	sb.WriteString("\n\n")
 
 	footer := "  [Esc/Backspace/q: Return to Deck | x/d: Prune Card]"
 	sb.WriteString(memFooterStyle.Render(footer))
