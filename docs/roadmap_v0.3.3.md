@@ -33,16 +33,16 @@ flowchart LR
 
 ---
 
-## Phase 1 (`v0.3.3`): ADR-023 Self-Hosting Security Perimeter & Server Confinement
+## Phase 1 (`v0.3.3`): ADR-023 Self-Hosting Security Perimeter & Server Confinement ✅
 
-### 1.1 Configuration Quarantine (`.please/config.json`) & Symlink Walk Hardening
+### 1.1 Configuration Quarantine (`.please/config.json`) & Symlink Walk Hardening ✅
 * **Finding**: `SensitivePathPatterns` in [`internal/tools/sandbox.go`](../internal/tools/sandbox.go#L11-L23) quarantines `vault.db`, `.env`, `.ssh`, etc., but omits `config.json`. Under `standard` sandbox policy, an agent can read credentials/endpoints from `.please/config.json` or mutate `"sandbox_policy"` to `"permissive"` or inflate `"max_tool_depth"`. Additionally, `walkSensoryTree` in [`internal/tools/sense.go`](../internal/tools/sense.go#L57-L92) only checks `isQuarantinedPath(name)` on directory entries, without resolving symlinks inside the tree before reading files during `grep_search` or `list_files_recursive`.
 * **Fix**:
   1. Add `"config.json"` to `SensitivePathPatterns` in `internal/tools/sandbox.go`.
   2. In `walkSensoryTree`, validate symlinked entries (`d.Type()&os.ModeSymlink != 0`) via `ValidateSafePath(root, path)` and skip any entry that escapes the root or resolves to a quarantined target.
 * **Verification**: Unit tests in `internal/tools/sandbox_test.go` verifying `ValidateSafePath` blocks `"config.json"`, `".please/config.json"`, and symlinks to `config.json`, plus `grep_search` skipping `config.json` and quarantined symlink targets.
 
-### 1.2 Dispatch-Level `SandboxPolicy` Enforcement
+### 1.2 Dispatch-Level `SandboxPolicy` Enforcement ✅
 * **Finding**: `ToolRegistry.RegisterDefaults` registers Sensory, Mutate, and Exec tools into `ToolRegistry.Tools`, relying only on `GetToolSpecsForPolicy` ([`internal/tools/registry.go`](../internal/tools/registry.go#L175-L202)) to hide disabled tool declarations from the LLM. Neither `ToolRegistry.Dispatch` ([`internal/tools/registry.go`](../internal/tools/registry.go#L119-L135)) nor `SessionHarness.ExecuteTurn` ([`internal/engine/harness.go`](../internal/engine/harness.go#L557)) validates the active `SandboxPolicy` before execution. A model emitting a raw `<call>execute_command...</call>` tag (extracted by `ExtractContentToolCalls` at `internal/engine/harness.go:388`) can bypass `standard` or `strict` mode.
 * **Fix**:
   1. Add `IsToolAllowedForPolicy(t Tool, policy string) bool` and `DispatchWithPolicy(ctx, policy, name, rawArgs)` to `internal/tools/registry.go`.
@@ -53,7 +53,7 @@ flowchart LR
   3. Enforce `IsToolAllowedForPolicy` in `SessionHarness.ExecuteTurn` **before** invoking `PermissionGate` and dispatch via `ExecuteToolCallWithPolicy`, so policy-prohibited calls fail immediately without prompting the operator.
 * **Verification**: `TestToolRegistry_DispatchWithPolicy` in `internal/tools/registry_test.go` and `TestSessionHarness_RawCallTagBlockedByPolicy` in `internal/engine/harness_test.go`.
 
-### 1.3 Subagent Capability Intersection & `PermissionGate` Inheritance
+### 1.3 Subagent Capability Intersection & `PermissionGate` Inheritance ✅
 * **Finding**: In [`SubagentOrchestrator.SpawnSubagent`](../internal/engine/delegate.go#L103-L110), requesting `tool_preset: "full"` registers `ExecTools` (`execute_command`) on the child registry even when the parent session operates under `standard` or `strict` policy. Furthermore, [`NewSubagentHarness`](../internal/engine/harness.go#L99-L106) sets `PermissionGate: nil`, allowing a child subagent to run up to 25 `execute_command` invocations without operator confirmation.
 * **Fix**:
   1. Bound child capability registration by `min(ParentPolicy, ToolPreset)`:
@@ -63,7 +63,7 @@ flowchart LR
   2. Propagate `ParentHarness.PermissionGate` (wrapped with the child's `sub_<id>` session ID) into `NewSubagentHarness` so interactive `CategoryExecute` calls inside subagents still invoke operator consent.
 * **Verification**: `TestSubagentOrchestrator_PolicyCeilingAndGateInheritance` in `internal/engine/delegate_test.go`, plus updating existing `execute_command`-using scenarios (`scenarios_test.go`, `raw_wire_scenario_test.go`) to explicitly set `SandboxPolicyPermissive`.
 
-### 1.4 Cross-Process Recursion Sentinels (`PLEASE_HARNESS_DEPTH` & `PLEASE_PARENT_SESSION`)
+### 1.4 Cross-Process Recursion Sentinels (`PLEASE_HARNESS_DEPTH` & `PLEASE_PARENT_SESSION`) ✅
 * **Finding**: [`sanitizeEnvironment()`](../internal/tools/exec.go#L31-L63) strips all `PLEASE*` environment variables from subprocesses, leaving an OS child spawned via `execute_command` (`go run ./cmd/please ...` or `./bin/please ...`) unaware it runs inside an active `please` turn. This enables an out-of-band process fork-bomb and concurrent writes to the active parent session head in SQLite `vault.db`.
 * **Fix**:
   1. Define `EnvHarnessDepth = "PLEASE_HARNESS_DEPTH"` and `EnvParentSession = "PLEASE_PARENT_SESSION"` in `internal/tools/exec.go`. In `ExecuteCommandTool`, read current `PLEASE_HARNESS_DEPTH` (default 0), increment it, and inject `PLEASE_HARNESS_DEPTH=<depth+1>` and `PLEASE_PARENT_SESSION=<sessionID>` into `cmd.Env`.
@@ -73,7 +73,7 @@ flowchart LR
      * `SessionHarness.ExecuteTurn` and `cmd/please/main.go` message mode reject mutations targeting `PLEASE_PARENT_SESSION`.
 * **Verification**: `TestExecuteCommandTool_RecursionSentinels` in `internal/tools/exec_test.go` and `TestSessionHarness_SubprocessRecursionGuard` in `internal/engine/harness_test.go`.
 
-### 1.5 Daemon `/api/image` Path Confinement & CORS Hardening
+### 1.5 Daemon `/api/image` Path Confinement & CORS Hardening ✅
 * **Finding**: [`Server.handleImage`](../internal/server/server.go#L688-L728) (`GET /api/image?path=...`) calls `os.ReadFile(imagePath)` directly without `ValidateSafePath` or image extension verification. Paired with `Access-Control-Allow-Origin: *` in [`corsMiddleware`](../internal/server/server.go#L297-L310), any external web page can probe and read arbitrary host files (`~/.ssh/id_ed25519`, `.please/config.json`) when the local daemon runs without a bearer token.
 * **Fix**:
   1. Confine `handleImage` via `tools.ValidateSafePath(wsDir, imagePath)` and enforce an explicit allow-list of image extensions (`.jpg`, `.jpeg`, `.png`, `.gif`, `.webp`, `.svg`), returning `403 Forbidden` on violations.
@@ -82,19 +82,19 @@ flowchart LR
 
 ---
 
-## Phase 2 (`v0.3.3`): Vault Encryption Completeness & L2 Storage Hygiene
+## Phase 2 (`v0.3.3`): Vault Encryption Completeness & L2 Storage Hygiene ✅
 
-### 2.1 `observation_blobs` AES-256-GCM Encryption
+### 2.1 `observation_blobs` AES-256-GCM Encryption ✅
 * **Finding**: [`SQLiteStorage.SaveObservationBlob`](../internal/storage/sqlite.go#L1190-L1229) and `GetObservationBlob` store and read compressed tool payloads in cleartext even when `s.encryptionKey != ""`, breaking zero-knowledge rest encryption established for `nodes` and `memories`. [`decryptSQLiteVault`](../cmd/please/vault.go#L197-L353) likewise only decrypts `nodes` and `memories`.
 * **Fix**: Encrypt base64/binary gzip payloads via `EncryptField`/`DecryptField` when `s.encryptionKey != ""` in `SQLiteStorage`, and extend `please vault decrypt` to decrypt `observation_blobs` rows.
 * **Verification**: Encrypted `observation_blobs` round-trip tests in `internal/storage/blob_test.go` and CLI vault decryption tests in `cmd/please/vault_test.go`.
 
-### 2.2 Eliminate Double Observation Persistence & Purge Orphaned Blobs
+### 2.2 Eliminate Double Observation Persistence & Purge Orphaned Blobs ✅
 * **Finding**: [`SessionHarness.ExecuteTurn`](../internal/engine/harness.go#L569-L598) stores raw observation bytes in `observation_blobs` **and** stores the full raw `Result` in `nodes.observations`, causing SQLite row bloat despite [ADR-021](../decisions/021-tiered-sensory-storage-and-observation-compaction.md). Additionally, [`SQLiteStorage.GarbageCollect`](../internal/storage/sqlite.go#L305-L319) deletes soft-pruned `nodes` without running `CleanObservations` to purge orphaned `observation_blobs`.
 * **Fix**: Compact/evict large raw `Result` payloads from `nodes.observations` once durably backed by `observation_blobs` (retaining compact receipts + `BlobID`, with `inspect_receipt` dereferencing blobs on demand), and invoke orphaned `observation_blobs` cleanup inside `GarbageCollect()`.
 * **Verification**: Storage size and `inspect_receipt` round-trip assertions in `internal/storage/` and `internal/engine/`.
 
-### 2.3 Orphaned Subsession Branch & Worktree Cleanup
+### 2.3 Orphaned Subsession Branch & Worktree Cleanup ✅
 * **Finding**: Crashed or unreconciled delegated sessions leave behind `subsession/sub_*` git branches and stale worktree directories.
 * **Fix**: Extend `please vault clean` and worktree management utilities to identify and prune orphaned `subsession/sub_*` branches/worktrees no longer tied to active sessions.
 

@@ -17,5 +17,5 @@ The `internal/graph` package (Layer 1: Infrastructure) defines the thread-safe, 
 ## Core Files & Components
 
 * [node.go](node.go) - Defines `Node` (ID, `ParentID`, `Role`, `Content`, `Thought`, `Signat`, `Images`, `ToolCalls`, `Observations`, `Metadata`, `Deleted`, `Compacted`, `ResonanceWeight`, `Timestamp`) and role constants re-exported from `internal/domain`.
-* [graph.go](graph.go) - Implements `Graph`, thread-safe (`sync.RWMutex`) node indexing, lineage path reconstruction (`GetPath`), child/branch discovery (`GetChildren`), short-ID prefix lookup (`FindNodeByShortID`), and adversarial cycle detection.
+* [graph.go](graph.go) - Implements `Graph`, thread-safe (`sync.RWMutex`) node indexing, in-place state replacement (`Replace` to keep shared pointers synchronized across `Manager` clones), lineage path reconstruction (`GetPath`), child/branch discovery (`GetChildren`), short-ID prefix lookup (`FindNodeByShortID`), and adversarial cycle detection.
 * [graph_test.go](graph_test.go) & [stress_test.go](stress_test.go) - Unit and concurrent stress tests verifying DAG invariants, deep branching, parent walking, and cycle rejection.

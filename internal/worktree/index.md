@@ -17,7 +17,7 @@ The `internal/worktree` package (Layer 1: Infrastructure) manages ephemeral, out
 
 ## Core Files & Components
 
-* [worktree.go](worktree.go) - Defines `Manager` and `WorktreeInfo`. Encapsulates Git repository detection (`IsGitRepo`), collision-resistant repository hashing, worktree provisioning (`EnsureWorktree`, branch `please/<session-id>` or `subsession/<id>`), inspection (`Status`, `DiffStat`), branch reconciliation/merging (`Reconcile`), listing (`List`), and pruning (`Remove`). Supports nested repository delegation via `target_dir` (`v0.3.1`).
+* [worktree.go](worktree.go) - Defines `Manager` and `WorktreeInfo`. Encapsulates Git repository detection (`IsGitRepo`), collision-resistant repository hashing, worktree provisioning (`EnsureWorktree`, branch `please/<session-id>` or `subsession/<id>`), inspection (`Status`, `DiffStat`), branch reconciliation/merging (`Reconcile`), listing (`List`), pruning (`Remove`), and orphaned subsession cleanup (`CleanOrphanedSubsessions`). Supports nested repository delegation via `target_dir` (`v0.3.1`).
 * [worktree_test.go](worktree_test.go) - Unit and integration tests verifying branch isolation, out-of-tree mounting, diff inspection, reconciliation, and graceful fallback on non-Git directories.
 
 ## Storage Layout

@@ -19,16 +19,16 @@ The `internal/tools` package (Layer 1: Infrastructure) provides host workspace i
 
 ## Core Files & Components
 
-* [registry.go](registry.go) - Central `Registry` managing tool registration (`RegisterDefaults`), deterministic KV-cache sequence ordering (`CategorySensory` $\rightarrow$ `CategoryMutate` $\rightarrow$ `CategoryExecute`), and 3-tier sandbox policy filtering (`strict`, `standard`, `permissive`).
-* [sandbox.go](sandbox.go) - Security perimeter gatekeeper: workspace path confinement (`ValidateSafePath`), Git worktree path virtualization/rebasing, `SensitivePathPatterns` credential quarantine (`.env`, `.ssh`, `.aws`, `.please/vault.db`, `*.pem`), and argument extraction helpers.
+* [registry.go](registry.go) - Central `ToolRegistry` managing tool registration (`RegisterDefaults`), deterministic KV-cache sequence ordering (`CategorySensory` $\rightarrow$ `CategoryMutate` $\rightarrow$ `CategoryExecute`), 3-tier sandbox policy filtering (`strict`, `standard`, `permissive`), and dispatch-level policy enforcement (`IsToolAllowedForPolicy`, `DispatchWithPolicy`) per [ADR-023](../../decisions/023-subprocess-recursion-guardrails-and-self-hosting-isolation.md).
+* [sandbox.go](sandbox.go) - Security perimeter gatekeeper: workspace path confinement (`ValidateSafePath`), Git worktree path virtualization/rebasing, workspace-relative `.please` directory quarantine, `SensitivePathPatterns` credential quarantine (`.env`, `.ssh`, `.aws`, `vault.db`, `config.json`), and argument extraction helpers.
 * [sense.go](sense.go) - Workspace perception tools (`CategorySensory`):
   * `read_file`: Offset/limit line windowing, 64 KB byte budget, and non-punitive continuation coordinates.
-  * `list_directory` & `list_files_recursive`: Safe directory traversal skipping `.git` and `.please`.
-  * `grep_search`: Fast regex search across text files with automatic binary/SQLite file skipping (`isBinaryFile`).
+  * `list_directory` & `list_files_recursive`: Safe directory traversal skipping `.git`, `.please`, quarantined files, and escaping/quarantined symlinks (`ValidateSafePath`).
+  * `grep_search`: Fast regex search across text files with automatic binary/SQLite file skipping (`isBinaryFile`) and symlink target confinement.
 * [mutate.go](mutate.go) - Workspace modification tools (`CategoryMutate`):
   * `write_file` (with explicit `overwrite` guard), `append_file` (with line-boundary hygiene), `edit_file` (`replace_string`, `insert_after`, `replace_regex` with multi-match ambiguity protection), and `delete_file`.
 * [exec.go](exec.go) - Host compute tool (`CategoryExecute`):
-  * `execute_command`: Gated shell execution with environment variable credential scrubbing (`sanitizeEnvironment`), binary allow-listing (`DefaultAllowedCommands`), and shell metacharacter validation.
+  * `execute_command`: Gated shell execution with environment variable credential scrubbing (`sanitizeEnvironment`), cross-process recursion sentinels (`PLEASE_HARNESS_DEPTH`, `PLEASE_PARENT_SESSION` per [ADR-023](../../decisions/023-subprocess-recursion-guardrails-and-self-hosting-isolation.md)), binary allow-listing (`DefaultAllowedCommands`), and shell metacharacter validation.
 * [receipt.go](receipt.go) - L2 Sensory Paging tool (`CategorySensory`, [ADR-021](../../decisions/021-tiered-sensory-storage-and-observation-compaction.md)):
   * `inspect_receipt`: Dereferences past `obs_<hash>` Smart Receipts from `observation_blobs` (or legacy node observations) with 1-indexed line slicing (`offset`, `limit`) and regex `grep` filtering.
 * [memory.go](memory.go) - L3 Cybernetic Memory tool suite ([ADR-014](../../decisions/014-persistent-agent-memory-and-cybernetic-recall.md)):
