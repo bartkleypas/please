@@ -89,6 +89,7 @@ func TestScenario_DelegatedMultiAgentLivingScenario(t *testing.T) {
 	mgr.RegisterDefaultTools(repoDir)
 
 	cfg := config.NewDefaultConfig()
+	cfg.Server.SandboxPolicy = string(domain.SandboxPolicyPermissive)
 
 	var mu sync.Mutex
 	parentCallIdx := 0

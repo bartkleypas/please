@@ -6,16 +6,25 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/graph"
 	"github.com/google/uuid"
+)
+
+var (
+	_ Storage          = (*RemoteDaemonStorage)(nil)
+	_ MemoryStore      = (*RemoteDaemonStorage)(nil)
+	_ ObservationStore = (*RemoteDaemonStorage)(nil)
 )
 
 // RemoteDaemonStorage implements Storage by proxying node mutations and queries to a Please engine daemon.
@@ -126,21 +135,16 @@ func (s *RemoteDaemonStorage) LoadGraph() (*graph.Graph, string, error) {
 
 // GarbageCollect triggers database garbage collection on the remote daemon.
 func (s *RemoteDaemonStorage) GarbageCollect() (int64, error) {
-	req, err := http.NewRequest(http.MethodPost, s.BaseURL+"/api/v1/gc", nil)
-	if err != nil {
-		return 0, err
-	}
-	s.applyHeaders(req)
-	resp, err := s.HTTPClient.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-
 	var result struct {
-		DeletedNodes int64 `json:"deleted_nodes"`
+		PurgedRecords int64 `json:"purged_records"`
+		DeletedNodes  int64 `json:"deleted_nodes"`
 	}
-	_ = json.NewDecoder(resp.Body).Decode(&result)
+	if _, err := s.doJSON(http.MethodPost, "/api/v1/gc", nil, &result); err != nil {
+		return 0, err
+	}
+	if result.PurgedRecords != 0 {
+		return result.PurgedRecords, nil
+	}
 	return result.DeletedNodes, nil
 }
 
@@ -298,4 +302,176 @@ func (s *RemoteDaemonStorage) ListSessions() (map[string]string, error) {
 		return nil, err
 	}
 	return sessions, nil
+}
+
+func (s *RemoteDaemonStorage) doJSON(method, path string, body interface{}, out interface{}) (int, error) {
+	var bodyReader io.Reader
+	if body != nil {
+		data, err := json.Marshal(body)
+		if err != nil {
+			return 0, err
+		}
+		bodyReader = bytes.NewReader(data)
+	}
+
+	req, err := http.NewRequest(method, s.BaseURL+path, bodyReader)
+	if err != nil {
+		return 0, err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	s.applyHeaders(req)
+
+	client := s.HTTPClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBytes, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, fmt.Errorf("daemon error (%d): %s", resp.StatusCode, strings.TrimSpace(string(respBytes)))
+	}
+
+	if out != nil {
+		if err := json.NewDecoder(resp.Body).Decode(out); err != nil && !errors.Is(err, io.EOF) {
+			return resp.StatusCode, err
+		}
+	}
+	return resp.StatusCode, nil
+}
+
+// SaveMemory inserts or updates a memory record on the remote daemon via POST /api/v1/memories.
+func (s *RemoteDaemonStorage) SaveMemory(mem *Memory) error {
+	if mem == nil {
+		return fmt.Errorf("cannot save nil memory")
+	}
+	_, err := s.doJSON(http.MethodPost, "/api/v1/memories", mem, mem)
+	return err
+}
+
+// GetMemory retrieves a memory record by scope, sessionID, and key via GET /api/v1/memories?exact=true.
+func (s *RemoteDaemonStorage) GetMemory(scope MemoryScope, sessionID, key string) (*Memory, error) {
+	q := url.Values{}
+	q.Set("exact", "true")
+	if scope != "" {
+		q.Set("scope", string(scope))
+	}
+	if sessionID != "" {
+		q.Set("session_id", sessionID)
+	}
+	q.Set("key", key)
+
+	var mem Memory
+	status, err := s.doJSON(http.MethodGet, "/api/v1/memories?"+q.Encode(), nil, &mem)
+	if status == http.StatusNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &mem, nil
+}
+
+// QueryMemories retrieves memories matching filter criteria via GET /api/v1/memories.
+func (s *RemoteDaemonStorage) QueryMemories(filter MemoryFilter) ([]Memory, error) {
+	q := url.Values{}
+	if filter.Query != "" {
+		q.Set("query", filter.Query)
+	}
+	if filter.Key != "" {
+		q.Set("key", filter.Key)
+	}
+	if filter.Category != "" {
+		q.Set("category", string(filter.Category))
+	}
+	if filter.Scope != "" {
+		q.Set("scope", string(filter.Scope))
+	}
+	if filter.SessionID != "" {
+		q.Set("session_id", filter.SessionID)
+	}
+	for _, t := range filter.Tags {
+		q.Add("tag", t)
+	}
+	if filter.Limit > 0 {
+		q.Set("limit", strconv.Itoa(filter.Limit))
+	}
+	if filter.Touch {
+		q.Set("touch", "true")
+	}
+
+	path := "/api/v1/memories"
+	if encoded := q.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+
+	var mems []Memory
+	if _, err := s.doJSON(http.MethodGet, path, nil, &mems); err != nil {
+		return nil, err
+	}
+	return mems, nil
+}
+
+// DeleteMemory deletes a memory entry on the remote daemon via DELETE /api/v1/memories.
+func (s *RemoteDaemonStorage) DeleteMemory(scope MemoryScope, sessionID, key string) error {
+	q := url.Values{}
+	if scope != "" {
+		q.Set("scope", string(scope))
+	}
+	if sessionID != "" {
+		q.Set("session_id", sessionID)
+	}
+	q.Set("key", key)
+
+	status, err := s.doJSON(http.MethodDelete, "/api/v1/memories?"+q.Encode(), nil, nil)
+	if status == http.StatusNotFound {
+		return ErrMemoryNotFound
+	}
+	return err
+}
+
+// DiagnoseMemories retrieves aggregate memory diagnostics via GET /api/v1/memories/diagnose.
+func (s *RemoteDaemonStorage) DiagnoseMemories(scope MemoryScope, sessionID string) (*MemoryDiagnostics, error) {
+	q := url.Values{}
+	if scope != "" {
+		q.Set("scope", string(scope))
+	}
+	if sessionID != "" {
+		q.Set("session_id", sessionID)
+	}
+
+	path := "/api/v1/memories/diagnose"
+	if encoded := q.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+
+	var diag MemoryDiagnostics
+	if _, err := s.doJSON(http.MethodGet, path, nil, &diag); err != nil {
+		return nil, err
+	}
+	return &diag, nil
+}
+
+// SaveObservationBlob persists an out-of-band sensory payload on the remote daemon via POST /api/v1/observations.
+func (s *RemoteDaemonStorage) SaveObservationBlob(blob *ObservationBlob) error {
+	if blob == nil {
+		return fmt.Errorf("cannot save nil observation blob")
+	}
+	_, err := s.doJSON(http.MethodPost, "/api/v1/observations", blob, nil)
+	return err
+}
+
+// GetObservationBlob retrieves an out-of-band sensory payload via GET /api/v1/observations/{receipt_id}.
+func (s *RemoteDaemonStorage) GetObservationBlob(receiptID string) (*ObservationBlob, error) {
+	var blob ObservationBlob
+	if _, err := s.doJSON(http.MethodGet, "/api/v1/observations/"+url.PathEscape(receiptID), nil, &blob); err != nil {
+		return nil, err
+	}
+	return &blob, nil
 }

@@ -247,9 +247,7 @@ func main() {
 
 	provider := createProvider(cfg)
 	mgr := engine.NewManager(graph, strg)
-	mgr.SignatSteering = cfg.EnableSignatSteering()
-	mgr.AmbientTelemetry = cfg.EnableAmbientTelemetry()
-	mgr.ContextShaperType = cfg.GetContextShaper()
+	mgr.ApplyConfig(cfg)
 	mgr.RegisterDefaultTools(cfg.GetWorkspaceDir())
 	webServer := server.NewServerWithProvider(mgr, provider, cfg)
 
@@ -281,6 +279,13 @@ func main() {
 
 	// Handle Message Mode
 	if pipedContent != "" || argContent != "" {
+		if depth, parentSess, recursed := engine.IsSubprocessRecursion(); recursed {
+			if parentSess != "" && sessionName == parentSess {
+				fmt.Fprintf(os.Stderr, "security error: subprocess at PLEASE_HARNESS_DEPTH=%d is prohibited from mutating active parent session %q\n", depth, parentSess)
+				os.Exit(1)
+			}
+		}
+
 		parentID := *parent
 		if parentID == "" {
 			if pipedContent != "" && pipedRole == domain.RoleSystem {
@@ -324,24 +329,23 @@ func main() {
 		}
 
 		if !*noGen {
-			messages, err := mgr.BuildLLMContext(finalID, cfg.SupportsVision())
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error building context for generation: %v\n", err)
-				os.Exit(1)
+			harness := engine.NewSessionHarness(mgr, provider, cfg)
+			if _, _, recursed := engine.IsSubprocessRecursion(); recursed {
+				harness.PermissionGate = func(ctx context.Context, sessionID string, call domain.ToolCall) (bool, error) {
+					return false, nil
+				}
 			}
-
-			resp, err := provider.GenerateResponse(context.Background(), messages, nil)
+			assistantNode, err := harness.ExecuteTurn(context.Background(), engine.TurnRequest{
+				SessionID:  sessionName,
+				UserNodeID: finalID,
+			}, nil)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error generating response: %v\n", err)
 				os.Exit(1)
 			}
-
-			assistantNode, err := mgr.CreateAssistantNode(finalID, resp.Content, resp.Thought, resp.ToolCalls, false)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error saving assistant node: %v\n", err)
-				os.Exit(1)
+			if assistantNode != nil {
+				finalID = assistantNode.ID
 			}
-			finalID = assistantNode.ID
 		}
 
 		_ = strg.SaveSessionHead(sessionName, finalID)
@@ -467,8 +471,7 @@ func runServe(args []string) {
 	provider := createProvider(cfg)
 
 	mgr := engine.NewManager(graph, strg)
-	mgr.SignatSteering = cfg.EnableSignatSteering()
-	mgr.AmbientTelemetry = cfg.EnableAmbientTelemetry()
+	mgr.ApplyConfig(cfg)
 	mgr.RegisterDefaultTools(cfg.GetWorkspaceDir())
 
 	srv := server.NewServerWithProvider(mgr, provider, cfg)

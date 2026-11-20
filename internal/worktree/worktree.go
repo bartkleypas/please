@@ -579,6 +579,42 @@ func (m *Manager) Prune() error {
 	return exec.Command(m.gitPath, "-C", topLevel, "worktree", "prune").Run()
 }
 
+// CleanOrphanedSubsessions prunes git worktrees and local 'subsession/sub_*' branches
+// whose session IDs are not present in activeSessions.
+func (m *Manager) CleanOrphanedSubsessions(activeSessions map[string]bool) ([]string, error) {
+	if !m.IsGitAvailable() || !m.IsGitRepo() {
+		return nil, nil
+	}
+	topLevel, err := m.GetTopLevel()
+	if err != nil {
+		return nil, err
+	}
+
+	_ = m.Prune()
+
+	cmd := exec.Command(m.gitPath, "-C", topLevel, "for-each-ref", "--format=%(refname:short)", "refs/heads/subsession/")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list subsession branches: %w", err)
+	}
+
+	var cleaned []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		branch := strings.TrimSpace(line)
+		if branch == "" {
+			continue
+		}
+		subID := strings.TrimPrefix(branch, "subsession/")
+		if activeSessions != nil && (activeSessions[subID] || activeSessions[branch]) {
+			continue
+		}
+		if err := m.RemoveWorktreeBranch(subID, branch, true, true); err == nil {
+			cleaned = append(cleaned, branch)
+		}
+	}
+	return cleaned, nil
+}
+
 // ListWorktrees inspects the repository and returns all active worktrees.
 func (m *Manager) ListWorktrees() ([]WorktreeInfo, error) {
 	if !m.IsGitAvailable() {

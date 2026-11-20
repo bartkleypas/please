@@ -8,7 +8,7 @@ Unlike linear chat applications, `Please` treats conversations as a **Directed A
 
 ## ✨ Features
 
-### 🏗️ Engine & Memory Architecture (`v0.3.1`)
+### 🏗️ Engine & Memory Architecture (`v0.3.3`)
 * **DAG-Based Navigation & Named Sessions:** Branch, prune, and jump across multiple conversation timelines (`main`, `experiment`, `sub_<id>`) with session-guarded lineage protection.
 * **Canonical `SessionHarness` Execution ([ADR 019](decisions/019-lifecycle-convergence-and-canonical-harness-standardization.md)):** Unifies streaming thoughts, tokens, multi-step tool loops, and interactive human consent gates (`PermissionGate`) across standalone TUI, headless daemon (`SessionActor`), and IDE ACP.
 * **Cache-Stable Context Shaping ([ADR 020](decisions/020-cache-stable-context-shaping-and-pure-prompt-projections.md)):** Pure read-only `ContextShaper` projections (`sigmoid` default, `window`, `exponential`) driven strictly by topological step distance ($\Delta d$) and token fill ratio—zero wall-clock time decay, preserving **Monotonic Prefix Invariance** for instant KV-cache reuse. See [Cache-Stable Context Shaping & Smart Receipt Paging](docs/context_resonance.md).
@@ -61,7 +61,7 @@ please --jump $MSG_ID
 ```
 
 ### Inspect DAG Nodes, Smart Receipts & Shaper Scorecards
-Inspect node metadata, tool calls, `SmartReceipt` badges (`obs_<hash>`), active path token costs, and `ContextShaper` fidelity tiers:
+Inspect node metadata, tool calls, `SmartReceipt` badges (`obs_<hash>`), active path token costs, and fidelity tiers evaluated against the configured `ContextShaper` (`sigmoid`, `window`, or `resonance`/`exponential`):
 ```bash
 # Inspect active session head or latest leaf node
 please inspect
@@ -314,7 +314,7 @@ The codebase enforces a strict downward-only acyclic dependency graph across fou
   * [`internal/graph/`](internal/graph/index.md): Pure in-memory thread-safe DAG `Graph` and `Node` structures.
   * [`internal/storage/`](internal/storage/index.md): SQLite (WAL mode) for `nodes`, `sessions`, gzipped `observation_blobs` (L2), and FTS5 `memories` (L3), plus JSONL, remote HTTP proxy, and AES-256-GCM encryption.
   * [`internal/tools/`](internal/tools/index.md): Host tool registry, 3-tier sandbox policy gatekeeper, filesystem/search/exec tools, `inspect_receipt`, `memory_*` tools, and `spawn_subagent` delegation.
-  * [`internal/providers/`](internal/providers/index.md): Ollama, OpenAI, Remote Daemon SSE, and Mock LLM drivers.
+  * [`internal/providers/`](internal/providers/index.md): Ollama (`/api/chat`), `RawWireProvider` (`ollama-raw` on `/api/generate` with `WireCodec` control-token lexing), OpenAI, Remote Daemon SSE, and Mock LLM drivers.
   * [`internal/config/`](internal/config/index.md): Schema v2 configuration, `.please/` workspace discovery ladder, and migrations.
   * [`internal/worktree/`](internal/worktree/index.md): Out-of-tree ephemeral Git worktree manager for concurrent sessions and delegated subagents.
 * **Layer 0 — Core Domain Primitives (Zero Internal Dependencies)**

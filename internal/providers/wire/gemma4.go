@@ -204,7 +204,8 @@ func (c *Gemma4Codec) EncodePrompt(sys string, tools []ToolDefinition, history [
 		}
 
 		if !strings.Contains(sys, "Operating Guidelines:") && !strings.Contains(sys, "directional control tokens") {
-			b.WriteString(c.WireContract() + "\n")
+			b.WriteString(c.WireContract())
+			b.WriteByte('\n')
 		}
 
 		if len(tools) > 0 {
@@ -219,7 +220,8 @@ func (c *Gemma4Codec) EncodePrompt(sys string, tools []ToolDefinition, history [
 			})
 
 			for _, tool := range sortedTools {
-				b.WriteString(FormatToolDeclaration(tool) + "\n")
+				b.WriteString(FormatToolDeclaration(tool))
+				b.WriteByte('\n')
 			}
 		}
 
@@ -290,7 +292,9 @@ func (c *Gemma4Codec) EncodePrompt(sys string, tools []ToolDefinition, history [
 			if isIntraTurnHop && m.Thought != "" && c.isThinkingEnabled() {
 				cleanThought := sanitizeThought(m.Thought)
 				if cleanThought != "" {
-					b.WriteString(TagChannelOpen + "thought\n" + cleanThought + "\n" + TagChannelClose)
+					b.WriteString(TagChannelOpen + "thought\n")
+					b.WriteString(cleanThought)
+					b.WriteString("\n" + TagChannelClose)
 				}
 			}
 
@@ -325,7 +329,8 @@ func (c *Gemma4Codec) EncodePrompt(sys string, tools []ToolDefinition, history [
 				inModelTurn = false
 			}
 			b.WriteString(TagTurnOpen + "user\n")
-			b.WriteString("[Conversation Milestone & Summary Context]:\n" + m.Content)
+			b.WriteString("[Conversation Milestone & Summary Context]:\n")
+			b.WriteString(m.Content)
 			b.WriteString(TagTurnClose + "\n")
 			lastMsgType = "summary"
 		}
@@ -370,14 +375,18 @@ func (c *Gemma4Codec) EncodePrompt(sys string, tools []ToolDefinition, history [
 // <|tool>declaration:{tool_name}{description:<|"|>{desc}<|"|>,parameters:{...}}<tool|>
 func FormatToolDeclaration(tool ToolDefinition) string {
 	var b strings.Builder
-	b.WriteString(TagToolOpen + "declaration:" + tool.Name + "{")
-	b.WriteString("description:" + TagStringDelimiter + tool.Description + TagStringDelimiter)
+	b.WriteString(TagToolOpen + "declaration:")
+	b.WriteString(tool.Name)
+	b.WriteString("{description:" + TagStringDelimiter)
+	b.WriteString(tool.Description)
+	b.WriteString(TagStringDelimiter)
 
 	paramsStr := "{}"
 	if tool.Parameters != nil {
 		paramsStr = FormatGemmaValue(tool.Parameters)
 	}
-	b.WriteString(",parameters:" + paramsStr)
+	b.WriteString(",parameters:")
+	b.WriteString(paramsStr)
 	b.WriteString("}" + TagToolClose)
 	return b.String()
 }
@@ -808,9 +817,7 @@ func (lex *Gemma4StreamLexer) Feed(chunk string) []StreamEvent {
 						if rest != "" && strings.HasPrefix(TagChannelOpen, rest) && rest != TagChannelOpen {
 							return events
 						}
-						if strings.HasPrefix(rest, TagChannelOpen) {
-							rest = rest[len(TagChannelOpen):]
-						}
+						rest = strings.TrimPrefix(rest, TagChannelOpen)
 						lex.buf = rest
 						lex.channelForced = false
 						continue

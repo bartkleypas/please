@@ -4,12 +4,15 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +22,8 @@ import (
 	"github.com/bartkleypas/please/internal/engine"
 	"github.com/bartkleypas/please/internal/graph"
 	"github.com/bartkleypas/please/internal/providers"
+	"github.com/bartkleypas/please/internal/storage"
+	"github.com/bartkleypas/please/internal/tools"
 )
 
 //go:embed assets/*
@@ -140,6 +145,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/chat/stream", s.handleChatStream)
 	mux.HandleFunc("/api/v1/sessions", s.handleSessions)
 	mux.HandleFunc("/api/v1/sessions/", s.handleSessionByID)
+	mux.HandleFunc("/api/v1/memories", s.handleMemories)
+	mux.HandleFunc("/api/v1/memories/diagnose", s.handleMemoriesDiagnose)
+	mux.HandleFunc("/api/v1/observations", s.handleObservations)
+	mux.HandleFunc("/api/v1/observations/", s.handleObservationByID)
 
 	// Legacy endpoints for backward compatibility with visualizer
 	mux.HandleFunc("/api/graph", s.handleGraph)
@@ -294,13 +303,35 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+func isAllowedOrigin(origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	return host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]" || strings.HasSuffix(host, ".local")
+}
+
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+		allowedOrigin := ""
+		if origin != "" && isAllowedOrigin(origin) {
+			allowedOrigin = origin
+		}
+
+		if allowedOrigin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+			w.Header().Set("Vary", "Origin")
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept, X-Requested-With, X-Please-Session-ID")
 
 		if r.Method == http.MethodOptions {
+			if origin != "" && allowedOrigin == "" {
+				http.Error(w, "Forbidden: untrusted CORS origin", http.StatusForbidden)
+				return
+			}
 			w.WriteHeader(http.StatusOK)
 			return
 		}
@@ -638,6 +669,7 @@ func (s *Server) handleGC(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":         "success",
 		"purged_records": count,
+		"deleted_nodes":  count,
 	})
 }
 
@@ -692,18 +724,21 @@ func (s *Server) handleImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stat, err := os.Stat(imagePath)
-	if err != nil {
-		http.Error(w, "File not found", http.StatusNotFound)
-		return
+	wsDir := "."
+	if s.Manager != nil && s.Manager.WorkspaceDir != "" {
+		wsDir = s.Manager.WorkspaceDir
+	} else if s.Config != nil {
+		wsDir = s.Config.GetWorkspaceDir()
 	}
-	if stat.IsDir() {
-		http.Error(w, "Path is a directory", http.StatusBadRequest)
+
+	safePath, err := tools.ValidateSafePath(wsDir, imagePath)
+	if err != nil {
+		http.Error(w, "Forbidden: "+err.Error(), http.StatusForbidden)
 		return
 	}
 
-	mimeType := "application/octet-stream"
-	ext := strings.ToLower(filepath.Ext(imagePath))
+	ext := strings.ToLower(filepath.Ext(safePath))
+	var mimeType string
 	switch ext {
 	case ".jpg", ".jpeg":
 		mimeType = "image/jpeg"
@@ -715,9 +750,22 @@ func (s *Server) handleImage(w http.ResponseWriter, r *http.Request) {
 		mimeType = "image/webp"
 	case ".svg":
 		mimeType = "image/svg+xml"
+	default:
+		http.Error(w, "Forbidden: unsupported image file type", http.StatusForbidden)
+		return
 	}
 
-	data, err := os.ReadFile(imagePath)
+	stat, err := os.Stat(safePath)
+	if err != nil {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+	if stat.IsDir() {
+		http.Error(w, "Path is a directory", http.StatusBadRequest)
+		return
+	}
+
+	data, err := os.ReadFile(safePath)
 	if err != nil {
 		http.Error(w, "Failed to read image", http.StatusInternalServerError)
 		return
@@ -834,4 +882,222 @@ func (s *Server) handleSessionByID(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func (s *Server) resolveMemoryStore() (storage.MemoryStore, bool) {
+	if s.Manager == nil || s.Manager.Storage == nil {
+		return nil, false
+	}
+	memStore, ok := s.Manager.Storage.(storage.MemoryStore)
+	if !ok || memStore == nil {
+		return nil, false
+	}
+	return memStore, true
+}
+
+func (s *Server) resolveObservationStore() (storage.ObservationStore, bool) {
+	if s.Manager == nil || s.Manager.Storage == nil {
+		return nil, false
+	}
+	obsStore, ok := s.Manager.Storage.(storage.ObservationStore)
+	if !ok || obsStore == nil {
+		return nil, false
+	}
+	return obsStore, true
+}
+
+// handleMemories handles GET, POST, and DELETE /api/v1/memories.
+func (s *Server) handleMemories(w http.ResponseWriter, r *http.Request) {
+	memStore, ok := s.resolveMemoryStore()
+	if !ok {
+		http.Error(w, "Memory store not supported by active storage backend", http.StatusNotImplemented)
+		return
+	}
+
+	q := r.URL.Query()
+	switch r.Method {
+	case http.MethodGet:
+		if q.Get("exact") == "true" {
+			scope := storage.MemoryScope(q.Get("scope"))
+			sessionID := q.Get("session_id")
+			key := q.Get("key")
+			if key == "" {
+				http.Error(w, "key is required for exact memory lookup", http.StatusBadRequest)
+				return
+			}
+			mem, err := memStore.GetMemory(scope, sessionID, key)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("Failed to get memory: %v", err), http.StatusInternalServerError)
+				return
+			}
+			if mem == nil {
+				http.Error(w, "Memory not found", http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(mem)
+			return
+		}
+
+		var tags []string
+		if tagList, exists := q["tag"]; exists && len(tagList) > 0 {
+			tags = append(tags, tagList...)
+		} else if rawTags := q.Get("tags"); rawTags != "" {
+			for _, part := range strings.Split(rawTags, ",") {
+				if trimmed := strings.TrimSpace(part); trimmed != "" {
+					tags = append(tags, trimmed)
+				}
+			}
+		}
+
+		limit := 0
+		if rawLimit := q.Get("limit"); rawLimit != "" {
+			if n, err := strconv.Atoi(rawLimit); err == nil && n > 0 {
+				limit = n
+			}
+		}
+
+		filter := storage.MemoryFilter{
+			Query:     q.Get("query"),
+			Key:       q.Get("key"),
+			Category:  storage.MemoryCategory(q.Get("category")),
+			Scope:     storage.MemoryScope(q.Get("scope")),
+			SessionID: q.Get("session_id"),
+			Tags:      tags,
+			Limit:     limit,
+			Touch:     q.Get("touch") == "true" || q.Get("touch") == "1",
+		}
+		mems, err := memStore.QueryMemories(filter)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to query memories: %v", err), http.StatusInternalServerError)
+			return
+		}
+		if mems == nil {
+			mems = []storage.Memory{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(mems)
+
+	case http.MethodPost:
+		var mem storage.Memory
+		if err := json.NewDecoder(r.Body).Decode(&mem); err != nil {
+			http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
+			return
+		}
+		if err := memStore.SaveMemory(&mem); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to save memory: %v", err), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(&mem)
+
+	case http.MethodDelete:
+		scope := storage.MemoryScope(q.Get("scope"))
+		sessionID := q.Get("session_id")
+		key := q.Get("key")
+		if key == "" {
+			http.Error(w, "key is required", http.StatusBadRequest)
+			return
+		}
+		if err := memStore.DeleteMemory(scope, sessionID, key); err != nil {
+			if errors.Is(err, storage.ErrMemoryNotFound) {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			http.Error(w, fmt.Sprintf("Failed to delete memory: %v", err), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "key": key})
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleMemoriesDiagnose handles GET /api/v1/memories/diagnose.
+func (s *Server) handleMemoriesDiagnose(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	memStore, ok := s.resolveMemoryStore()
+	if !ok {
+		http.Error(w, "Memory store not supported by active storage backend", http.StatusNotImplemented)
+		return
+	}
+
+	q := r.URL.Query()
+	diag, err := memStore.DiagnoseMemories(storage.MemoryScope(q.Get("scope")), q.Get("session_id"))
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to diagnose memories: %v", err), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(diag)
+}
+
+// handleObservations handles POST /api/v1/observations.
+func (s *Server) handleObservations(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	obsStore, ok := s.resolveObservationStore()
+	if !ok {
+		http.Error(w, "Observation store not supported by active storage backend", http.StatusNotImplemented)
+		return
+	}
+
+	var blob storage.ObservationBlob
+	if err := json.NewDecoder(r.Body).Decode(&blob); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
+		return
+	}
+	if err := obsStore.SaveObservationBlob(&blob); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to save observation blob: %v", err), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"status":     "saved",
+		"receipt_id": blob.ReceiptID,
+	})
+}
+
+// handleObservationByID handles GET /api/v1/observations/{receipt_id}.
+func (s *Server) handleObservationByID(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	obsStore, ok := s.resolveObservationStore()
+	if !ok {
+		http.Error(w, "Observation store not supported by active storage backend", http.StatusNotImplemented)
+		return
+	}
+
+	rawID := strings.TrimPrefix(r.URL.Path, "/api/v1/observations/")
+	if unescaped, err := url.PathUnescape(rawID); err == nil {
+		rawID = unescaped
+	}
+	receiptID := strings.TrimSpace(rawID)
+	if receiptID == "" {
+		http.Error(w, "Receipt ID required", http.StatusBadRequest)
+		return
+	}
+
+	blob, err := obsStore.GetObservationBlob(receiptID)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "not found") {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		http.Error(w, fmt.Sprintf("Failed to get observation blob: %v", err), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(blob)
 }

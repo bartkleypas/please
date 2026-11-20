@@ -11,6 +11,7 @@ import (
 
 	"github.com/bartkleypas/please/internal/config"
 	"github.com/bartkleypas/please/internal/storage"
+	"github.com/bartkleypas/please/internal/worktree"
 	_ "modernc.org/sqlite"
 )
 
@@ -299,6 +300,10 @@ func decryptSQLiteVault(dbPath string, key string) (int, int, error) {
 			})
 		}
 	}
+	if err := nodeRows.Err(); err != nil {
+		nodeRows.Close()
+		return 0, 0, fmt.Errorf("error iterating node rows: %w", err)
+	}
 	nodeRows.Close()
 
 	stmt, err := tx.Prepare("UPDATE nodes SET content = ?, thought = ?, tool_calls = ?, observations = ?, images = ? WHERE id = ?;")
@@ -319,11 +324,20 @@ func decryptSQLiteVault(dbPath string, key string) (int, int, error) {
 	if err == nil {
 		for memRows.Next() {
 			var id, encContent string
-			if err := memRows.Scan(&id, &encContent); err == nil {
-				if decContent, err := storage.DecryptField(encContent, key); err == nil {
-					memUpdates[id] = decContent
-				}
+			if err := memRows.Scan(&id, &encContent); err != nil {
+				memRows.Close()
+				return len(updates), 0, fmt.Errorf("failed to scan memory: %w", err)
 			}
+			decContent, err := storage.DecryptField(encContent, key)
+			if err != nil {
+				memRows.Close()
+				return len(updates), 0, fmt.Errorf("failed to decrypt memory %s: %w", id, err)
+			}
+			memUpdates[id] = decContent
+		}
+		if err := memRows.Err(); err != nil {
+			memRows.Close()
+			return len(updates), 0, fmt.Errorf("error iterating memory rows: %w", err)
 		}
 		memRows.Close()
 
@@ -337,6 +351,47 @@ func decryptSQLiteVault(dbPath string, key string) (int, int, error) {
 			for id, dec := range memUpdates {
 				if _, err := memStmt.Exec(dec, id); err != nil {
 					return len(updates), 0, fmt.Errorf("failed to update memory %s: %w", id, err)
+				}
+			}
+		}
+	}
+
+	// 3. Decrypt Observation Blobs
+	blobUpdates := make(map[string][]byte)
+	blobRows, err := tx.Query("SELECT receipt_id, payload FROM observation_blobs;")
+	if err == nil {
+		for blobRows.Next() {
+			var rID string
+			var rawPayload []byte
+			if err := blobRows.Scan(&rID, &rawPayload); err != nil {
+				blobRows.Close()
+				return len(updates), len(memUpdates), fmt.Errorf("failed to scan observation blob: %w", err)
+			}
+			if strings.HasPrefix(string(rawPayload), "enc:v1:") {
+				dec, err := storage.DecryptField(string(rawPayload), key)
+				if err != nil {
+					blobRows.Close()
+					return len(updates), len(memUpdates), fmt.Errorf("failed to decrypt observation blob %s: %w", rID, err)
+				}
+				blobUpdates[rID] = []byte(dec)
+			}
+		}
+		if err := blobRows.Err(); err != nil {
+			blobRows.Close()
+			return len(updates), len(memUpdates), fmt.Errorf("error iterating observation blob rows: %w", err)
+		}
+		blobRows.Close()
+
+		if len(blobUpdates) > 0 {
+			blobStmt, err := tx.Prepare("UPDATE observation_blobs SET payload = ? WHERE receipt_id = ?;")
+			if err != nil {
+				return len(updates), len(memUpdates), fmt.Errorf("failed to prepare blob update statement: %w", err)
+			}
+			defer blobStmt.Close()
+
+			for rID, decBytes := range blobUpdates {
+				if _, err := blobStmt.Exec(decBytes, rID); err != nil {
+					return len(updates), len(memUpdates), fmt.Errorf("failed to update observation blob %s: %w", rID, err)
 				}
 			}
 		}
@@ -405,5 +460,18 @@ func runVaultClean(args []string) {
 		os.Exit(1)
 	}
 
+	sessions, _ := storage.ListSessions()
+	activeMap := make(map[string]bool, len(sessions))
+	for sID := range sessions {
+		activeMap[sID] = true
+	}
+
+	cfgDir, _ := config.GetConfigDir()
+	wtMgr := worktree.NewManager(cfgDir, ".")
+	cleanedBranches, _ := wtMgr.CleanOrphanedSubsessions(activeMap)
+
 	fmt.Printf("🧹 Vault Cleaned! Removed %d orphaned observations and reclaimed space.\n", deleted)
+	if len(cleanedBranches) > 0 {
+		fmt.Printf("🌿 Pruned %d orphaned subsession branch(es).\n", len(cleanedBranches))
+	}
 }

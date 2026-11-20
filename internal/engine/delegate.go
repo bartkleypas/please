@@ -21,11 +21,13 @@ import (
 // SubagentOrchestrator coordinates child subagent execution, worktree sandboxing,
 // and synthesized perception returns (ADR 022).
 type SubagentOrchestrator struct {
-	Manager       *Manager
-	Provider      providers.Provider
-	Config        *config.Config
-	sessionRepos  sync.Map
-	sessionLabels sync.Map
+	Manager        *Manager
+	Provider       providers.Provider
+	Config         *config.Config
+	PermissionGate PermissionGate
+	ParentHarness  *SessionHarness
+	sessionRepos   sync.Map
+	sessionLabels  sync.Map
 }
 
 // NewSubagentOrchestrator creates a SubagentOrchestrator instance.
@@ -94,18 +96,32 @@ func (o *SubagentOrchestrator) SpawnSubagent(ctx context.Context, req tools.Suba
 	// Clone manager scoped to child workspace
 	childMgr := o.Manager.CloneWithWorkspace(childWorkspace, targetRepo)
 
-	// Build child tool registry strictly according to tool_preset.
+	// Determine parent sandbox policy ceiling (ADR 023)
+	parentPolicy := string(domain.SandboxPolicyStandard)
+	baseCfg := o.Config
+	if o.ParentHarness != nil && o.ParentHarness.Config != nil {
+		baseCfg = o.ParentHarness.Config
+	}
+	if baseCfg != nil {
+		if p := baseCfg.GetSandboxPolicy(); p != "" {
+			parentPolicy = strings.ToLower(strings.TrimSpace(p))
+		}
+	}
+
+	// Build child tool registry strictly according to min(parentPolicy, tool_preset).
 	// Anti-recursion guard: spawn_subagent is NEVER registered in childMgr.Registry.
 	childMgr.Registry = tools.NewToolRegistry()
 	for _, t := range tools.SensoryTools(childWorkspace, targetRepo) {
 		childMgr.Registry.Register(t)
 	}
-	if req.ToolPreset != "read_only" {
+	if req.ToolPreset != "read_only" && parentPolicy != string(domain.SandboxPolicyStrict) {
 		for _, t := range tools.MutateTools(childWorkspace, targetRepo) {
 			childMgr.Registry.Register(t)
 		}
-		for _, t := range tools.ExecTools(childWorkspace) {
-			childMgr.Registry.Register(t)
+		if parentPolicy == string(domain.SandboxPolicyPermissive) {
+			for _, t := range tools.ExecTools(childWorkspace) {
+				childMgr.Registry.Register(t)
+			}
 		}
 	}
 
@@ -123,7 +139,46 @@ func (o *SubagentOrchestrator) SpawnSubagent(ctx context.Context, req tools.Suba
 		return childMgr.lookupLegacyObservation(receiptID)
 	})
 
-	childHarness := NewSubagentHarness(childMgr, o.Provider, o.Config)
+	// Clone config with bounded effective child sandbox policy (Option 1:
+	// "strict" when parentPolicy is "strict"; "standard" when ToolPreset == "read_only"
+	// so session-scoped candidate memories remain usable while filesystem/exec tools are omitted;
+	// otherwise parentPolicy).
+	childCfg := config.NewDefaultConfig()
+	if baseCfg != nil {
+		*childCfg = *baseCfg
+		if baseCfg.Server != nil {
+			srvCopy := *baseCfg.Server
+			childCfg.Server = &srvCopy
+		}
+		if baseCfg.Client != nil {
+			cliCopy := *baseCfg.Client
+			childCfg.Client = &cliCopy
+		}
+	}
+	if childCfg.Server == nil {
+		childCfg.Server = &config.ServerConfig{}
+	}
+	if parentPolicy == string(domain.SandboxPolicyStrict) {
+		childCfg.Server.SandboxPolicy = string(domain.SandboxPolicyStrict)
+	} else if req.ToolPreset == "read_only" {
+		childCfg.Server.SandboxPolicy = string(domain.SandboxPolicyStandard)
+	} else {
+		childCfg.Server.SandboxPolicy = parentPolicy
+	}
+
+	// Inherit operator PermissionGate so gated subagent tools still require consent (ADR 023)
+	gate := o.PermissionGate
+	if gate == nil && o.ParentHarness != nil {
+		gate = o.ParentHarness.PermissionGate
+	}
+	var childGate PermissionGate
+	if gate != nil {
+		childGate = func(pCtx context.Context, _ string, call domain.ToolCall) (bool, error) {
+			return gate(pCtx, subID, call)
+		}
+	}
+
+	childHarness := NewSubagentHarness(childMgr, o.Provider, childCfg, childGate)
 
 	// Resolve parent Genesis root for child subagent (ADR 022)
 	var genesisRootID string
@@ -727,9 +782,12 @@ func formatStepsTable(steps []toolStepRecord) string {
 	header := fmt.Sprintf("| %-4s | %-*s | %-*s | %-6s |", "Step", maxToolLen, "Tool", maxArgsLen, "Arguments", "Status")
 
 	var sb strings.Builder
-	sb.WriteString(lineSep + "\n")
-	sb.WriteString(header + "\n")
-	sb.WriteString(lineSep + "\n")
+	sb.WriteString(lineSep)
+	sb.WriteByte('\n')
+	sb.WriteString(header)
+	sb.WriteByte('\n')
+	sb.WriteString(lineSep)
+	sb.WriteByte('\n')
 	for _, s := range steps {
 		toolStr := s.Tool
 		if len(toolStr) > maxToolLen {
@@ -741,8 +799,10 @@ func formatStepsTable(steps []toolStepRecord) string {
 			argStr = argStr[:maxArgsLen-3] + "..."
 		}
 		row := fmt.Sprintf("| %-4d | %-*s | %-*s | %-6s |", s.Step, maxToolLen, toolStr, maxArgsLen, argStr, s.Status)
-		sb.WriteString(row + "\n")
+		sb.WriteString(row)
+		sb.WriteByte('\n')
 	}
-	sb.WriteString(lineSep + "\n")
+	sb.WriteString(lineSep)
+	sb.WriteByte('\n')
 	return sb.String()
 }

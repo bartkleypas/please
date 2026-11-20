@@ -3,9 +3,12 @@ package providers
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -264,6 +267,55 @@ func TestRawWireProvider_NativeThinkingFields(t *testing.T) {
 	fullContent := strings.Join(contents, "")
 	if fullContent != "Here is output." {
 		t.Errorf("expected content 'Here is output.', got %q", fullContent)
+	}
+}
+
+func TestRawWireProvider_MultimodalImages(t *testing.T) {
+	imgBytes := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
+	imgPath := filepath.Join(t.TempDir(), "sample.png")
+	if err := os.WriteFile(imgPath, imgBytes, 0644); err != nil {
+		t.Fatalf("failed to write sample image: %v", err)
+	}
+
+	codec := wire.NewGemma4Codec()
+	provider := NewRawWireProvider("http://localhost:11434", "gemma4:e4b", codec, nil)
+
+	var capturedReq ollamaRawGenerateRequest
+	mockClient := &http.Client{
+		Transport: mockRoundTripper(func(req *http.Request) (*http.Response, error) {
+			bodyBytes, _ := io.ReadAll(req.Body)
+			if err := json.Unmarshal(bodyBytes, &capturedReq); err != nil {
+				t.Fatalf("failed to unmarshal request: %v", err)
+			}
+			ndjson := `{"model":"gemma4:e4b","response":"I see the image.","done":true}` + "\n"
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(bytes.NewBufferString(ndjson)),
+				Header:     make(http.Header),
+			}, nil
+		}),
+	}
+	provider.SetClient(mockClient)
+
+	messages := []domain.Message{
+		{
+			Role:    domain.RoleUser,
+			Content: "Describe this image",
+			Images:  []string{imgPath},
+		},
+	}
+
+	resp, err := provider.GenerateResponse(context.Background(), messages, nil)
+	if err != nil {
+		t.Fatalf("GenerateResponse failed: %v", err)
+	}
+	if resp.Content != "I see the image." {
+		t.Errorf("unexpected response content: %q", resp.Content)
+	}
+
+	wantB64 := base64.StdEncoding.EncodeToString(imgBytes)
+	if len(capturedReq.Images) != 1 || capturedReq.Images[0] != wantB64 {
+		t.Fatalf("expected Images [%q], got %v", wantB64, capturedReq.Images)
 	}
 }
 

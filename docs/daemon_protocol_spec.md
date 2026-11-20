@@ -73,6 +73,11 @@ Authorization: Bearer <auth-token>
 
 The daemon verifies tokens using constant-time comparison to prevent timing attacks. Missing or mismatched tokens return `HTTP 401 Unauthorized`.
 
+### 2.3 CORS & Local Path Confinement
+To prevent malicious external websites from probing or exfiltrating local workspace files when the daemon is running locally:
+* **Origin Validation (`corsMiddleware`)**: Only trusted local/loopback origins (`localhost`, `127.0.0.1`, `::1`, `[::1]`, and `*.local`) receive `Access-Control-Allow-Origin` + `Vary: Origin`. Disallowed external `OPTIONS` preflights are rejected with `HTTP 403 Forbidden`.
+* **Image Serving (`/api/image`)**: Validates the `path` query parameter through `tools.ValidateSafePath` against the active workspace directory and restricts served assets to an explicit image extension allow-list (`.jpg`, `.jpeg`, `.png`, `.gif`, `.webp`, `.svg`), returning `HTTP 403 Forbidden` on violations.
+
 ---
 
 ## 3. Canonical Data Models
@@ -130,16 +135,27 @@ Clients must format outgoing timestamps using RFC 3339 and support ISO8601/RFC33
 
 | Method | Endpoint | Description | Response / Payload |
 |---|---|---|---|
-| `GET` | `/api/v1/health` | Daemon liveness probe | `{"status":"ok","version":"v0.1.10"}` |
+| `GET` | `/api/v1/health` | Daemon liveness probe | `{"status":"ok","version":"..."}` |
 | `GET` | `/api/v1/status` | Full engine diagnostics | Version, active model, provider, loaded node count |
+| `GET` | `/api/v1/graph?session={id}` | Synchronize & serialize DAG | Serialized `Graph` object |
 | `GET` | `/api/v1/nodes` | List all graph nodes | Array of `Node` objects `[ {...}, {...} ]` |
 | `GET` | `/api/v1/nodes/{id}` | Fetch a single node by ID | Single `Node` object |
-| `POST` | `/api/v1/nodes` | Insert node into graph | Body: `Node` object $\rightarrow$ Returns created `Node` |
+| `POST` | `/api/v1/nodes` | Insert or update node in graph | Body: `Node` object $\rightarrow$ Returns created/saved `Node` |
 | `GET` | `/api/v1/path/{id}` | Linear path from root to leaf | Array of `Node` objects ordered root-to-leaf |
-| `DELETE`| `/api/v1/branches/{id}`| Soft-prune a branch | `{"pruned_count": 4, "root_id": "..."}` |
-| `POST` | `/api/v1/supernodes` | Compact range into Supernode | Body: candidate IDs $\rightarrow$ Returns summary `Node` |
-| `POST` | `/api/v1/gc` | Permanently scrub soft-pruned | `{"purged_count": 12}` |
+| `DELETE`| `/api/v1/branches/{id}`| Soft-prune a branch | `{"status": "pruned", "branch_id": "..."}` |
+| `POST` | `/api/v1/supernodes` | Compact range into Supernode | Body: `{"node_ids": [...], "directive": "..."}` $\rightarrow$ Returns summary `Node` |
+| `POST` | `/api/v1/gc` | Permanently scrub soft-pruned records | `{"status": "success", "purged_records": 12, "deleted_nodes": 12}` |
 | `GET` | `/api/v1/tools` | List registered host tools | Array of tool definitions with JSON schemas |
+| `GET` | `/api/v1/sessions` | List named session heads | Map of `{session_id: head_node_id}` |
+| `GET` | `/api/v1/sessions/{id}` | Get session head pointer | `{"session_id": "...", "head_node_id": "..."}` |
+| `POST` / `PUT` | `/api/v1/sessions` / `/api/v1/sessions/{id}` | Update session head pointer | Body: `{"session_id": "...", "head_node_id": "..."}` |
+| `GET` | `/api/v1/memories` | Query or fetch exact L3 memory (`?exact=true&scope=...&key=...`) | Array of `Memory` objects, or single `Memory` (`404` if missing) |
+| `POST` | `/api/v1/memories` | Upsert an L3 memory record | Body: `Memory` object $\rightarrow$ Returns saved `Memory` |
+| `DELETE` | `/api/v1/memories` | Delete an L3 memory (`?scope=...&session_id=...&key=...`) | `{"status": "deleted", "key": "..."}` (`404` if not found) |
+| `GET` | `/api/v1/memories/diagnose` | Aggregate L3 memory health telemetry | `MemoryDiagnostics` object |
+| `POST` | `/api/v1/observations` | Persist an L2 `ObservationBlob` payload | Body: `ObservationBlob` $\rightarrow$ `{"status":"saved","receipt_id":"obs_..."}` |
+| `GET` | `/api/v1/observations/{receipt_id}` | Retrieve an L2 `ObservationBlob` payload | `ObservationBlob` JSON (`404` if not found) |
+| `GET` | `/api/v1/events` | Persistent SSE topology & session event stream | `DaemonEvent` SSE frames (`node_saved`, `branch_pruned`, `branch_compacted`) |
 
 ---
 
@@ -240,8 +256,8 @@ Terminal error event emitted if model connection or tool execution suffers an un
 ## 6. Reference Implementations
 
 * **Go Reference Client (`please connect`)**:
-  - Provider: [`internal/engine/remote.go`](../internal/engine/remote.go) (`RemoteDaemonProvider`)
-  - Storage Proxy: [`internal/engine/remote.go`](../internal/engine/remote.go) (`RemoteDaemonStorage`)
+  - Provider: [`internal/providers/remote.go`](../internal/providers/remote.go) (`RemoteDaemonProvider`)
+  - Storage Proxy: [`internal/storage/remote.go`](../internal/storage/remote.go) (`RemoteDaemonStorage`, implementing `Storage`, `MemoryStore`, and `ObservationStore`)
 * **Swift Native Companion (`Please Swift`)**:
   - Daemon Actor: [`please-swift/Sources/PleaseEngine/Client/PleaseDaemonClient.swift`](../../please-swift/Sources/PleaseEngine/Client/PleaseDaemonClient.swift)
   - TLS Delegate: `LocalhostURLSessionDelegate` in `PleaseDaemonClient.swift`

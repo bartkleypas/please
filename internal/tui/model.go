@@ -141,14 +141,7 @@ func NewModel(cfg *config.Config, g *graph.Graph, s storage.Storage, p providers
 	}
 
 	mgr := engine.NewManager(g, s)
-	if cfg != nil {
-		mgr.SignatSteering = cfg.EnableSignatSteering()
-		mgr.AmbientTelemetry = cfg.EnableAmbientTelemetry()
-		mgr.ContextShaperType = cfg.GetContextShaper()
-	}
-	if cfg != nil && cfg.Server != nil && cfg.Server.Options != nil && cfg.Server.Options.NumCtx != nil {
-		mgr.NumCtx = *cfg.Server.Options.NumCtx
-	}
+	mgr.ApplyConfig(cfg)
 	mgr.RegisterDefaultTools(cfg.GetWorkspaceDir())
 
 	si := textinput.New()

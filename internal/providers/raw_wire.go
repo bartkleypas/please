@@ -124,6 +124,7 @@ type ollamaRawGenerateRequest struct {
 	Prompt  string                 `json:"prompt"`
 	Raw     bool                   `json:"raw"`
 	Stream  bool                   `json:"stream"`
+	Images  []string               `json:"images,omitempty"`
 	Options map[string]interface{} `json:"options,omitempty"`
 }
 
@@ -216,12 +217,26 @@ func (p *RawWireProvider) GenerateResponseStream(ctx context.Context, messages [
 			return
 		}
 
-		// 2. Build /api/generate request
+		// 2. Collect and encode attached images (matching OllamaProvider multimodal behavior)
+		var base64Images []string
+		for _, m := range messages {
+			for _, imgPath := range m.Images {
+				b64, encErr := encodeImageToBase64(imgPath)
+				if encErr == nil {
+					base64Images = append(base64Images, b64)
+				} else {
+					fmt.Printf("Warning: failed to read image for ollama raw payload: %v\n", encErr)
+				}
+			}
+		}
+
+		// 3. Build /api/generate request
 		reqBody := ollamaRawGenerateRequest{
 			Model:   p.Model,
 			Prompt:  prompt,
 			Raw:     true,
 			Stream:  true,
+			Images:  base64Images,
 			Options: p.buildOllamaOptions(),
 		}
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -534,5 +536,158 @@ func TestSessionHarness_PermissionGate_Error(t *testing.T) {
 	_, err := harness.ExecuteTurn(context.Background(), req, nil)
 	if err != context.Canceled {
 		t.Fatalf("expected context.Canceled error, got: %v", err)
+	}
+}
+
+func TestSessionHarness_RawCallTagBlockedByPolicy(t *testing.T) {
+	// 1. Standard mode must block raw <call>execute_command...</call> without invoking PermissionGate
+	t.Run("standard blocks raw execute_command", func(t *testing.T) {
+		ws := t.TempDir()
+		store := &MockStorage{}
+		g := graph.NewGraph()
+		mgr := NewManager(g, store)
+		mgr.RegisterDefaultTools(ws)
+
+		step := 0
+		var observedErr string
+		mockProvider := &providers.MockLLMProvider{
+			StreamHandler: func(messages []domain.Message, specs []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
+				step++
+				if step == 1 {
+					return `<call>execute_command{"command":"echo pwned"}</call>`, "", nil, nil
+				}
+				for _, m := range messages {
+					if m.Role == domain.RoleTool {
+						observedErr = m.Content
+					}
+				}
+				return "Blocked as expected.", "", nil, nil
+			},
+		}
+
+		cfg := config.NewDefaultConfig()
+		cfg.Server.SandboxPolicy = string(domain.SandboxPolicyStandard)
+		harness := NewSessionHarness(mgr, mockProvider, cfg)
+		gateCalled := false
+		harness.PermissionGate = func(ctx context.Context, sessionID string, call domain.ToolCall) (bool, error) {
+			gateCalled = true
+			return true, nil
+		}
+
+		asstNode, err := harness.ExecuteTurn(context.Background(), TurnRequest{
+			SessionID: "raw-call-std",
+			Message:   "Try sneaking execute_command",
+		}, nil)
+		if err != nil {
+			t.Fatalf("ExecuteTurn failed: %v", err)
+		}
+		if gateCalled {
+			t.Errorf("PermissionGate should not be invoked for policy-prohibited tool")
+		}
+		if !strings.Contains(observedErr, `prohibited under "standard" sandbox policy`) {
+			t.Errorf("expected standard policy security error in observation, got: %q", observedErr)
+		}
+		if len(asstNode.Observations) == 0 || !strings.Contains(asstNode.Observations[0].Error, `prohibited under "standard"`) {
+			t.Errorf("expected recorded error on observation, got: %+v", asstNode.Observations)
+		}
+	})
+
+	// 2. Strict mode must block raw <call>write_file...</call>
+	t.Run("strict blocks raw write_file", func(t *testing.T) {
+		ws := t.TempDir()
+		store := &MockStorage{}
+		g := graph.NewGraph()
+		mgr := NewManager(g, store)
+		mgr.RegisterDefaultTools(ws)
+
+		step := 0
+		var observedErr string
+		mockProvider := &providers.MockLLMProvider{
+			StreamHandler: func(messages []domain.Message, specs []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
+				step++
+				if step == 1 {
+					return `<call>write_file{"path":"evil.txt","content":"bad"}</call>`, "", nil, nil
+				}
+				for _, m := range messages {
+					if m.Role == domain.RoleTool {
+						observedErr = m.Content
+					}
+				}
+				return "Blocked as expected.", "", nil, nil
+			},
+		}
+
+		cfg := config.NewDefaultConfig()
+		cfg.Server.SandboxPolicy = string(domain.SandboxPolicyStrict)
+		harness := NewSessionHarness(mgr, mockProvider, cfg)
+
+		_, err := harness.ExecuteTurn(context.Background(), TurnRequest{
+			SessionID: "raw-call-strict",
+			Message:   "Try sneaking write_file",
+		}, nil)
+		if err != nil {
+			t.Fatalf("ExecuteTurn failed: %v", err)
+		}
+		if _, statErr := os.Stat(filepath.Join(ws, "evil.txt")); !os.IsNotExist(statErr) {
+			t.Errorf("evil.txt was created despite strict policy!")
+		}
+		if !strings.Contains(observedErr, `prohibited under "strict" sandbox policy`) {
+			t.Errorf("expected strict policy security error in observation, got: %q", observedErr)
+		}
+	})
+}
+
+func TestSessionHarness_SubprocessRecursionGuard(t *testing.T) {
+	t.Setenv(tools.EnvHarnessDepth, "1")
+	t.Setenv(tools.EnvParentSession, "main")
+	t.Setenv("PLEASE_ENFORCE_DEPTH_IN_TEST", "1")
+
+	ws := t.TempDir()
+	store := &MockStorage{}
+	g := graph.NewGraph()
+	mgr := NewManager(g, store)
+	mgr.RegisterDefaultTools(ws)
+
+	mockProvider := &providers.MockLLMProvider{
+		StreamHandler: func(messages []domain.Message, specs []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
+			return "Leaf response", "", nil, nil
+		},
+	}
+
+	cfg := config.NewDefaultConfig()
+	cfg.Server.SandboxPolicy = string(domain.SandboxPolicyPermissive)
+	harness := NewSessionHarness(mgr, mockProvider, cfg)
+
+	if !harness.IsSubagent {
+		t.Errorf("expected NewSessionHarness to enforce IsSubagent=true when PLEASE_HARNESS_DEPTH >= 1")
+	}
+	for _, blocked := range []string{"spawn_subagent", "reconcile_subagent", "execute_command"} {
+		if _, exists := mgr.Registry.Tools[blocked]; exists {
+			t.Errorf("expected %q to be stripped from registry under subprocess recursion guard", blocked)
+		}
+	}
+
+	// Mutating active parent session must fail immediately before creating nodes
+	_, err := harness.ExecuteTurn(context.Background(), TurnRequest{
+		SessionID: "main",
+		Message:   "Hijack parent playhead",
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "prohibited from mutating active parent session") {
+		t.Fatalf("expected error preventing parent session mutation, got: %v", err)
+	}
+	if len(g.Nodes) != 0 {
+		t.Errorf("expected 0 nodes created when parent session mutation was blocked, got %d", len(g.Nodes))
+	}
+
+	// Distinct non-parent session should still succeed as a leaf execution
+	asstNode, err := harness.ExecuteTurn(context.Background(), TurnRequest{
+		SessionID: "child_diag",
+		Message:   "Run safe leaf query",
+	}, nil)
+	if err != nil {
+		t.Fatalf("expected distinct leaf session to succeed, got: %v", err)
+	}
+	if asstNode == nil || asstNode.Content != "Leaf response" {
+		t.Errorf("unexpected assistant node: %+v", asstNode)
 	}
 }

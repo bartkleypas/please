@@ -18,23 +18,23 @@ The `internal/engine` package sits at **Layer 2 (Core Orchestration & Lifecycle)
 
 ## Core Files & Components
 
-### 1. Canonical Execution Lifecycle ([ADR-019](../../decisions/019-lifecycle-convergence-and-canonical-harness-standardization.md))
-* [harness.go](harness.go) - Declares `SessionHarness`, the single authoritative execution runner for conversational turns (`ExecuteTurn`). Orchestrates context shaping, streaming LLM generation, intra-turn thought continuity, interactive `PermissionGate` pauses, tool execution, out-of-band blob persistence, and session head advancement. Emits typed `HarnessEvent` frames (`token`, `thought`, `tool_call`, `tool_result`, `node_complete`, `error`).
-* [local_provider.go](local_provider.go) - Implements `LocalHarnessProvider`, adapting `SessionHarness` to `providers.LLMProvider` so the standalone Bubble Tea TUI executes turns through the exact same harness pipeline as remote daemon clients, bridging interactive tool approvals via `ApprovalReqChan`.
-* [service.go](service.go) - Declares `Manager`, coordinating the in-memory `graph.Graph`, `storage.Storage`, `tools.Registry`, `ContextShaper`, workspace cloning (`CloneWithWorkspace`), pure DAG supernode compaction (`CompactRange`, `CompactRangeWithDirective`), and session-guarded branch pruning (`PruneBranch`).
+### 1. Canonical Execution Lifecycle ([ADR-019](../../decisions/019-lifecycle-convergence-and-canonical-harness-standardization.md), [ADR-023](../../decisions/023-subprocess-recursion-guardrails-and-self-hosting-isolation.md))
+* [harness.go](harness.go) - Declares `SessionHarness`, the single authoritative execution runner for conversational turns (`ExecuteTurn`). Orchestrates context shaping, streaming LLM generation, intra-turn thought continuity, dispatch-level `SandboxPolicy` validation, interactive `PermissionGate` pauses, subprocess recursion guardrails (`IsSubprocessRecursion`), out-of-band blob persistence, and session head advancement. Emits typed `HarnessEvent` frames (`token`, `thought`, `tool_call`, `tool_result`, `node_complete`, `error`).
+* [local_provider.go](local_provider.go) - Implements `LocalHarnessProvider`, adapting `SessionHarness` to `providers.Provider` so the standalone Bubble Tea TUI executes turns through the exact same harness pipeline as remote daemon clients, bridging interactive tool approvals via `ApprovalReqChan`.
+* [service.go](service.go) - Declares `Manager`, coordinating the in-memory `graph.Graph`, `storage.Storage`, `tools.ToolRegistry`, canonical config wiring (`ApplyConfig`), `ContextShaper` evaluation (`EvaluateNodeFidelity`), policy-checked tool dispatch (`ExecuteToolCallWithPolicy`), workspace cloning (`CloneWithWorkspace`), pure DAG supernode compaction (`CompactRange`, `CompactRangeWithDirective`, with cold observation eviction), and session-guarded branch pruning (`PruneBranch`).
 
 ### 2. Cache-Stable Context Shaping ([ADR-020](../../decisions/020-cache-stable-context-shaping-and-pure-prompt-projections.md))
-* [shaper.go](shaper.go) - Defines the pure read-only `ContextShaper` interface (`ShapeContext(ctx, path, budget)`) and standard implementations:
+* [shaper.go](shaper.go) - Defines the pure read-only `ContextShaper` interface (`ShapeContext(ctx, path, budget)`), `EvaluateNode` / `FidelityTier.String()` inspection helpers, and standard implementations:
   * `SigmoidShaper` (default): Logistic S-curve driven by topological step distance ($\Delta d$) and token fill ratio with a pinned Genesis root and frozen historical asymptote for monotonic KV-cache prefix invariance.
   * `WindowShaper`: Strict $K$-turn sliding window projection.
   * `ResonanceShaper`: Refactored topological exponential decay (with zero wall-clock time dependency).
 
 ### 3. Tiered Sensory Receipts & Cybernetic Memory Adapters ([ADR-014](../../decisions/014-persistent-agent-memory-and-cybernetic-recall.md), [ADR-021](../../decisions/021-tiered-sensory-storage-and-observation-compaction.md))
-* [receipt.go](receipt.go) - Synthesizes deterministic, content-addressable `domain.SmartReceipt` (`obs_<hash>`) summaries and 1-line diagnostic banners from raw tool outputs, and bridges `tools.ReceiptStore` to `storage.ObservationBlobStore`.
-* [memory_adapter.go](memory_adapter.go) - Bridges `storage.MemoryStore` to `tools.MemoryProvider` (`toToolMemoryItem`), wiring persistent L3 cybernetic memory recall, storage, deletion, and diagnostics into the active tool registry.
+* [receipt.go](receipt.go) - Synthesizes deterministic, content-addressable `domain.SmartReceipt` (`obs_<hash>`) summaries and 1-line diagnostic banners from raw tool outputs (`CreateSmartReceipt`, `GenerateReceiptID`).
+* [memory_adapter.go](memory_adapter.go) - Bridges `storage.MemoryStore` to `tools.MemoryStore` (`NewMemoryToolsAdapter`, `toToolMemoryItem`), wiring persistent L3 cybernetic memory recall, storage, deletion, and diagnostics into the active tool registry.
 
-### 4. Native Delegated Multi-Agent Topologies ([ADR-022](../../decisions/022-native-delegated-multi-agent-topologies.md))
-* [delegate.go](delegate.go) - Implements `engineSubagentRunner` (`RunSubagent`, `InspectSubagent`, `ReconcileSubagent`). Provisions isolated child sessions (`sub_<uuid>`), mounts out-of-tree Git worktrees (including nested `target_dir` repositories), enforces single-turn `max_steps` budgets and depth-1 anti-recursion, and returns synthesized findings to the parent turn.
+### 4. Native Delegated Multi-Agent Topologies ([ADR-022](../../decisions/022-native-delegated-multi-agent-topologies.md), [ADR-023](../../decisions/023-subprocess-recursion-guardrails-and-self-hosting-isolation.md))
+* [delegate.go](delegate.go) - Implements `SubagentOrchestrator` (`SpawnSubagent`, `InspectSubagent`, `ReconcileSubagent`). Provisions isolated child sessions (`sub_<uuid>`), mounts out-of-tree Git worktrees (including nested `target_dir` repositories), enforces `min(ParentPolicy, ToolPreset)` capability intersection, propagates `PermissionGate`, enforces single-turn `step_budget` ceilings and depth-1 anti-recursion, and returns synthesized findings to the parent turn.
 
 ### 5. Tool Parsing, Signats & Peripheral Telemetry
 * [tool_defaults.go](tool_defaults.go) - Registers default workspace tools, memory adapters, receipt stores, and subagent runners onto `Manager`.

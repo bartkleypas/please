@@ -311,6 +311,8 @@ func (s *SQLiteStorage) GarbageCollect() (int64, error) {
 
 	count, _ := res.RowsAffected()
 
+	_, _ = s.db.Exec(`DELETE FROM observation_blobs WHERE node_id NOT IN (SELECT id FROM nodes)`)
+
 	if _, err := s.db.Exec("VACUUM;"); err != nil {
 		return count, fmt.Errorf("failed to vacuum sqlite: %w", err)
 	}
@@ -1156,6 +1158,10 @@ func (s *SQLiteStorage) DiagnoseMemories(scope MemoryScope, sessionID string) (*
 				diag.MostAccessed = append(diag.MostAccessed, *mem)
 			}
 		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return nil, fmt.Errorf("error iterating most accessed memory rows: %w", err)
+		}
 		_ = rows.Close()
 	}
 
@@ -1180,6 +1186,10 @@ func (s *SQLiteStorage) DiagnoseMemories(scope MemoryScope, sessionID string) (*
 			if mem, err := s.scanMemory(rows); err == nil && mem != nil {
 				diag.StaleCandidates = append(diag.StaleCandidates, *mem)
 			}
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return nil, fmt.Errorf("error iterating stale memory rows: %w", err)
 		}
 		_ = rows.Close()
 	}
@@ -1210,6 +1220,14 @@ func (s *SQLiteStorage) SaveObservationBlob(blob *ObservationBlob) error {
 		isCompressed = true
 	} else {
 		payloadToStore = blob.Payload
+	}
+
+	if s.encryptionKey != "" && !strings.HasPrefix(string(payloadToStore), encryptionPrefix) {
+		encPayload, err := EncryptField(string(payloadToStore), s.encryptionKey)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt observation blob: %w", err)
+		}
+		payloadToStore = []byte(encPayload)
 	}
 
 	createdAt := blob.CreatedAt
@@ -1252,6 +1270,14 @@ func (s *SQLiteStorage) GetObservationBlob(receiptID string) (*ObservationBlob, 
 
 	blob.CreatedAt = parseFlexibleTimestamp(createdAtStr)
 	blob.Compressed = false
+
+	if strings.HasPrefix(string(rawPayload), encryptionPrefix) {
+		decPayload, err := DecryptField(string(rawPayload), s.encryptionKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decrypt observation blob: %w", err)
+		}
+		rawPayload = []byte(decPayload)
+	}
 
 	if compressed {
 		gr, err := gzip.NewReader(bytes.NewReader(rawPayload))

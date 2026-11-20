@@ -76,6 +76,12 @@ func TestValidateSafePath_Quarantine(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(wsDir, ".env"), []byte("SECRET=1"), 0644)
 	_ = os.WriteFile(filepath.Join(wsDir, ".env.local"), []byte("SECRET=2"), 0644)
 	_ = os.WriteFile(filepath.Join(wsDir, "vault.db"), []byte("sqlite"), 0644)
+	_ = os.WriteFile(filepath.Join(wsDir, "config.json"), []byte(`{"api_key":"secret"}`), 0644)
+
+	pleaseDir := filepath.Join(wsDir, ".please")
+	_ = os.MkdirAll(pleaseDir, 0755)
+	_ = os.WriteFile(filepath.Join(pleaseDir, "config.json"), []byte(`{"sandbox_policy":"standard"}`), 0644)
+	_ = os.Symlink(filepath.Join(pleaseDir, "config.json"), filepath.Join(wsDir, "link_to_config"))
 
 	secretsDir := filepath.Join(wsDir, ".secrets")
 	_ = os.MkdirAll(secretsDir, 0755)
@@ -98,6 +104,11 @@ func TestValidateSafePath_Quarantine(t *testing.T) {
 		{"Quarantined .ssh private key", ".ssh/id_ed25519", true},
 		{"Quarantined standalone private key name", "id_ed25519", true},
 		{"Quarantined vault database", "vault.db", true},
+		{"Quarantined root config.json", "config.json", true},
+		{"Quarantined .please/config.json", ".please/config.json", true},
+		{"Quarantined symlink to config.json", "link_to_config", true},
+		{"Quarantined .please directory", ".please", true},
+		{"Quarantined file inside .please", ".please/config.default.json", true},
 	}
 
 	for _, tt := range tests {
@@ -309,5 +320,107 @@ func TestArgumentHelpers(t *testing.T) {
 	}
 	if got := getFloatArg(args, "non_existent", 1.0); got != 1.0 {
 		t.Errorf("expected default 1.0, got %f", got)
+	}
+}
+
+func TestGrepSearch_SkipsConfigAndSymlinks(t *testing.T) {
+	wsDir := t.TempDir()
+	outsideDir := t.TempDir()
+
+	_ = os.WriteFile(filepath.Join(wsDir, "app.go"), []byte("package main\nconst marker = \"find_secret_target\"\n"), 0644)
+	_ = os.WriteFile(filepath.Join(wsDir, "config.json"), []byte(`{"token":"find_secret_target"}`), 0644)
+
+	pleaseDir := filepath.Join(wsDir, ".please")
+	_ = os.MkdirAll(pleaseDir, 0755)
+	_ = os.WriteFile(filepath.Join(pleaseDir, "config.json"), []byte(`{"key":"find_secret_target"}`), 0644)
+
+	_ = os.WriteFile(filepath.Join(outsideDir, "external.txt"), []byte("find_secret_target\n"), 0644)
+	_ = os.Symlink(filepath.Join(wsDir, "config.json"), filepath.Join(wsDir, "leak_link.txt"))
+	_ = os.Symlink(filepath.Join(outsideDir, "external.txt"), filepath.Join(wsDir, "outside_link.txt"))
+
+	ctx := context.Background()
+	grepTool := GrepSearchTool(wsDir)
+	res, err := grepTool.Function(ctx, map[string]interface{}{
+		"pattern": "find_secret_target",
+	})
+	if err != nil {
+		t.Fatalf("grep_search failed: %v", err)
+	}
+
+	if !strings.Contains(res, "app.go") {
+		t.Errorf("expected grep_search to match app.go, got: %s", res)
+	}
+	for _, forbidden := range []string{"config.json", "leak_link.txt", "outside_link.txt"} {
+		if strings.Contains(res, forbidden) {
+			t.Errorf("grep_search leaked %q: %s", forbidden, res)
+		}
+	}
+
+	listTool := ListFilesRecursiveTool(wsDir)
+	listRes, err := listTool.Function(ctx, map[string]interface{}{})
+	if err != nil {
+		t.Fatalf("list_files_recursive failed: %v", err)
+	}
+	for _, forbidden := range []string{"config.json", "leak_link.txt", "outside_link.txt"} {
+		if strings.Contains(listRes, forbidden) {
+			t.Errorf("list_files_recursive leaked %q: %s", forbidden, listRes)
+		}
+	}
+}
+
+func TestListDirectory_MatchesRecursiveVisibility(t *testing.T) {
+	wsDir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(wsDir, "main.go"), []byte("package main\n"), 0644)
+	_ = os.MkdirAll(filepath.Join(wsDir, "sub"), 0755)
+	_ = os.WriteFile(filepath.Join(wsDir, "sub", "helper.go"), []byte("package sub\n"), 0644)
+	_ = os.MkdirAll(filepath.Join(wsDir, ".git"), 0755)
+	_ = os.WriteFile(filepath.Join(wsDir, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0644)
+	_ = os.MkdirAll(filepath.Join(wsDir, ".please"), 0755)
+	_ = os.WriteFile(filepath.Join(wsDir, ".please", "config.default.json"), []byte("{}"), 0644)
+	_ = os.WriteFile(filepath.Join(wsDir, "config.json"), []byte("{}"), 0644)
+	_ = os.WriteFile(filepath.Join(wsDir, "vault.db"), []byte("sqlite"), 0644)
+	_ = os.WriteFile(filepath.Join(wsDir, ".env"), []byte("SECRET=1"), 0644)
+	_ = os.Symlink("/etc/passwd", filepath.Join(wsDir, "bad_link"))
+
+	ctx := context.Background()
+	listDirTool := ListDirectoryTool(wsDir)
+	listRecTool := ListFilesRecursiveTool(wsDir)
+
+	dirOut, err := listDirTool.Function(ctx, map[string]interface{}{"path": "."})
+	if err != nil {
+		t.Fatalf("list_directory failed: %v", err)
+	}
+	recOut, err := listRecTool.Function(ctx, map[string]interface{}{"path": "."})
+	if err != nil {
+		t.Fatalf("list_files_recursive failed: %v", err)
+	}
+
+	if !strings.Contains(dirOut, "main.go") || !strings.Contains(dirOut, "sub/") {
+		t.Errorf("expected main.go and sub/ in list_directory output, got:\n%s", dirOut)
+	}
+	if !strings.Contains(recOut, "main.go") || !strings.Contains(recOut, filepath.Join("sub", "helper.go")) {
+		t.Errorf("expected main.go and sub/helper.go in list_files_recursive output, got:\n%s", recOut)
+	}
+
+	for _, hidden := range []string{".git", ".please", "config.json", "vault.db", ".env", "bad_link"} {
+		if strings.Contains(dirOut, hidden) {
+			t.Errorf("list_directory leaked hidden/quarantined entry %q in:\n%s", hidden, dirOut)
+		}
+		if strings.Contains(recOut, hidden) {
+			t.Errorf("list_files_recursive leaked hidden/quarantined entry %q in:\n%s", hidden, recOut)
+		}
+	}
+
+	// Direct list_directory(".please") must fail with security error
+	if _, err := listDirTool.Function(ctx, map[string]interface{}{"path": ".please"}); err == nil || !strings.Contains(err.Error(), "quarantined") {
+		t.Errorf("expected security error listing .please directory, got: %v", err)
+	}
+
+	// Out-of-tree worktree nested under <tmp>/.please/worktrees/repo-1234/sub_1 must remain accessible
+	wtRoot := filepath.Join(wsDir, ".please", "worktrees", "repo-1234", "sub_1")
+	_ = os.MkdirAll(wtRoot, 0755)
+	_ = os.WriteFile(filepath.Join(wtRoot, "main.go"), []byte("package main\n"), 0644)
+	if _, err := ValidateSafePath(wtRoot, "main.go"); err != nil {
+		t.Errorf("expected ValidateSafePath inside out-of-tree worktree to succeed, got: %v", err)
 	}
 }

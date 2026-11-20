@@ -13,7 +13,7 @@ timestamp: "2026-10-11T10:21:00-07:00"
 
 `Please` is a lightweight, high-performance conversation harness and multi-session agent runtime designed for dynamic interaction with Large Language Models (LLMs). It models conversation histories as a Directed Acyclic Graph (DAG) of message nodes with branch-isolated compactions, cache-stable context shaping (`ContextShaper`), three-tier memory (`SmartReceipt` out-of-band telemetry paging + FTS5 cybernetic recall), and native streaming playback.
 
-With `v0.3.1`, `Please` unifies all execution surfaces—standalone Bubble Tea TUI (`please`), headless multi-session daemon (`please serve`), remote TUI client (`please connect`), and IDE Agent Client Protocol (`please acp`)—onto the canonical `SessionHarness` execution pipeline, complete with native delegated subagent topologies (`spawn_subagent`) and out-of-tree Git worktree sandboxing.
+With `v0.3.3`, `Please` unifies all execution surfaces—standalone Bubble Tea TUI (`please`), one-shot CLI invocations, headless multi-session daemon (`please serve`), remote TUI client (`please connect` with full `MemoryStore` and `ObservationStore` REST parity), and IDE Agent Client Protocol (`please acp`)—onto the canonical `SessionHarness` execution pipeline, complete with `ollama-raw` template-free inference (`ADR-024`), self-hosting security guardrails (`ADR-023`), native delegated subagent topologies (`spawn_subagent`), and out-of-tree Git worktree sandboxing.
 
 ## Subdirectories & Packages (Four-Tier Architecture)
 
@@ -44,6 +44,7 @@ Per [ADR-018](decisions/018-package-stratification-and-domain-decoupling.md), pa
 * [decisions](decisions/index.md) - Complete index of Architecture Decision Records (`ADR-001` through `ADR-025`).
 * [bootstrap_memory](GEMINI.md) - Agent wakeup orientation document detailing architectural layers, memory tiers, and development conventions.
 * [v0.3.0_roadmap](docs/roadmap_v0.3.0.md) - Authoritative v0.3.0 architectural blueprint for lifecycle convergence, context shaping, three-tier memory, and delegated agents.
+* [v0.3.3_roadmap](docs/roadmap_v0.3.3.md) - Active engineering ledger and roadmap for v0.3.3 security/lifecycle hardening and v0.4.0 strategic horizons.
 * [daemon_protocol](docs/daemon_protocol_spec.md) - Authoritative REST v1 and SSE streaming wire protocol specification for multi-platform clients.
 * [context_resonance](docs/context_resonance.md) - Cache-stable `ContextShaper` mathematical projections ([ADR-020](decisions/020-cache-stable-context-shaping-and-pure-prompt-projections.md)) and `SmartReceipt` out-of-band telemetry paging ([ADR-021](decisions/021-tiered-sensory-storage-and-observation-compaction.md)).
 * [natural_pacing](docs/natural_pacing.md) - Natural reading-pace stream buffering with punctuation-sensitive pauses.

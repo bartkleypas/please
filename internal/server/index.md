@@ -18,7 +18,7 @@ The `internal/server` package (Layer 3: Presentation & Daemon) provides the head
 
 ## 🗺️ Components & Source Files
 
-* [server.go](server.go) - Core `Server` lifecycle (`StartWithHost`, `StartTLS`, `Stop`), CORS and Bearer auth middlewares, session actor registry (`getOrCreateActor`), and REST API v1 route controllers.
+* [server.go](server.go) - Core `Server` lifecycle (`StartWithHost`, `StartTLS`, `Stop`), origin-validated CORS and Bearer auth middlewares, `/api/image` path/extension confinement, `SessionActorRegistry` wiring, and REST API v1 route controllers.
 * [stream.go](stream.go) - Server-Sent Events (`SSE`) pump (`POST /api/v1/chat/stream`), dispatching turns to the target `SessionActor` and streaming `HarnessEvent` frames to the HTTP client.
 * [session_actor.go](session_actor.go) - Implements `SessionActor` ([ADR-007](../../decisions/007-multi-session-daemon-branch-concurrency.md)). Provides each named session (`main`, `alpha`, `sub_<id>`) with a dedicated, single-threaded FIFO mailbox and optional isolated Git worktree (`worktree.Manager`), executing turns via `engine.SessionHarness` without cross-session race conditions.
 * [bus.go](bus.go) - Internal publish/subscribe `EventBus` broadcasting graph mutations (`node_saved`, `branch_pruned`, `supernode_created`) and session activity to connected SSE listeners (`/api/v1/events`).
@@ -42,7 +42,13 @@ The `internal/server` package (Layer 3: Presentation & Daemon) provides the head
 | `POST` | `/api/v1/gc` | Permanently deletes soft-pruned records from storage. |
 | `GET` | `/api/v1/sessions` | Lists all named sessions and their active `head_node_id` pointers. |
 | `GET` | `/api/v1/sessions/{id}` | Retrieves the active head node ID for a specific named session. |
-| `POST` | `/api/v1/sessions` | Updates or creates a named session head pointer. |
+| `POST` / `PUT` | `/api/v1/sessions` / `/api/v1/sessions/{id}` | Updates or creates a named session head pointer. |
+| `GET` | `/api/v1/memories` | Queries L3 semantic memories (`?query=...`, `?scope=...`, `?exact=true`). |
+| `POST` | `/api/v1/memories` | Inserts or updates an L3 memory record. |
+| `DELETE` | `/api/v1/memories` | Deletes an L3 memory by `scope`, `session_id`, and `key`. |
+| `GET` | `/api/v1/memories/diagnose` | Returns aggregate L3 memory health diagnostics (`MemoryDiagnostics`). |
+| `POST` | `/api/v1/observations` | Persists an L2 `ObservationBlob` telemetry payload. |
+| `GET` | `/api/v1/observations/{receipt_id}` | Retrieves an L2 `ObservationBlob` payload by receipt ID. |
 | `GET` | `/api/v1/tools` | Lists registered workspace tools and JSON schemas. |
 | `GET` | `/api/v1/events` | Persistent SSE event bus stream for live graph topology updates. |
 | `POST` | `/api/v1/chat/stream?session={id}` | Initiates real-time SSE streaming turn dispatched through the session's `SessionActor`. |

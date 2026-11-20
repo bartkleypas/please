@@ -55,11 +55,7 @@ func setupDiagnosticsManager(vaultPath, configPath string) (*engine.Manager, *co
 	}
 
 	mgr := engine.NewManager(graph, strg)
-	mgr.SignatSteering = cfg.EnableSignatSteering()
-	mgr.AmbientTelemetry = cfg.EnableAmbientTelemetry()
-	if cfg.Server != nil && cfg.Server.Options != nil && cfg.Server.Options.NumCtx != nil {
-		mgr.NumCtx = *cfg.Server.Options.NumCtx
-	}
+	mgr.ApplyConfig(cfg)
 	mgr.RegisterDefaultTools(cfg.GetWorkspaceDir())
 	return mgr, cfg, nil
 }
@@ -297,8 +293,13 @@ func runInspect(args []string) {
 	if cfg.Server != nil && cfg.Server.VaultPath != "" {
 		vaultDisplay = cfg.Server.VaultPath
 	}
+	shaperDisplay := mgr.ContextShaperType
+	if shaperDisplay == "" {
+		shaperDisplay = "sigmoid"
+	}
 	fmt.Println("\n📈 Lineage & Context Resonance Scorecard:")
 	fmt.Printf("    Vault Path:        %s\n", vaultDisplay)
+	fmt.Printf("    Context Shaper:    %s\n", shaperDisplay)
 	fmt.Printf("    Context Limit:     %d tokens (num_ctx)\n", limit)
 	fmt.Printf("    Active Path Load:  %d tokens (fill ratio: %.1f%%)\n\n", estimatedTokens, fillRatio*100)
 
@@ -307,10 +308,8 @@ func runInspect(args []string) {
 
 	for i, n := range path {
 		distance := len(path) - 1 - i
-		score := mgr.CalculateResonanceScore(n, distance, fillRatio, len(path))
-		if distance == 0 {
-			score = 999.9 // active leaf
-		}
+		score, fidelityTier := mgr.EvaluateNodeFidelity(n, i, distance, fillRatio, len(path))
+		tier := fidelityTier.String()
 
 		cost := len(n.Content) + len(n.Thought)
 		for _, o := range n.Observations {
@@ -318,22 +317,14 @@ func runInspect(args []string) {
 		}
 		tokens := int(float64(cost) / 3.8)
 
-		tier := "Low (Compact)"
-		if score > 5.0 {
-			tier = "Full Fidelity"
-		} else if score > 0.5 {
-			tier = "Medium"
-		}
-
 		nShort := n.ID
 		if len(nShort) > 8 {
 			nShort = nShort[:8]
 		}
 
 		scoreStr := fmt.Sprintf("%.2f", score)
-		if n.Role == domain.RoleSystem || score > 900.0 {
+		if n.Role == domain.RoleSystem || n.Role == domain.RoleSummary || i == 0 || (i == 1 && n.Role == domain.RoleUser) || distance == 0 || score > 900.0 {
 			scoreStr = "PINNED"
-			tier = "Full Fidelity"
 		}
 
 		fmt.Printf("    %-5d %-10s %-10s %-8d %-8d %-8s %s\n", distance, nShort, n.Role, cost, tokens, scoreStr, tier)

@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -1044,5 +1045,211 @@ func TestServer_SessionActor_WorktreeIsolation(t *testing.T) {
 	}
 	if !betaFileFound {
 		t.Errorf("beta.txt was not found in beta's isolated worktree under %s", worktreeRoot)
+	}
+}
+
+func TestServer_HandleImage_PathConfinement(t *testing.T) {
+	wsDir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(wsDir, "valid.png"), []byte{0x89, 0x50, 0x4E, 0x47}, 0644)
+	_ = os.WriteFile(filepath.Join(wsDir, "main.go"), []byte("package main"), 0644)
+	_ = os.MkdirAll(filepath.Join(wsDir, ".please"), 0755)
+	_ = os.WriteFile(filepath.Join(wsDir, ".please", "config.json"), []byte(`{"api_key":"secret"}`), 0644)
+
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	strg, _ := storage.NewSQLiteStorage(dbPath, "")
+	mgr := engine.NewManager(graph.NewGraph(), strg)
+	mgr.WorkspaceDir = wsDir
+	srv := NewServer(mgr)
+	handler := srv.Handler()
+
+	// 1. Valid image inside workspace -> 200 OK
+	req := httptest.NewRequest("GET", "/api/image?path=valid.png", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 OK for valid image in workspace, got %d: %s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "image/png" {
+		t.Errorf("expected image/png Content-Type, got %q", ct)
+	}
+
+	// 2. Path traversal outside workspace -> 403 Forbidden
+	req = httptest.NewRequest("GET", "/api/image?path=../../etc/passwd", nil)
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 Forbidden for path traversal, got %d", w.Code)
+	}
+
+	// 3. Quarantined config.json -> 403 Forbidden
+	req = httptest.NewRequest("GET", "/api/image?path=.please/config.json", nil)
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 Forbidden for .please/config.json, got %d", w.Code)
+	}
+
+	// 4. Non-image extension inside workspace -> 403 Forbidden
+	req = httptest.NewRequest("GET", "/api/image?path=main.go", nil)
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 Forbidden for non-image file main.go, got %d", w.Code)
+	}
+}
+
+func TestServer_CORS_OriginConfinement(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	strg, _ := storage.NewSQLiteStorage(dbPath, "")
+	mgr := engine.NewManager(graph.NewGraph(), strg)
+	srv := NewServer(mgr)
+	handler := srv.Handler()
+
+	// 1. Allowed localhost origin
+	req := httptest.NewRequest("GET", "/api/v1/health", nil)
+	req.Header.Set("Origin", "http://localhost:3000")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", w.Code)
+	}
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:3000" {
+		t.Errorf("expected Access-Control-Allow-Origin 'http://localhost:3000', got %q", got)
+	}
+	if got := w.Header().Get("Vary"); got != "Origin" {
+		t.Errorf("expected Vary: Origin, got %q", got)
+	}
+
+	// 2. Allowed *.local origin
+	req = httptest.NewRequest("GET", "/api/v1/health", nil)
+	req.Header.Set("Origin", "https://please.local:8443")
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "https://please.local:8443" {
+		t.Errorf("expected Access-Control-Allow-Origin 'https://please.local:8443', got %q", got)
+	}
+
+	// 3. Disallowed external origin must not receive CORS header
+	req = httptest.NewRequest("GET", "/api/v1/health", nil)
+	req.Header.Set("Origin", "https://evil.example.com")
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("expected empty Access-Control-Allow-Origin for external origin, got %q", got)
+	}
+
+	// 4. Disallowed external OPTIONS preflight returns 403 Forbidden
+	req = httptest.NewRequest("OPTIONS", "/api/v1/graph", nil)
+	req.Header.Set("Origin", "https://evil.example.com")
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 Forbidden for external OPTIONS preflight, got %d", w.Code)
+	}
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("expected empty Access-Control-Allow-Origin on rejected preflight, got %q", got)
+	}
+}
+
+func TestServer_RemoteDaemonStorage_Parity(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "parity.db")
+	sqlStrg, err := storage.NewSQLiteStorage(dbPath, "")
+	if err != nil {
+		t.Fatalf("NewSQLiteStorage failed: %v", err)
+	}
+	mgr := engine.NewManager(graph.NewGraph(), sqlStrg)
+	srv := NewServer(mgr)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	remote, err := storage.NewRemoteDaemonStorage(ts.URL, "", "")
+	if err != nil {
+		t.Fatalf("NewRemoteDaemonStorage failed: %v", err)
+	}
+
+	// 1. Pruned node + GarbageCollect purged_records parity
+	sysNode, err := mgr.CreateNode("", domain.RoleSystem, "System root", false)
+	if err != nil {
+		t.Fatalf("CreateNode sys failed: %v", err)
+	}
+	prunable, err := mgr.CreateNode(sysNode.ID, domain.RoleUser, "To prune", false)
+	if err != nil {
+		t.Fatalf("CreateNode user failed: %v", err)
+	}
+	if err := mgr.PruneBranch(prunable.ID); err != nil {
+		t.Fatalf("PruneBranch failed: %v", err)
+	}
+	purged, err := remote.GarbageCollect()
+	if err != nil {
+		t.Fatalf("remote.GarbageCollect failed: %v", err)
+	}
+	if purged != 1 {
+		t.Errorf("expected remote.GarbageCollect to report 1 purged record, got %d", purged)
+	}
+
+	// 2. MemoryStore end-to-end CRUD & diagnostics
+	mem := &storage.Memory{
+		Key:          "arch_layering",
+		Content:      "Respect 4-tier package boundaries.",
+		Category:     storage.CategoryArchitecture,
+		Scope:        storage.ScopeWorkspace,
+		Tags:         []string{"adr-018", "go"},
+		SourceNodeID: sysNode.ID,
+	}
+	if err := remote.SaveMemory(mem); err != nil {
+		t.Fatalf("remote.SaveMemory failed: %v", err)
+	}
+
+	gotMem, err := remote.GetMemory(storage.ScopeWorkspace, "", "arch_layering")
+	if err != nil || gotMem == nil {
+		t.Fatalf("remote.GetMemory failed: mem=%+v, err=%v", gotMem, err)
+	}
+	if gotMem.Content != mem.Content {
+		t.Errorf("expected memory content %q, got %q", mem.Content, gotMem.Content)
+	}
+
+	mems, err := remote.QueryMemories(storage.MemoryFilter{
+		Query: "layering",
+		Scope: storage.ScopeWorkspace,
+		Tags:  []string{"adr-018"},
+		Limit: 10,
+	})
+	if err != nil || len(mems) != 1 {
+		t.Fatalf("remote.QueryMemories failed: len=%d, err=%v", len(mems), err)
+	}
+
+	diag, err := remote.DiagnoseMemories(storage.ScopeWorkspace, "")
+	if err != nil || diag.TotalMemories != 1 {
+		t.Fatalf("remote.DiagnoseMemories failed: diag=%+v, err=%v", diag, err)
+	}
+
+	if err := remote.DeleteMemory(storage.ScopeWorkspace, "", "arch_layering"); err != nil {
+		t.Fatalf("remote.DeleteMemory failed: %v", err)
+	}
+	missing, err := remote.GetMemory(storage.ScopeWorkspace, "", "arch_layering")
+	if err != nil || missing != nil {
+		t.Errorf("expected nil memory after deletion, got mem=%+v, err=%v", missing, err)
+	}
+	if err := remote.DeleteMemory(storage.ScopeWorkspace, "", "arch_layering"); !errors.Is(err, storage.ErrMemoryNotFound) {
+		t.Errorf("expected ErrMemoryNotFound after deletion, got %v", err)
+	}
+
+	// 3. ObservationStore end-to-end blob persistence & retrieval
+	blob := &storage.ObservationBlob{
+		ReceiptID: "obs_1234abcd",
+		NodeID:    sysNode.ID,
+		CreatedAt: time.Now(),
+		Tool:      "read_file",
+		Payload:   []byte("line 1\nline 2\nline 3\n"),
+	}
+	if err := remote.SaveObservationBlob(blob); err != nil {
+		t.Fatalf("remote.SaveObservationBlob failed: %v", err)
+	}
+	gotBlob, err := remote.GetObservationBlob("obs_1234abcd")
+	if err != nil {
+		t.Fatalf("remote.GetObservationBlob failed: %v", err)
+	}
+	if string(gotBlob.Payload) != string(blob.Payload) {
+		t.Errorf("blob payload mismatch: got %q, want %q", string(gotBlob.Payload), string(blob.Payload))
 	}
 }

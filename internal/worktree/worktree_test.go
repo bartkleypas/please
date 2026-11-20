@@ -568,3 +568,43 @@ func TestWorktree_NestedRepository(t *testing.T) {
 		t.Errorf("nested_feature.txt must NOT exist in parent workspace root")
 	}
 }
+
+func TestManager_CleanOrphanedSubsessions(t *testing.T) {
+	repoDir, configDir := setupTestGitRepo(t)
+	mgr := NewManager(configDir, repoDir)
+
+	activeID := "sub_active_1"
+	activeBranch := "subsession/" + activeID
+	if _, _, err := mgr.EnsureWorktreeBranch(activeID, activeBranch); err != nil {
+		t.Fatalf("EnsureWorktreeBranch active failed: %v", err)
+	}
+
+	orphanID := "sub_orphan_2"
+	orphanBranch := "subsession/" + orphanID
+	orphanDir, _, err := mgr.EnsureWorktreeBranch(orphanID, orphanBranch)
+	if err != nil {
+		t.Fatalf("EnsureWorktreeBranch orphan failed: %v", err)
+	}
+
+	cleaned, err := mgr.CleanOrphanedSubsessions(map[string]bool{
+		activeID: true,
+	})
+	if err != nil {
+		t.Fatalf("CleanOrphanedSubsessions failed: %v", err)
+	}
+
+	if len(cleaned) != 1 || cleaned[0] != orphanBranch {
+		t.Errorf("expected [%s] cleaned, got %v", orphanBranch, cleaned)
+	}
+	if mgr.branchExists(repoDir, orphanBranch) {
+		t.Errorf("expected orphaned branch %s to be deleted", orphanBranch)
+	}
+	if _, err := os.Stat(orphanDir); !os.IsNotExist(err) {
+		t.Errorf("expected orphaned worktree dir %s to be removed", orphanDir)
+	}
+	if !mgr.branchExists(repoDir, activeBranch) {
+		t.Errorf("expected active branch %s to remain intact", activeBranch)
+	}
+
+	_ = mgr.RemoveWorktree(activeID, true, true)
+}

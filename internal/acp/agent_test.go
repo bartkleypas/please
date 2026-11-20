@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -662,5 +664,97 @@ func TestACPAgent_Cancel(t *testing.T) {
 
 	if !cancelled {
 		t.Errorf("expected session cancel func to be triggered")
+	}
+}
+
+func TestACPAgent_SessionWorkspaceIsolation(t *testing.T) {
+	ws1 := t.TempDir()
+	ws2 := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ws1, "marker.txt"), []byte("FROM_WORKSPACE_ONE"), 0644); err != nil {
+		t.Fatalf("failed to write ws1 marker: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(ws2, "marker.txt"), []byte("FROM_WORKSPACE_TWO"), 0644); err != nil {
+		t.Fatalf("failed to write ws2 marker: %v", err)
+	}
+
+	var mu sync.Mutex
+	var observations []string
+
+	mockProv := &providers.MockLLMProvider{
+		StreamHandler: func(messages []domain.Message, specs []domain.ToolSpec) (string, string, []domain.ToolCall, error) {
+			if len(messages) > 0 && messages[len(messages)-1].Role == domain.RoleTool {
+				mu.Lock()
+				observations = append(observations, messages[len(messages)-1].Content)
+				mu.Unlock()
+				return "Read marker complete", "", nil, nil
+			}
+			return "", "", []domain.ToolCall{
+				{
+					ID:   "call_read_marker",
+					Type: "function",
+					Function: struct {
+						Name      string          `json:"name"`
+						Arguments json.RawMessage `json:"arguments"`
+					}{
+						Name:      "read_file",
+						Arguments: json.RawMessage(`{"path":"marker.txt"}`),
+					},
+				},
+			}, nil
+		},
+	}
+
+	connClient, agent, _, cleanup := setupConnectedHarness(t, "allow_once", mockProv)
+	defer cleanup()
+
+	origWS := agent.mgr.WorkspaceDir
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Session 1 bound to ws1
+	s1, err := connClient.NewSession(ctx, acpsdk.NewSessionRequest{
+		Cwd:        ws1,
+		McpServers: []acpsdk.McpServer{},
+	})
+	if err != nil {
+		t.Fatalf("NewSession 1 failed: %v", err)
+	}
+	if _, err := connClient.Prompt(ctx, acpsdk.PromptRequest{
+		SessionId: s1.SessionId,
+		Prompt:    []acpsdk.ContentBlock{acpsdk.TextBlock("Read marker")},
+	}); err != nil {
+		t.Fatalf("Prompt 1 failed: %v", err)
+	}
+
+	// Session 2 bound to ws2
+	s2, err := connClient.NewSession(ctx, acpsdk.NewSessionRequest{
+		Cwd:        ws2,
+		McpServers: []acpsdk.McpServer{},
+	})
+	if err != nil {
+		t.Fatalf("NewSession 2 failed: %v", err)
+	}
+	if _, err := connClient.Prompt(ctx, acpsdk.PromptRequest{
+		SessionId: s2.SessionId,
+		Prompt:    []acpsdk.ContentBlock{acpsdk.TextBlock("Read marker")},
+	}); err != nil {
+		t.Fatalf("Prompt 2 failed: %v", err)
+	}
+
+	if agent.mgr.WorkspaceDir != origWS {
+		t.Errorf("agent.mgr.WorkspaceDir mutated: got %q, want %q", agent.mgr.WorkspaceDir, origWS)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(observations) != 2 {
+		t.Fatalf("expected 2 tool observations, got %d (%v)", len(observations), observations)
+	}
+	if !strings.Contains(observations[0], "FROM_WORKSPACE_ONE") {
+		t.Errorf("session 1 expected FROM_WORKSPACE_ONE, got %q", observations[0])
+	}
+	if !strings.Contains(observations[1], "FROM_WORKSPACE_TWO") {
+		t.Errorf("session 2 expected FROM_WORKSPACE_TWO, got %q", observations[1])
 	}
 }

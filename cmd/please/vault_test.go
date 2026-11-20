@@ -47,6 +47,17 @@ func TestDecryptSQLiteVault(t *testing.T) {
 		t.Fatalf("failed to save encrypted memory: %v", err)
 	}
 
+	blobPayload := "Full encrypted observation blob output line 1\nline 2"
+	if err := store.SaveObservationBlob(&storage.ObservationBlob{
+		ReceiptID: "obs_vaultdec",
+		NodeID:    "node-001",
+		CreatedAt: time.Now(),
+		Tool:      "execute_command",
+		Payload:   []byte(blobPayload),
+	}); err != nil {
+		t.Fatalf("failed to save encrypted observation blob: %v", err)
+	}
+
 	// Verify at least one row in SQLite starts with enc:v1:
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
@@ -98,5 +109,18 @@ func TestDecryptSQLiteVault(t *testing.T) {
 	}
 	if plainMemContent != "Encrypted memory rule" {
 		t.Errorf("expected plaintext memory content, got: %s", plainMemContent)
+	}
+
+	// 4. Verify observation blob can now be read without an encryption key
+	plainStore, err := storage.NewSQLiteStorage(dbPath, "")
+	if err != nil {
+		t.Fatalf("failed to open plaintext storage: %v", err)
+	}
+	decBlob, err := plainStore.GetObservationBlob("obs_vaultdec")
+	if err != nil {
+		t.Fatalf("expected decrypted observation blob to be readable with empty key, got: %v", err)
+	}
+	if string(decBlob.Payload) != blobPayload {
+		t.Errorf("expected blob payload %q, got %q", blobPayload, string(decBlob.Payload))
 	}
 }

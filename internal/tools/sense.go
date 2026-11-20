@@ -77,6 +77,13 @@ func walkSensoryTree(root string, maxEntries int, onFile func(relPath, absPath s
 			return nil
 		}
 
+		// Validate symlinks do not escape root or point to quarantined targets
+		if d.Type()&os.ModeSymlink != 0 {
+			if _, err := ValidateSafePath(root, path); err != nil {
+				return nil
+			}
+		}
+
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			return nil
@@ -248,11 +255,23 @@ func ListDirectoryTool(workspaceDir ...string) Tool {
 
 			var result []string
 			for _, entry := range entries {
+				name := entry.Name()
+				if name == ".git" || name == ".please" {
+					continue
+				}
+				if _, quarantined := isQuarantinedPath(name); quarantined {
+					continue
+				}
+				if entry.Type()&os.ModeSymlink != 0 {
+					if _, err := ValidateSafePath(ws, filepath.Join(safePath, name), prim); err != nil {
+						continue
+					}
+				}
 				suffix := ""
 				if entry.IsDir() {
 					suffix = "/"
 				}
-				result = append(result, entry.Name()+suffix)
+				result = append(result, name+suffix)
 			}
 
 			if len(result) == 0 {

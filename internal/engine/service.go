@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bartkleypas/please/internal/config"
 	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/graph"
 	"github.com/bartkleypas/please/internal/providers"
@@ -75,6 +76,25 @@ func NewManager(g *graph.Graph, s storage.Storage) *Manager {
 	}
 }
 
+// ApplyConfig synchronizes runtime configuration parameters (steering flags, context shaper,
+// context window budget, and workspace directory) from cfg onto the Manager.
+func (m *Manager) ApplyConfig(cfg *config.Config) {
+	if m == nil || cfg == nil {
+		return
+	}
+	m.SignatSteering = cfg.EnableSignatSteering()
+	m.AmbientTelemetry = cfg.EnableAmbientTelemetry()
+	if shaper := cfg.GetContextShaper(); shaper != "" {
+		m.ContextShaperType = shaper
+	}
+	if ws := cfg.GetWorkspaceDir(); ws != "" {
+		m.WorkspaceDir = ws
+	}
+	if cfg.Server != nil && cfg.Server.Options != nil && cfg.Server.Options.NumCtx != nil && *cfg.Server.Options.NumCtx > 0 {
+		m.NumCtx = *cfg.Server.Options.NumCtx
+	}
+}
+
 // CloneWithWorkspace creates a lightweight copy of the manager scoped to a new workspace directory
 // (such as a Git worktree), while sharing the same underlying Graph DAG, Storage vault, and
 // runtime tuning parameters.
@@ -107,6 +127,13 @@ func (m *Manager) CloneWithWorkspace(workspaceDir string, primaryWorkspace ...st
 		return cloned.lookupLegacyObservation(receiptID)
 	})
 	cloned.RegisterDelegation(NewSubagentOrchestrator(cloned, nil, nil))
+	if m.Registry != nil {
+		for name, tool := range m.Registry.Tools {
+			if _, exists := cloned.Registry.Tools[name]; !exists {
+				cloned.Registry.Register(tool)
+			}
+		}
+	}
 	return cloned
 }
 
@@ -365,12 +392,24 @@ func (m *Manager) ExecuteToolCall(ctx context.Context, call domain.ToolCall) (st
 	return m.Registry.Dispatch(ctx, call.Function.Name, call.Function.Arguments)
 }
 
+// ExecuteToolCallWithPolicy validates the active sandbox policy before dispatching the tool call (ADR 023).
+func (m *Manager) ExecuteToolCallWithPolicy(ctx context.Context, policy string, call domain.ToolCall) (string, error) {
+	if m.Registry == nil {
+		return "", fmt.Errorf("tool registry is nil")
+	}
+	return m.Registry.DispatchWithPolicy(ctx, policy, call.Function.Name, call.Function.Arguments)
+}
+
 // Sync reloads the graph from storage, effectively synchronizing the in-memory state
 // with any external changes (e.g., from other 'please' sessions).
 func (m *Manager) Sync() (*graph.Graph, string, error) {
 	g, lastID, err := m.Storage.LoadGraph()
 	if err != nil {
 		return nil, "", err
+	}
+	if m.Graph != nil {
+		m.Graph.Replace(g)
+		return m.Graph, lastID, nil
 	}
 	m.Graph = g
 	return g, lastID, nil
@@ -404,6 +443,27 @@ func (m *Manager) calculateResonanceScore(node *graph.Node, distance int, fillRa
 // CalculateResonanceScore computes the Context Resonance Score for a node given its distance and context metrics.
 func (m *Manager) CalculateResonanceScore(node *graph.Node, distance int, fillRatio float64, totalPathLen int) float64 {
 	return CalculateTopologicalResonanceScore(node, distance, fillRatio, totalPathLen)
+}
+
+// EvaluateNodeFidelity computes the retention score and FidelityTier for a node using the manager's active ContextShaper.
+func (m *Manager) EvaluateNodeFidelity(node *graph.Node, idx int, distance int, fillRatio float64, totalPathLen int) (float64, FidelityTier) {
+	shaper := m.GetShaper()
+	switch s := shaper.(type) {
+	case *SigmoidShaper:
+		return s.EvaluateNode(node, idx, distance, fillRatio, totalPathLen)
+	case *WindowShaper:
+		return s.EvaluateNode(node, idx, distance, fillRatio, totalPathLen)
+	case *ResonanceShaper:
+		return s.EvaluateNode(node, idx, distance, fillRatio, totalPathLen)
+	default:
+		score := CalculateTopologicalResonanceScore(node, distance, fillRatio, totalPathLen)
+		if score > 5.0 {
+			return score, FidelityFull
+		} else if score > 0.5 {
+			return score, FidelityMedium
+		}
+		return score, FidelityLow
+	}
 }
 
 // formatCompactedToolObservation produces a concise summary of a completed tool observation,
@@ -645,7 +705,26 @@ Format your response as a clean, direct summary paragraph.`
 		}
 	}
 
-	// 6. Sync to reflect structural changes
+	// 6. Evict bulky raw observation payloads at rest on compacted ancestor nodes (ADR 021)
+	for _, id := range nodeIDs {
+		if n, err := m.Graph.GetNode(id); err == nil && n != nil && len(n.Observations) > 0 {
+			changed := false
+			for idx, obs := range n.Observations {
+				if len(obs.Result) > 1000 && obs.Receipt != nil && obs.Receipt.HasBlob {
+					compactStr := FormatReceiptString(*obs.Receipt)
+					if obs.Result != compactStr {
+						n.Observations[idx].Result = compactStr
+						changed = true
+					}
+				}
+			}
+			if changed && m.Storage != nil {
+				_ = m.Storage.UpdateNodeObservations(n.ID, n.Observations)
+			}
+		}
+	}
+
+	// 7. Sync to reflect structural changes
 	_, _, err = m.Sync()
 	return superNode, err
 }

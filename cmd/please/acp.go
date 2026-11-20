@@ -105,8 +105,7 @@ func runACP(args []string) {
 	provider := createProvider(cfg)
 
 	mgr := engine.NewManager(graph, strg)
-	mgr.SignatSteering = cfg.EnableSignatSteering()
-	mgr.AmbientTelemetry = cfg.EnableAmbientTelemetry()
+	mgr.ApplyConfig(cfg)
 	mgr.RegisterDefaultTools(cfg.GetWorkspaceDir())
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
