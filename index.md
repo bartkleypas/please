@@ -44,7 +44,8 @@ Per [ADR-018](decisions/018-package-stratification-and-domain-decoupling.md), pa
 * [decisions](decisions/index.md) - Complete index of Architecture Decision Records (`ADR-001` through `ADR-025`).
 * [bootstrap_memory](GEMINI.md) - Agent wakeup orientation document detailing architectural layers, memory tiers, and development conventions.
 * [v0.3.0_roadmap](docs/roadmap_v0.3.0.md) - Authoritative v0.3.0 architectural blueprint for lifecycle convergence, context shaping, three-tier memory, and delegated agents.
-* [v0.3.3_roadmap](docs/roadmap_v0.3.3.md) - Active engineering ledger and roadmap for v0.3.3 security/lifecycle hardening and v0.4.0 strategic horizons.
+* [v0.3.3_roadmap](docs/roadmap_v0.3.3.md) - Completed engineering ledger for v0.3.3 security boundaries, vault hygiene, and entrypoint/protocol convergence.
+* [v0.4.0_roadmap](docs/roadmap_v0.4.0.md) - Active two-track roadmap for v0.4.0 maintenance hygiene (`commands.go` split, web inspector, deps/ACP SDK) and features (Sensory Organ orientation, parallel subagents, `WireCodec` expansion).
 * [daemon_protocol](docs/daemon_protocol_spec.md) - Authoritative REST v1 and SSE streaming wire protocol specification for multi-platform clients.
 * [context_resonance](docs/context_resonance.md) - Cache-stable `ContextShaper` mathematical projections ([ADR-020](decisions/020-cache-stable-context-shaping-and-pure-prompt-projections.md)) and `SmartReceipt` out-of-band telemetry paging ([ADR-021](decisions/021-tiered-sensory-storage-and-observation-compaction.md)).
 * [natural_pacing](docs/natural_pacing.md) - Natural reading-pace stream buffering with punctuation-sensitive pauses.

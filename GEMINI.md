@@ -22,7 +22,8 @@ For detailed and authoritative documentation, consult these dedicated files inst
 * [Project Index](index.md) - The central directory of packages, concepts, and specifications.
 * [Technical README](README.md) - Features list, CLI examples, setup, TUI controls table, and testing instructions.
 * [v0.3.0 Roadmap](docs/roadmap_v0.3.0.md) - Completed strategic architecture for execution lifecycle convergence, three-tier memory, pluggable context shaping, and delegated multi-agent topologies.
-* [v0.3.3 & v0.4.0 Roadmap](docs/roadmap_v0.3.3.md) - Active engineering audit ledger for ADR-023 security boundaries, v0.3.3 lifecycle/storage hardening, and v0.4.0 features.
+* [v0.3.3 Hardening Ledger](docs/roadmap_v0.3.3.md) - Completed engineering ledger for ADR-023 security boundaries, vault blob hygiene, and entrypoint/protocol convergence.
+* [v0.4.0 Roadmap](docs/roadmap_v0.4.0.md) - Active two-track roadmap (Maintenance: `commands.go` split, web inspector hygiene, deps & ACP SDK upgrade; Features: Sensory Organ & orientation, parallel subagent fan-out, multi-model `WireCodec`s).
 * [Daemon Protocol Spec](docs/daemon_protocol_spec.md) - Authoritative REST v1 and SSE streaming wire protocol specification.
 * [Context Shaping & Resonance Spec](docs/context_resonance.md) - Cache-stable `ContextShaper` projections (`SigmoidShaper`, `WindowShaper`, `ResonanceShaper`) and `SmartReceipt` paging.
 * [Natural Pacing Spec](docs/natural_pacing.md) - Stream buffering and punctuation-sensitive pacing rules.
@@ -98,9 +99,10 @@ When adding or modifying Go code, strictly respect the downward-only acyclic imp
 
 ## 🗺️ Next Up (Roadmap)
 
-- [ ] **Daemon Observability & Graph Visualization**:
-  - [ ] Web-based D3 graph visualizer served directly from `please serve` (`/visualize`).
-  - [ ] Real-time SSE event bus streaming node creation, tool execution, and branch forks to web clients.
+See the full [v0.4.0 Two-Track Roadmap](docs/roadmap_v0.4.0.md) for details:
+- [ ] **Maintenance Track (`M1`–`M4`)**: `internal/tui/commands.go` modularization, vanilla SSE diagnostic inspector hygiene (`internal/server/assets/index.html`), safe dependency & Go 1.27 modernization, and isolated `coder/acp-go-sdk` (`v0.20.0`) migration.
+- [ ] **Feature Track (`F1`–`F3`)**: Sensory Organ & inference-time orientation (Candidate ADR-026: read-only workspace/git pulse, federated multi-source search, cold-path consolidation), parallel subagent fan-out, and additional `WireCodec`s.
+- [x] **v0.3.3 Security Perimeter, Vault Hygiene & Convergence**: Complete ([v0.3.3 Ledger](docs/roadmap_v0.3.3.md)).
 - [x] **v0.3.0 Unified Execution Lifecycle & Three-Tier Memory Architecture**:
   - [x] Pillar 1: Lifecycle Convergence onto `SessionHarness` & Interactive `PermissionGate` ([ADR-019](decisions/019-lifecycle-convergence-and-canonical-harness-standardization.md)).
   - [x] Pillar 2: Cache-Stable `ContextShaper` (`sigmoid`, `window`, `exponential`) & Monotonic Prefix Invariance ([ADR-020](decisions/020-cache-stable-context-shaping-and-pure-prompt-projections.md)).
