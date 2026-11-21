@@ -1323,3 +1323,11 @@ func (s *SQLiteStorage) CleanObservations() (int64, error) {
 
 	return rowsAffected, nil
 }
+
+// Close releases the underlying SQLite connection pool and stops its background goroutines.
+func (s *SQLiteStorage) Close() error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	return s.db.Close()
+}

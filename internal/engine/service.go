@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 	"uuid"
@@ -74,6 +75,17 @@ func NewManager(g *graph.Graph, s storage.Storage) *Manager {
 		NumCtx:            32768,
 		ContextShaperType: "sigmoid",
 	}
+}
+
+// Close closes the Manager's Storage if it implements io.Closer.
+func (m *Manager) Close() error {
+	if m == nil || m.Storage == nil {
+		return nil
+	}
+	if closer, ok := m.Storage.(io.Closer); ok {
+		return closer.Close()
+	}
+	return nil
 }
 
 // ApplyConfig synchronizes runtime configuration parameters (steering flags, context shaper,
