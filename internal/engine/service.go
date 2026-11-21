@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"uuid"
 
 	"github.com/bartkleypas/please/internal/config"
 	"github.com/bartkleypas/please/internal/domain"
@@ -16,7 +17,6 @@ import (
 	"github.com/bartkleypas/please/internal/providers"
 	"github.com/bartkleypas/please/internal/storage"
 	"github.com/bartkleypas/please/internal/tools"
-	"github.com/google/uuid"
 )
 
 // Manager is the central coordinator for the application engine. It provides
@@ -196,7 +196,7 @@ func (m *Manager) GetShaper() ContextShaper {
 // CreateNode handles the full lifecycle of creating a new node:
 // ID generation, graph insertion, and persistence.
 func (m *Manager) CreateNode(parentID string, role domain.Role, content string, internal bool) (*graph.Node, error) {
-	id, _ := uuid.NewV7()
+	id := uuid.NewV7()
 	cleanContent, signat := ExtractSignat(content)
 
 	node := &graph.Node{
@@ -232,7 +232,7 @@ func (m *Manager) CreateNode(parentID string, role domain.Role, content string, 
 
 // CreateAssistantNode creates a node for the assistant, potentially containing tool calls and reasoning
 func (m *Manager) CreateAssistantNode(parentID string, content string, thought string, toolCalls []domain.ToolCall, internal bool) (*graph.Node, error) {
-	id, _ := uuid.NewV7()
+	id := uuid.NewV7()
 	cleanContent, signat := ExtractSignat(content)
 
 	node := &graph.Node{
@@ -316,7 +316,7 @@ func (m *Manager) deriveSilentSignat(toolCalls []domain.ToolCall, thought string
 
 // CreateToolNode creates a node containing the result of a tool execution
 func (m *Manager) CreateToolNode(parentID string, toolCallID string, content string, internal bool) (*graph.Node, error) {
-	id, _ := uuid.NewV7()
+	id := uuid.NewV7()
 	node := &graph.Node{
 		ID:         id.String(),
 		ParentID:   parentID,
@@ -828,7 +828,7 @@ func parseCompactionOutput(raw string, sourceNodeID string) (string, []storage.M
 		seenKeys[key] = true
 
 		category := normalizeMemoryCategory(categoryStr)
-		memID, _ := uuid.NewV7()
+		memID := uuid.NewV7()
 		now := time.Now()
 
 		mem := storage.Memory{
@@ -938,16 +938,10 @@ func normalizeMemoryCategory(cat string) storage.MemoryCategory {
 
 // newV7FromTime generates a valid UUIDv7 using a specific timestamp
 func newV7FromTime(t time.Time) (uuid.UUID, error) {
-	var id uuid.UUID
-
 	// Start with a completely random v4 (or random byte slice)
 	// We can just call uuid.NewV7() to get a valid v7 with correct variant/version,
 	// then just overwrite the 48-bit timestamp.
-	var err error
-	id, err = uuid.NewV7()
-	if err != nil {
-		return id, err
-	}
+	id := uuid.NewV7()
 
 	ms := t.UnixMilli()
 	id[0] = byte(ms >> 40)

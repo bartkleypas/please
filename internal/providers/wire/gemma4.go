@@ -8,9 +8,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"uuid"
 
 	"github.com/bartkleypas/please/internal/domain"
-	"github.com/google/uuid"
 )
 
 // Gemma 4 Wire Grammar Tokens
@@ -448,7 +448,6 @@ func sanitizeThought(s string) string {
 	}
 	return strings.TrimSpace(cleaned)
 }
-
 
 // FormatGemmaValue recursively formats arbitrary Go structures, maps, and primitives
 // into Gemma 4 grammar, sorting all map keys alphabetically for KV cache stability.

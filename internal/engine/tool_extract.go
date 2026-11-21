@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"uuid"
 
 	"github.com/bartkleypas/please/internal/domain"
-	"github.com/google/uuid"
 )
 
 var (

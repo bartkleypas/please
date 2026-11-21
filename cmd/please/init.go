@@ -7,12 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"uuid"
 
 	"github.com/bartkleypas/please/internal/config"
 	"github.com/bartkleypas/please/internal/graph"
 	"github.com/bartkleypas/please/internal/storage"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/google/uuid"
 )
 
 var (
@@ -101,7 +101,7 @@ func executeWorkspaceInit(workspacePath string, force bool) error {
 		if err == nil && len(g.Nodes) == 0 {
 			// Seed Genesis root node
 			genesisPrompt := "You are Please 🦉, a lightweight, highly responsive terminal AI assistant."
-			id, _ := uuid.NewV7()
+			id := uuid.NewV7()
 			sysNode := &graph.Node{
 				ID:        id.String(),
 				Role:      graph.RoleSystem,
@@ -190,7 +190,7 @@ func executeGlobalInit(force bool) error {
 		g, _, err := store.LoadGraph()
 		if err == nil && len(g.Nodes) == 0 {
 			genesisPrompt := "You are Please 🦉, a lightweight, highly responsive terminal AI assistant."
-			id, _ := uuid.NewV7()
+			id := uuid.NewV7()
 			sysNode := &graph.Node{
 				ID:        id.String(),
 				Role:      graph.RoleSystem,

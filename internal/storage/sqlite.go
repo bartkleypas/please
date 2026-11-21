@@ -12,10 +12,9 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"uuid"
 
 	_ "modernc.org/sqlite"
-
-	"github.com/google/uuid"
 
 	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/graph"

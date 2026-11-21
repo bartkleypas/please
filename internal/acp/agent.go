@@ -7,13 +7,13 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"uuid"
 
 	"github.com/bartkleypas/please/internal/config"
 	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/engine"
 	"github.com/bartkleypas/please/internal/providers"
 	acpsdk "github.com/coder/acp-go-sdk"
-	"github.com/google/uuid"
 )
 
 // Agent implements the acpsdk.Agent interface, adapting the please SessionHarness,

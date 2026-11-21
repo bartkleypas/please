@@ -12,8 +12,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
-
-	"github.com/google/uuid"
+	"uuid"
 
 	"github.com/bartkleypas/please/internal/domain"
 )
