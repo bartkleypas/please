@@ -45,7 +45,7 @@ Per [ADR-017](../../decisions/017-tui-viewstack-and-hierarchical-focus-architect
 * [bell.go](bell.go) - Implements Phonic Staging ([ADR-013](../../decisions/013-acoustic-theatrics-phonic-staging-and-talon-tap-telemetry.md)) via `BellCmd()` (`\a` / ASCII `0x07`), firing strictly when human attention is required (turn completion, error, or interactive `PermissionGate` yield).
 * [handlers.go](handlers.go) - Handles spinner ticks, export/sync notifications, and `handleToolApprovalReq` (pushing `ToolConfirmOverlay` onto the `ViewStack`).
 * [events.go](events.go) - Consumes remote daemon SSE bus events (`EventNodeSaved`, `EventBranchPruned`, `EventSupernodeCreated`) with camera decoupling ([ADR-007](../../decisions/007-multi-session-daemon-branch-concurrency.md)).
-* [commands.go](commands.go) - Slash command dispatcher (`/help`, `/map`, `/memories`, `/session`, `/worktree`, `/sandbox`, `/bell`, `/pacing`, `/persona`, `/config`, `/jump`, `/mark`, `/gc`, `/audit`).
+* [commands.go](commands.go), [commands_config.go](commands_config.go), [commands_session.go](commands_session.go), [commands_memory.go](commands_memory.go), & [commands_worktree.go](commands_worktree.go) - Modular slash command dispatcher and domain handlers (`/help`, `/audit`, `/pacing`, `/bell`, `/server`, `/gc`, `/config`, `/sandbox`, `/session`, `/jump`, `/mark`, `/map`, `/compact`, `/persona`, `/memories`, `/worktree`).
 * [keys.go](keys.go) - Global interrupt and keybinding helpers.
 * [tea_cmds.go](tea_cmds.go) & [utils.go](utils.go) - Asynchronous `tea.Cmd` generators (`waitForStream`, `generateLLMResponse`) and text formatting utilities.
 
