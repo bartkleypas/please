@@ -1253,3 +1253,41 @@ func TestServer_RemoteDaemonStorage_Parity(t *testing.T) {
 		t.Errorf("blob payload mismatch: got %q, want %q", string(gotBlob.Payload), string(blob.Payload))
 	}
 }
+
+func TestIndexHTML_DiagnosticHygiene(t *testing.T) {
+	mgr := engine.NewManager(graph.NewGraph(), nil)
+	srv := NewServer(mgr)
+	handler := srv.Handler()
+
+	req := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for GET /, got %d", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.Contains(ct, "text/html") {
+		t.Errorf("expected text/html Content-Type, got %q", ct)
+	}
+
+	body := w.Body.String()
+	for _, legacy := range []string{"sd_prompt", "sd_seed", "sd_sampler"} {
+		if strings.Contains(body, legacy) {
+			t.Errorf("expected legacy token %q to be stripped from index.html", legacy)
+		}
+	}
+
+	for _, required := range []string{
+		"/api/v1/graph",
+		"/api/v1/sessions",
+		"/api/v1/events",
+		"node_saved",
+		"branch_pruned",
+		"branch_compacted",
+		"receipt_id",
+	} {
+		if !strings.Contains(body, required) {
+			t.Errorf("expected index.html to contain %q", required)
+		}
+	}
+}

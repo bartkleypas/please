@@ -24,7 +24,7 @@ The `internal/server` package (Layer 3: Presentation & Daemon) provides the head
 * [bus.go](bus.go) - Internal publish/subscribe `EventBus` broadcasting graph mutations (`node_saved`, `branch_pruned`, `supernode_created`) and session activity to connected SSE listeners (`/api/v1/events`).
 * [cert.go](cert.go) - Self-contained 20-year (7,300 days) ECDSA Root CA and Leaf Server Certificate generator (`Generate20YearCerts`) with Subject Alternative Names (`localhost`, `127.0.0.1`, `please.local`).
 * [server_test.go](server_test.go) & [bus_test.go](bus_test.go) - Unit and integration test suites covering cert generation, Bearer auth, multi-session actor isolation, REST v1 endpoints, and SSE streaming.
-* [assets/](assets/) - Embedded web visualization single-page application (`assets/index.html`).
+* [assets/](assets/) - Embedded single-file, zero-build vanilla HTML/JS diagnostic oscilloscope (`assets/index.html`) featuring live SSE auto-refresh (`/api/v1/events`), named session head indicators (`/api/v1/sessions`), and `SmartReceipt` / L2 blob inspection (`/api/v1/observations/{receipt_id}`).
 
 ---
 

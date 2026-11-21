@@ -19,14 +19,115 @@
             max-width: 1100px;
             margin: 0 auto;
         }
+        .top-bar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            border-bottom: 1px solid #1e3a2f;
+            padding-bottom: 14px;
+            margin-bottom: 14px;
+        }
         h1 {
             color: #4ade80;
-            font-size: 1.8rem;
+            font-size: 1.6rem;
             font-weight: 700;
-            border-bottom: 1px solid #1e3a2f;
-            padding-bottom: 15px;
-            margin-bottom: 30px;
+            margin: 0;
             letter-spacing: -0.025em;
+        }
+        .diag-controls {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.78rem;
+        }
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-weight: 600;
+            border: 1px solid #1e3a2f;
+            background: rgba(17, 38, 29, 0.85);
+            color: #8fa397;
+        }
+        .status-pill.live {
+            color: #4ade80;
+            border-color: rgba(74, 222, 128, 0.35);
+            background: rgba(20, 83, 45, 0.35);
+        }
+        .status-pill.reconnecting {
+            color: #fbbf24;
+            border-color: rgba(251, 191, 36, 0.35);
+            background: rgba(120, 53, 15, 0.25);
+        }
+        .status-pill.paused {
+            color: #94a3b8;
+            border-color: rgba(148, 163, 184, 0.3);
+        }
+        .ctrl-btn {
+            background: rgba(22, 44, 35, 0.9);
+            color: #d1fae5;
+            border: 1px solid #2d5a45;
+            border-radius: 6px;
+            padding: 4px 10px;
+            font-size: 0.78rem;
+            cursor: pointer;
+            transition: border-color 0.15s, background 0.15s;
+        }
+        .ctrl-btn:hover {
+            border-color: #4ade80;
+            background: rgba(30, 58, 47, 0.95);
+        }
+        .last-sync {
+            color: #8fa397;
+            font-size: 0.74rem;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+        }
+        .sessions-bar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 20px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            background: rgba(14, 30, 23, 0.75);
+            border: 1px solid #1e3a2f;
+            font-size: 0.78rem;
+        }
+        .sessions-label {
+            color: #8fa397;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-size: 0.7rem;
+            margin-right: 4px;
+        }
+        .session-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 9px;
+            border-radius: 6px;
+            background: rgba(22, 44, 35, 0.85);
+            border: 1px solid rgba(74, 222, 128, 0.25);
+            color: #e2e8f0;
+            cursor: pointer;
+            font-size: 0.76rem;
+            transition: border-color 0.15s, transform 0.15s;
+        }
+        .session-chip:hover {
+            border-color: #4ade80;
+            transform: translateY(-1px);
+        }
+        .session-chip code {
+            color: #4ade80;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 0.72rem;
         }
         .node {
             margin-left: 24px;
@@ -44,13 +145,16 @@
             padding-left: 0;
             margin-top: 16px;
         }
+        .node.node-highlight > .content {
+            box-shadow: 0 0 0 2px #4ade80, 0 8px 25px -4px rgba(74, 222, 128, 0.25);
+        }
         .toggle-btn {
             cursor: pointer;
             color: #8fa397;
             font-family: monospace;
             font-size: 1rem;
             user-select: none;
-            margin-right: 8px;
+            margin-right: 4px;
             transition: color 0.2s;
         }
         .toggle-btn:hover {
@@ -61,8 +165,9 @@
             color: #8fa397;
             margin-bottom: 8px;
             display: flex;
+            flex-wrap: wrap;
             align-items: center;
-            gap: 12px;
+            gap: 8px;
         }
         .role {
             font-weight: 600;
@@ -77,17 +182,34 @@
         .role-user { color: #60a5fa; }
         .role-assistant { color: #4ade80; }
         .role-tool { color: #c084fc; }
-        
+        .role-summary { color: #fbbf24; }
+        .head-badge {
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 0.68rem;
+            font-weight: 600;
+            color: #86efac;
+            background: rgba(20, 83, 45, 0.55);
+            border: 1px solid rgba(74, 222, 128, 0.35);
+            padding: 1px 6px;
+            border-radius: 4px;
+        }
+        .internal-badge {
+            font-size: 0.66rem;
+            color: #94a3b8;
+            background: rgba(148, 163, 184, 0.12);
+            border: 1px solid rgba(148, 163, 184, 0.25);
+            padding: 1px 6px;
+            border-radius: 4px;
+        }
         .thought {
             font-size: 0.85rem;
             font-style: italic;
-            color: #64748b;
+            color: #94a3b8;
             margin-bottom: 10px;
             padding-left: 12px;
             border-left: 2px solid #334155;
             white-space: pre-wrap;
         }
-
         .content {
             font-size: 0.95rem;
             line-height: 1.6;
@@ -120,45 +242,288 @@
             font-size: 0.7rem;
         }
         .timestamp {
-            opacity: 0.7;
+            opacity: 0.75;
         }
-        .meta {
-            margin-top: 8px;
-            font-size: 0.8rem;
-        }
-        .bookmark { 
+        .bookmark {
             color: #facc15;
             font-size: 1rem;
+        }
+        .diag-section {
+            margin-top: 12px;
+            padding-top: 10px;
+            border-top: 1px solid rgba(45, 90, 69, 0.45);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .tool-call-card,
+        .obs-card {
+            background: rgba(8, 18, 14, 0.65);
+            border: 1px solid rgba(45, 90, 69, 0.45);
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 0.8rem;
+            white-space: normal;
+        }
+        .diag-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 6px;
+        }
+        .pill {
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 0.7rem;
+            padding: 1px 6px;
+            border-radius: 4px;
+            background: rgba(30, 58, 47, 0.7);
+            color: #cbd5e1;
+            border: 1px solid rgba(71, 85, 105, 0.35);
+        }
+        .receipt-id {
+            color: #38bdf8;
+            background: rgba(14, 116, 144, 0.25);
+            border-color: rgba(56, 189, 248, 0.35);
+        }
+        .badge-blob {
+            color: #c084fc;
+            background: rgba(88, 28, 135, 0.3);
+            border-color: rgba(192, 132, 252, 0.35);
+        }
+        .badge-ok {
+            color: #4ade80;
+            border-color: rgba(74, 222, 128, 0.3);
+        }
+        .badge-err {
+            color: #fca5a5;
+            background: rgba(127, 29, 29, 0.45);
+            border-color: rgba(248, 113, 113, 0.45);
+        }
+        .obs-summary {
+            margin-top: 6px;
+            color: #cbd5e1;
+            font-size: 0.78rem;
+            white-space: pre-wrap;
+        }
+        .obs-error {
+            margin-top: 6px;
+            color: #fca5a5;
+            font-size: 0.78rem;
+            white-space: pre-wrap;
+        }
+        .obs-actions {
+            margin-top: 6px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+        .mini-btn {
+            background: rgba(22, 44, 35, 0.85);
+            color: #93c5fd;
+            border: 1px solid rgba(96, 165, 250, 0.3);
+            border-radius: 5px;
+            padding: 2px 8px;
+            font-size: 0.72rem;
+            cursor: pointer;
+        }
+        .mini-btn:hover {
+            border-color: #60a5fa;
+            color: #dbeafe;
+        }
+        .obs-output {
+            margin-top: 8px;
+            padding: 8px 10px;
+            border-radius: 6px;
+            background: rgba(4, 10, 8, 0.85);
+            border: 1px solid #1e3a2f;
+            color: #cbd5e1;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 0.74rem;
+            line-height: 1.45;
+            white-space: pre-wrap;
+            overflow-x: auto;
+            max-height: 320px;
+            overflow-y: auto;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🦉 Please Narrative Graph</h1>
+        <div class="top-bar">
+            <h1>🦉 Please Narrative Graph</h1>
+            <div class="diag-controls">
+                <span id="sse-status" class="status-pill reconnecting">○ Connecting</span>
+                <button id="pause-btn" class="ctrl-btn" type="button">Pause Live</button>
+                <button id="refresh-btn" class="ctrl-btn" type="button">Refresh</button>
+                <span id="last-sync" class="last-sync"></span>
+            </div>
+        </div>
+        <div id="sessions-bar" class="sessions-bar" style="display: none;"></div>
         <div id="graph-container">Loading graph...</div>
     </div>
 
     <script>
-        async function fetchGraph() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const authToken = urlParams.get('token') || '';
+        const collapsedNodes = new Set();
+        let eventSource = null;
+        let isPaused = false;
+        let refreshTimer = null;
+
+        function withAuth(url) {
+            if (!authToken) return url;
+            const sep = url.includes('?') ? '&' : '?';
+            return `${url}${sep}token=${encodeURIComponent(authToken)}`;
+        }
+
+        function setSSEStatus(state, label) {
+            const pill = document.getElementById('sse-status');
+            pill.className = `status-pill ${state}`;
+            pill.textContent = label;
+        }
+
+        function decodeBase64UTF8(b64) {
+            const bin = atob(b64);
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) {
+                bytes[i] = bin.charCodeAt(i);
+            }
+            return new TextDecoder().decode(bytes);
+        }
+
+        function formatArguments(rawArgs) {
+            if (rawArgs === undefined || rawArgs === null) return '';
+            if (typeof rawArgs === 'string') {
+                try {
+                    return JSON.stringify(JSON.parse(rawArgs), null, 2);
+                } catch (_) {
+                    return rawArgs;
+                }
+            }
             try {
-                const response = await fetch('/api/graph');
-                const data = await response.json();
-                renderGraph(data);
+                return JSON.stringify(rawArgs, null, 2);
+            } catch (_) {
+                return String(rawArgs);
+            }
+        }
+
+        async function fetchDashboard() {
+            try {
+                const [graphResp, sessionsResp] = await Promise.all([
+                    fetch(withAuth('/api/v1/graph')),
+                    fetch(withAuth('/api/v1/sessions')).catch(() => null),
+                ]);
+
+                if (!graphResp.ok) {
+                    throw new Error(`HTTP ${graphResp.status}`);
+                }
+                const graphData = await graphResp.json();
+
+                let sessions = {};
+                if (sessionsResp && sessionsResp.ok) {
+                    const parsed = await sessionsResp.json();
+                    if (parsed && typeof parsed === 'object') {
+                        sessions = parsed;
+                    }
+                }
+
+                renderSessionsBar(sessions);
+                const headSessionsByNode = buildHeadSessionsMap(sessions);
+                renderGraph(graphData, headSessionsByNode);
+                document.getElementById('last-sync').textContent = `Synced ${new Date().toLocaleTimeString()}`;
             } catch (error) {
                 console.error('Error fetching graph:', error);
-                document.getElementById('graph-container').innerText = 'Error loading graph.';
+                document.getElementById('graph-container').textContent = 'Error loading graph.';
             }
+        }
+
+        function buildHeadSessionsMap(sessions) {
+            const map = {};
+            Object.entries(sessions || {}).forEach(([sessionID, headID]) => {
+                if (!headID) return;
+                if (!map[headID]) map[headID] = [];
+                map[headID].push(sessionID);
+            });
+            Object.values(map).forEach(list => list.sort());
+            return map;
+        }
+
+        function expandAncestorsForNode(targetEl) {
+            let cur = targetEl.parentElement;
+            while (cur) {
+                if (cur.classList && cur.classList.contains('children-container') && cur.style.display === 'none') {
+                    const parentNode = cur.parentElement;
+                    const parentID = parentNode ? parentNode.dataset.nodeId : '';
+                    if (parentID) collapsedNodes.delete(parentID);
+                    cur.style.display = 'block';
+                    const toggleBtn = parentNode ? parentNode.querySelector(':scope > .node-header > .toggle-btn') : null;
+                    if (toggleBtn) toggleBtn.textContent = '[-]';
+                    const contentEl = parentNode ? parentNode.querySelector(':scope > .content') : null;
+                    if (contentEl) contentEl.classList.remove('clamped');
+                }
+                cur = cur.parentElement;
+            }
+        }
+
+        function jumpToNode(nodeID) {
+            const candidates = document.querySelectorAll('.node[data-node-id]');
+            for (const el of candidates) {
+                if (el.dataset.nodeId === nodeID) {
+                    expandAncestorsForNode(el);
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    el.classList.add('node-highlight');
+                    setTimeout(() => el.classList.remove('node-highlight'), 1600);
+                    return;
+                }
+            }
+        }
+
+        function renderSessionsBar(sessions) {
+            const bar = document.getElementById('sessions-bar');
+            bar.textContent = '';
+
+            const entries = Object.entries(sessions || {}).sort(([a], [b]) => a.localeCompare(b));
+            if (entries.length === 0) {
+                bar.style.display = 'none';
+                return;
+            }
+
+            bar.style.display = 'flex';
+            const label = document.createElement('span');
+            label.className = 'sessions-label';
+            label.textContent = 'Session Heads';
+            bar.appendChild(label);
+
+            entries.forEach(([sessionID, headID]) => {
+                const chip = document.createElement('button');
+                chip.type = 'button';
+                chip.className = 'session-chip';
+                chip.title = headID ? `Jump to ${sessionID} head (${headID})` : `${sessionID} (no head)`;
+
+                const nameSpan = document.createElement('span');
+                nameSpan.textContent = sessionID;
+                chip.appendChild(nameSpan);
+
+                const headCode = document.createElement('code');
+                headCode.textContent = headID ? headID.slice(-8) : 'none';
+                chip.appendChild(headCode);
+
+                if (headID) {
+                    chip.onclick = () => jumpToNode(headID);
+                }
+                bar.appendChild(chip);
+            });
         }
 
         // Memoization for subtree activity timestamps
         function getLatestActivity(nodeID, graph, memo) {
             if (memo[nodeID]) return memo[nodeID];
-            
+
             const node = graph.Nodes[nodeID];
             if (!node) return 0;
 
             let latest = new Date(node.timestamp).getTime();
-            
+
             const childrenIDs = graph.Children[nodeID] || [];
             childrenIDs.forEach(childID => {
                 latest = Math.max(latest, getLatestActivity(childID, graph, memo));
@@ -168,17 +533,16 @@
             return latest;
         }
 
-        function renderGraph(graph) {
+        function renderGraph(graph, headSessionsByNode) {
             const container = document.getElementById('graph-container');
-            container.innerHTML = '';
+            container.textContent = '';
 
             if (!graph.Roots || graph.Roots.length === 0) {
-                container.innerText = 'No nodes found in graph.';
+                container.textContent = 'No nodes found in graph.';
                 return;
             }
 
             const memo = {};
-            // Sort roots by latest activity in their subtree (descending)
             const sortedRoots = [...graph.Roots].sort((a, b) => {
                 return getLatestActivity(b, graph, memo) - getLatestActivity(a, graph, memo);
             });
@@ -186,40 +550,280 @@
             sortedRoots.forEach(rootID => {
                 const rootNode = graph.Nodes[rootID];
                 if (rootNode) {
-                    container.appendChild(createNodeElement(rootNode, graph, memo, true));
+                    container.appendChild(createNodeElement(rootNode, graph, memo, headSessionsByNode, true));
                 }
             });
         }
 
-        function createNodeElement(node, graph, memo, isRoot = false) {
+        function renderToolCallsSection(toolCalls) {
+            const section = document.createElement('div');
+            section.className = 'diag-section';
+
+            toolCalls.forEach(tc => {
+                const card = document.createElement('div');
+                card.className = 'tool-call-card';
+
+                const row = document.createElement('div');
+                row.className = 'diag-row';
+
+                const nameBadge = document.createElement('span');
+                nameBadge.className = 'pill';
+                const fnName = tc && tc.function ? tc.function.name : 'unknown';
+                nameBadge.textContent = `🔧 ${fnName}`;
+                row.appendChild(nameBadge);
+
+                if (tc && tc.id) {
+                    const idPill = document.createElement('span');
+                    idPill.className = 'pill';
+                    idPill.textContent = tc.id;
+                    row.appendChild(idPill);
+                }
+
+                const argsText = formatArguments(tc && tc.function ? tc.function.arguments : null);
+                let pre = null;
+                if (argsText) {
+                    const toggleArgsBtn = document.createElement('button');
+                    toggleArgsBtn.type = 'button';
+                    toggleArgsBtn.className = 'mini-btn';
+                    toggleArgsBtn.textContent = 'Args';
+
+                    pre = document.createElement('pre');
+                    pre.className = 'obs-output';
+                    pre.style.display = 'none';
+                    pre.textContent = argsText;
+
+                    toggleArgsBtn.onclick = () => {
+                        const hidden = pre.style.display === 'none';
+                        pre.style.display = hidden ? 'block' : 'none';
+                        toggleArgsBtn.textContent = hidden ? 'Hide args' : 'Args';
+                    };
+                    row.appendChild(toggleArgsBtn);
+                }
+
+                card.appendChild(row);
+                if (pre) card.appendChild(pre);
+                section.appendChild(card);
+            });
+
+            return section;
+        }
+
+        function renderObservationsSection(observations) {
+            const section = document.createElement('div');
+            section.className = 'diag-section';
+
+            observations.forEach(obs => {
+                const card = document.createElement('div');
+                card.className = 'obs-card';
+
+                const row = document.createElement('div');
+                row.className = 'diag-row';
+
+                const r = obs ? obs.receipt : null;
+                if (r) {
+                    if (r.receipt_id) {
+                        const rid = document.createElement('span');
+                        rid.className = 'pill receipt-id';
+                        rid.textContent = r.receipt_id;
+                        row.appendChild(rid);
+                    }
+                    if (r.tool) {
+                        const toolPill = document.createElement('span');
+                        toolPill.className = 'pill';
+                        toolPill.textContent = r.tool;
+                        row.appendChild(toolPill);
+                    }
+                    if (r.path) {
+                        const pathPill = document.createElement('span');
+                        pathPill.className = 'pill';
+                        pathPill.textContent = r.path;
+                        row.appendChild(pathPill);
+                    } else if (r.command) {
+                        const cmdPill = document.createElement('span');
+                        cmdPill.className = 'pill';
+                        cmdPill.textContent = r.command;
+                        row.appendChild(cmdPill);
+                    }
+
+                    const sizePill = document.createElement('span');
+                    sizePill.className = 'pill';
+                    sizePill.textContent = `${r.lines ?? 0}L / ${r.bytes ?? 0}B`;
+                    row.appendChild(sizePill);
+
+                    const exitCode = (obs.exit_code !== undefined && obs.exit_code !== null) ? obs.exit_code : r.exit_code;
+                    if (exitCode !== undefined && exitCode !== null && (exitCode !== 0 || r.command)) {
+                        const exitPill = document.createElement('span');
+                        exitPill.className = `pill ${exitCode === 0 ? 'badge-ok' : 'badge-err'}`;
+                        exitPill.textContent = `exit ${exitCode}`;
+                        row.appendChild(exitPill);
+                    }
+
+                    if (r.has_blob) {
+                        const blobPill = document.createElement('span');
+                        blobPill.className = 'pill badge-blob';
+                        blobPill.textContent = 'L2 blob';
+                        row.appendChild(blobPill);
+                    }
+                } else {
+                    if (obs && obs.tool_call_id) {
+                        const callPill = document.createElement('span');
+                        callPill.className = 'pill';
+                        callPill.textContent = `call ${obs.tool_call_id}`;
+                        row.appendChild(callPill);
+                    }
+                    if (obs && obs.blob_id) {
+                        const blobIdPill = document.createElement('span');
+                        blobIdPill.className = 'pill badge-blob';
+                        blobIdPill.textContent = obs.blob_id;
+                        row.appendChild(blobIdPill);
+                    }
+                    if (obs && obs.exit_code !== undefined && obs.exit_code !== null) {
+                        const exitPill = document.createElement('span');
+                        exitPill.className = `pill ${obs.exit_code === 0 ? 'badge-ok' : 'badge-err'}`;
+                        exitPill.textContent = `exit ${obs.exit_code}`;
+                        row.appendChild(exitPill);
+                    }
+                }
+
+                card.appendChild(row);
+
+                if (r && r.summary) {
+                    const summaryEl = document.createElement('div');
+                    summaryEl.className = 'obs-summary';
+                    summaryEl.textContent = r.summary;
+                    card.appendChild(summaryEl);
+                }
+
+                if (obs && obs.error) {
+                    const errEl = document.createElement('div');
+                    errEl.className = 'obs-error';
+                    errEl.textContent = `Error: ${obs.error}`;
+                    card.appendChild(errEl);
+                }
+
+                const actions = document.createElement('div');
+                actions.className = 'obs-actions';
+
+                let resultPre = null;
+                if (obs && obs.result) {
+                    const resultBtn = document.createElement('button');
+                    resultBtn.type = 'button';
+                    resultBtn.className = 'mini-btn';
+                    resultBtn.textContent = 'Show result';
+
+                    resultPre = document.createElement('pre');
+                    resultPre.className = 'obs-output';
+                    resultPre.style.display = 'none';
+                    resultPre.textContent = obs.result;
+
+                    resultBtn.onclick = () => {
+                        const hidden = resultPre.style.display === 'none';
+                        resultPre.style.display = hidden ? 'block' : 'none';
+                        resultBtn.textContent = hidden ? 'Hide result' : 'Show result';
+                    };
+                    actions.appendChild(resultBtn);
+                }
+
+                let blobPre = null;
+                if (r && r.has_blob && r.receipt_id) {
+                    const blobBtn = document.createElement('button');
+                    blobBtn.type = 'button';
+                    blobBtn.className = 'mini-btn';
+                    blobBtn.textContent = 'Fetch L2 blob';
+
+                    blobPre = document.createElement('pre');
+                    blobPre.className = 'obs-output';
+                    blobPre.style.display = 'none';
+                    let loaded = false;
+
+                    blobBtn.onclick = async () => {
+                        if (!loaded) {
+                            blobBtn.textContent = 'Loading...';
+                            try {
+                                const resp = await fetch(withAuth(`/api/v1/observations/${encodeURIComponent(r.receipt_id)}`));
+                                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                                const blob = await resp.json();
+                                let text = '';
+                                if (typeof blob.payload === 'string') {
+                                    text = decodeBase64UTF8(blob.payload);
+                                } else if (typeof blob.content === 'string') {
+                                    text = blob.content;
+                                } else {
+                                    text = JSON.stringify(blob, null, 2);
+                                }
+                                blobPre.textContent = text || '(empty blob)';
+                                loaded = true;
+                                blobPre.style.display = 'block';
+                                blobBtn.textContent = 'Hide L2 blob';
+                            } catch (err) {
+                                blobPre.textContent = `Failed to load blob: ${err.message}`;
+                                blobPre.style.display = 'block';
+                                blobBtn.textContent = 'Retry L2 blob';
+                            }
+                            return;
+                        }
+                        const hidden = blobPre.style.display === 'none';
+                        blobPre.style.display = hidden ? 'block' : 'none';
+                        blobBtn.textContent = hidden ? 'Hide L2 blob' : 'Show L2 blob';
+                    };
+                    actions.appendChild(blobBtn);
+                }
+
+                if (actions.childNodes.length > 0) {
+                    card.appendChild(actions);
+                }
+                if (resultPre) card.appendChild(resultPre);
+                if (blobPre) card.appendChild(blobPre);
+                section.appendChild(card);
+            });
+
+            return section;
+        }
+
+        function createNodeElement(node, graph, memo, headSessionsByNode, isRoot = false) {
             const nodeDiv = document.createElement('div');
             nodeDiv.className = 'node' + (isRoot ? ' root' : '');
+            nodeDiv.dataset.nodeId = node.id;
 
             const header = document.createElement('div');
             header.className = 'node-header';
-            
+
             const roleSpan = document.createElement('span');
             roleSpan.className = `role role-${node.role}`;
-            roleSpan.innerText = node.role;
+            roleSpan.textContent = node.role;
 
             const idSpan = document.createElement('span');
             idSpan.className = 'node-id';
-            idSpan.innerText = node.id.slice(-8);
-            idSpan.style.marginLeft = '10px';
+            idSpan.textContent = node.id.slice(-8);
+            idSpan.title = node.id;
 
             const timeSpan = document.createElement('span');
             timeSpan.className = 'timestamp';
-            timeSpan.innerText = new Date(node.timestamp).toLocaleString();
-            timeSpan.style.marginLeft = '10px';
+            timeSpan.textContent = new Date(node.timestamp).toLocaleString();
 
             header.appendChild(roleSpan);
             header.appendChild(idSpan);
             header.appendChild(timeSpan);
 
-            if (node.metadata && node.metadata.bookmarked === "true") {
+            const headSessions = headSessionsByNode[node.id] || [];
+            headSessions.forEach(sess => {
+                const headBadge = document.createElement('span');
+                headBadge.className = 'head-badge';
+                headBadge.textContent = `HEAD: ${sess}`;
+                header.appendChild(headBadge);
+            });
+
+            if (node.internal) {
+                const internalBadge = document.createElement('span');
+                internalBadge.className = 'internal-badge';
+                internalBadge.textContent = 'internal';
+                header.appendChild(internalBadge);
+            }
+
+            if (node.metadata && node.metadata.bookmarked === 'true') {
                 const bookmark = document.createElement('span');
                 bookmark.className = 'bookmark';
-                bookmark.innerText = ' ⭐';
+                bookmark.textContent = ' ⭐';
                 header.appendChild(bookmark);
             }
 
@@ -228,15 +832,14 @@
             if (node.thought) {
                 const thoughtToggleBtn = document.createElement('span');
                 thoughtToggleBtn.className = 'toggle-btn';
-                thoughtToggleBtn.innerText = '🧠';
+                thoughtToggleBtn.textContent = '🧠';
                 thoughtToggleBtn.title = 'Toggle thought process';
-                thoughtToggleBtn.style.marginLeft = '10px';
                 thoughtToggleBtn.style.opacity = '0.4';
                 thoughtToggleBtn.style.transition = 'opacity 0.2s';
-                
+
                 const thought = document.createElement('div');
                 thought.className = 'thought';
-                thought.innerText = node.thought;
+                thought.textContent = node.thought;
                 thought.style.display = 'none';
 
                 thoughtToggleBtn.onclick = (e) => {
@@ -256,7 +859,7 @@
 
             const content = document.createElement('div');
             content.className = 'content';
-            content.innerText = node.content;
+            content.textContent = node.content || '';
 
             if (node.images && node.images.length > 0) {
                 const imgContainer = document.createElement('div');
@@ -271,72 +874,63 @@
                     imgWrapper.style.display = 'flex';
                     imgWrapper.style.flexDirection = 'column';
                     imgWrapper.style.gap = '6px';
-                    
+
+                    const imgUrl = withAuth(`/api/image?path=${encodeURIComponent(img)}`);
                     const imgEl = document.createElement('img');
-                    imgEl.src = `/api/image?path=${encodeURIComponent(img)}`;
+                    imgEl.src = imgUrl;
                     imgEl.style.maxWidth = '240px';
                     imgEl.style.maxHeight = '240px';
                     imgEl.style.borderRadius = '8px';
                     imgEl.style.border = '1px solid rgba(255, 255, 255, 0.1)';
                     imgEl.style.cursor = 'pointer';
                     imgEl.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)';
-                    imgEl.onclick = () => window.open(`/api/image?path=${encodeURIComponent(img)}`, '_blank');
+                    imgEl.onclick = () => window.open(imgUrl, '_blank');
                     imgWrapper.appendChild(imgEl);
-
-                    if (node.metadata && node.metadata.sd_prompt) {
-                        const metaBadge = document.createElement('div');
-                        metaBadge.style.fontSize = '0.75rem';
-                        metaBadge.style.background = 'rgba(0, 0, 0, 0.4)';
-                        metaBadge.style.color = '#86efac';
-                        metaBadge.style.padding = '8px 12px';
-                        metaBadge.style.borderRadius = '6px';
-                        metaBadge.style.border = '1px solid rgba(134, 239, 172, 0.2)';
-                        metaBadge.style.maxWidth = '216px';
-                        metaBadge.style.wordBreak = 'break-word';
-
-                        let metaHtml = `<strong>Prompt:</strong> ${node.metadata.sd_prompt}`;
-                        if (node.metadata.sd_seed) metaHtml += `<br><strong>Seed:</strong> ${node.metadata.sd_seed}`;
-                        if (node.metadata.sd_sampler) metaHtml += `<br><strong>Sampler:</strong> ${node.metadata.sd_sampler}`;
-                        if (node.metadata.sd_cfg_scale) metaHtml += `<br><strong>CFG:</strong> ${node.metadata.sd_cfg_scale}`;
-                        if (node.metadata.sd_steps) metaHtml += `<br><strong>Steps:</strong> ${node.metadata.sd_steps}`;
-                        if (node.metadata.sd_model) metaHtml += `<br><strong>Model:</strong> ${node.metadata.sd_model}`;
-
-                        metaBadge.innerHTML = metaHtml;
-                        imgWrapper.appendChild(metaBadge);
-                    }
-
                     imgContainer.appendChild(imgWrapper);
                 });
                 content.appendChild(imgContainer);
             }
 
+            if (node.tool_calls && node.tool_calls.length > 0) {
+                content.appendChild(renderToolCallsSection(node.tool_calls));
+            }
+
+            if (node.observations && node.observations.length > 0) {
+                content.appendChild(renderObservationsSection(node.observations));
+            }
+
             nodeDiv.appendChild(content);
 
             const childrenIDs = graph.Children[node.id] || [];
-            
             if (childrenIDs.length > 0) {
+                const isCollapsed = collapsedNodes.has(node.id);
                 const childrenContainer = document.createElement('div');
                 childrenContainer.className = 'children-container';
+                if (isCollapsed) {
+                    childrenContainer.style.display = 'none';
+                    content.classList.add('clamped');
+                }
 
                 const toggleBtn = document.createElement('span');
                 toggleBtn.className = 'toggle-btn';
-                toggleBtn.innerText = '[-]';
+                toggleBtn.textContent = isCollapsed ? '[+]' : '[-]';
                 toggleBtn.title = 'Toggle children';
                 toggleBtn.onclick = (e) => {
                     e.stopPropagation();
                     if (childrenContainer.style.display === 'none') {
                         childrenContainer.style.display = 'block';
-                        toggleBtn.innerText = '[-]';
+                        toggleBtn.textContent = '[-]';
                         content.classList.remove('clamped');
+                        collapsedNodes.delete(node.id);
                     } else {
                         childrenContainer.style.display = 'none';
-                        toggleBtn.innerText = '[+]';
+                        toggleBtn.textContent = '[+]';
                         content.classList.add('clamped');
+                        collapsedNodes.add(node.id);
                     }
                 };
                 header.prepend(toggleBtn);
 
-                // Sort children by latest activity in their subtree (descending)
                 const sortedChildrenIDs = [...childrenIDs].sort((a, b) => {
                     return getLatestActivity(b, graph, memo) - getLatestActivity(a, graph, memo);
                 });
@@ -344,19 +938,76 @@
                 sortedChildrenIDs.forEach(childID => {
                     const childNode = graph.Nodes[childID];
                     if (childNode) {
-                        childrenContainer.appendChild(createNodeElement(childNode, graph, memo));
+                        childrenContainer.appendChild(createNodeElement(childNode, graph, memo, headSessionsByNode));
                     }
                 });
-                
+
                 nodeDiv.appendChild(childrenContainer);
             }
 
             return nodeDiv;
         }
 
-        // Initial fetch
-        fetchGraph();
-        // Polling removed per user request
+        function scheduleRefresh() {
+            if (isPaused) return;
+            if (refreshTimer) clearTimeout(refreshTimer);
+            refreshTimer = setTimeout(() => {
+                refreshTimer = null;
+                fetchDashboard();
+            }, 250);
+        }
+
+        function disconnectSSE() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+        }
+
+        function connectSSE() {
+            disconnectSSE();
+            if (isPaused) {
+                setSSEStatus('paused', '⏸ Paused');
+                return;
+            }
+
+            setSSEStatus('reconnecting', '○ Connecting');
+            const es = new EventSource(withAuth('/api/v1/events'));
+            eventSource = es;
+
+            es.onopen = () => {
+                if (!isPaused) setSSEStatus('live', '● Live');
+            };
+            es.onerror = () => {
+                if (!isPaused) setSSEStatus('reconnecting', '○ Reconnecting');
+            };
+            es.addEventListener('node_saved', scheduleRefresh);
+            es.addEventListener('branch_pruned', scheduleRefresh);
+            es.addEventListener('branch_compacted', scheduleRefresh);
+        }
+
+        document.getElementById('pause-btn').onclick = () => {
+            isPaused = !isPaused;
+            document.getElementById('pause-btn').textContent = isPaused ? 'Resume Live' : 'Pause Live';
+            if (isPaused) {
+                if (refreshTimer) {
+                    clearTimeout(refreshTimer);
+                    refreshTimer = null;
+                }
+                disconnectSSE();
+                setSSEStatus('paused', '⏸ Paused');
+            } else {
+                connectSSE();
+                fetchDashboard();
+            }
+        };
+
+        document.getElementById('refresh-btn').onclick = () => {
+            fetchDashboard();
+        };
+
+        fetchDashboard();
+        connectSSE();
     </script>
 </body>
 </html>
