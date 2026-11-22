@@ -375,4 +375,10 @@ All updates and modifications to this knowledge bundle are tracked chronological
     * Added `rows.Err()` error checking in `SQLiteStorage.DiagnoseMemories` ([sqlite.go](internal/storage/sqlite.go)) and resolved all `gopls check` diagnostics (`strings.Builder` allocations and `strings.TrimPrefix` across [delegate.go](internal/engine/delegate.go), [gemma4.go](internal/providers/wire/gemma4.go), [memories_view.go](internal/tui/memories_view.go), and [confirm_overlay.go](internal/tui/confirm_overlay.go)).
     * Synchronized [daemon_protocol_spec.md](docs/daemon_protocol_spec.md), [roadmap_v0.3.3.md](docs/roadmap_v0.3.3.md), [GEMINI.md](GEMINI.md), [index.md](index.md), [README.md](README.md), and package `index.md` files (`server`, `storage`, `tools`, `engine`, `graph`, `worktree`, `providers`) with the `v0.3.3` implementation.
 
+## 2026-11-20
+
+* **Initialized `v0.4.0` Two-Track Roadmap ([docs/roadmap_v0.4.0.md](docs/roadmap_v0.4.0.md))**:
+    * Branched `kbartley/v0.4.0-roadmap` from `v0.3.3` (`main`) and partitioned upcoming work into **Track A (Maintenance)**: `internal/tui/commands.go` decomposition, zero-build embedded web inspector hygiene (`internal/server/assets/index.html`, reserving rich web SPAs for a sibling workspace), safe Go module/`1.27` updates, and isolated `coder/acp-go-sdk v0.20.0` migration; and **Track B (Features)**: Sensory Organ & inference-time orientation (Candidate ADR-026), parallel subagent fan-out, and additional `WireCodec`s.
+    * Linked [docs/roadmap_v0.4.0.md](docs/roadmap_v0.4.0.md) in [GEMINI.md](GEMINI.md) and [index.md](index.md).
+
 

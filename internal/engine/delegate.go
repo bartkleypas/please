@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"uuid"
 
 	"github.com/bartkleypas/please/internal/config"
 	"github.com/bartkleypas/please/internal/domain"
@@ -15,7 +16,6 @@ import (
 	"github.com/bartkleypas/please/internal/storage"
 	"github.com/bartkleypas/please/internal/tools"
 	"github.com/bartkleypas/please/internal/worktree"
-	"github.com/google/uuid"
 )
 
 // SubagentOrchestrator coordinates child subagent execution, worktree sandboxing,

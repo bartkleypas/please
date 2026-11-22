@@ -105,6 +105,16 @@ type mockACPClient struct {
 	decision      string // "allow_once", "allow_always", "reject_once", "cancel"
 }
 
+var _ acpsdk.Client = (*mockACPClient)(nil)
+
+func (c *mockACPClient) CompleteElicitation(ctx context.Context, params acpsdk.CompleteElicitationNotification) error {
+	return nil
+}
+
+func (c *mockACPClient) CreateElicitation(ctx context.Context, params acpsdk.CreateElicitationRequest) (acpsdk.CreateElicitationResponse, error) {
+	return acpsdk.CreateElicitationResponse{}, nil
+}
+
 func (c *mockACPClient) ReadTextFile(ctx context.Context, params acpsdk.ReadTextFileRequest) (acpsdk.ReadTextFileResponse, error) {
 	return acpsdk.ReadTextFileResponse{}, nil
 }
@@ -309,10 +319,8 @@ func TestACPAgent_PromptStreaming(t *testing.T) {
 		t.Fatalf("NewSession failed: %v", err)
 	}
 
-	msgID := "msg-12345"
 	promptResp, err := connClient.Prompt(ctx, acpsdk.PromptRequest{
 		SessionId: newResp.SessionId,
-		MessageId: &msgID,
 		Prompt: []acpsdk.ContentBlock{
 			acpsdk.TextBlock("Hello please!"),
 		},
@@ -323,9 +331,6 @@ func TestACPAgent_PromptStreaming(t *testing.T) {
 
 	if promptResp.StopReason != acpsdk.StopReasonEndTurn {
 		t.Errorf("expected StopReason 'end_turn', got %q", promptResp.StopReason)
-	}
-	if promptResp.UserMessageId == nil || *promptResp.UserMessageId != msgID {
-		t.Errorf("expected echoed userMessageId %q, got %v", msgID, promptResp.UserMessageId)
 	}
 
 	mockClient.mu.Lock()
@@ -643,9 +648,10 @@ func TestACPAgent_Cancel(t *testing.T) {
 	}
 
 	// Register a mock cancel func
-	cancelled := false
+	cancelled := make(chan struct{})
+	var cancelOnce sync.Once
 	agent.sessionCancels.Store(newResp.SessionId, context.CancelFunc(func() {
-		cancelled = true
+		cancelOnce.Do(func() { close(cancelled) })
 	}))
 
 	err = connClient.Cancel(ctx, acpsdk.CancelNotification{
@@ -655,14 +661,9 @@ func TestACPAgent_Cancel(t *testing.T) {
 		t.Fatalf("Cancel failed: %v", err)
 	}
 
-	for i := 0; i < 50; i++ {
-		if cancelled {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	if !cancelled {
+	select {
+	case <-cancelled:
+	case <-time.After(500 * time.Millisecond):
 		t.Errorf("expected session cancel func to be triggered")
 	}
 }

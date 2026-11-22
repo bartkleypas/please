@@ -12,10 +12,9 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"uuid"
 
 	_ "modernc.org/sqlite"
-
-	"github.com/google/uuid"
 
 	"github.com/bartkleypas/please/internal/domain"
 	"github.com/bartkleypas/please/internal/graph"
@@ -1323,4 +1322,12 @@ func (s *SQLiteStorage) CleanObservations() (int64, error) {
 	}
 
 	return rowsAffected, nil
+}
+
+// Close releases the underlying SQLite connection pool and stops its background goroutines.
+func (s *SQLiteStorage) Close() error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	return s.db.Close()
 }
