@@ -35,6 +35,8 @@ type Agent struct {
 	allowedMu      sync.Mutex
 }
 
+var _ acpsdk.Agent = (*Agent)(nil)
+
 // NewAgent constructs an initialized Agent adapter.
 func NewAgent(mgr *engine.Manager, provider providers.Provider, cfg *config.Config, workspaceDir string) *Agent {
 	if workspaceDir == "" && cfg != nil {
@@ -300,6 +302,17 @@ func (a *Agent) CloseSession(ctx context.Context, params acpsdk.CloseSessionRequ
 	return acpsdk.CloseSessionResponse{}, nil
 }
 
+// DeleteSession cancels active operations and releases in-memory session state.
+// Persistent session head removal is not advertised in SessionCapabilities.Delete.
+func (a *Agent) DeleteSession(ctx context.Context, params acpsdk.DeleteSessionRequest) (acpsdk.DeleteSessionResponse, error) {
+	_ = a.Cancel(ctx, acpsdk.CancelNotification{SessionId: params.SessionId})
+	a.sessionCancels.Delete(params.SessionId)
+	a.sessionModes.Delete(params.SessionId)
+	a.sessionCwd.Delete(params.SessionId)
+	a.allowedTools.Delete(params.SessionId)
+	return acpsdk.DeleteSessionResponse{}, nil
+}
+
 // Prompt processes a user prompt turn, streaming events and bridging the permission gate.
 func (a *Agent) Prompt(ctx context.Context, params acpsdk.PromptRequest) (acpsdk.PromptResponse, error) {
 	var sb strings.Builder
@@ -394,15 +407,19 @@ func (a *Agent) Prompt(ctx context.Context, params acpsdk.PromptRequest) (acpsdk
 			Name:     "Skip / Deny",
 		}
 
+		toolCall := acpsdk.ToolCallUpdate{
+			ToolCallId: acpsdk.ToolCallId(call.ID),
+			Title:      acpsdk.PatchSet(title),
+			Status:     acpsdk.PatchSet(pendingStatus),
+		}
+		if len(call.Function.Arguments) > 0 && json.Valid(call.Function.Arguments) {
+			toolCall.RawInput = acpsdk.PatchSet(json.RawMessage(call.Function.Arguments))
+		}
+
 		req := acpsdk.RequestPermissionRequest{
 			SessionId: params.SessionId,
-			ToolCall: acpsdk.ToolCallUpdate{
-				ToolCallId: acpsdk.ToolCallId(call.ID),
-				Title:      &title,
-				Status:     &pendingStatus,
-				RawInput:   json.RawMessage(call.Function.Arguments),
-			},
-			Options: []acpsdk.PermissionOption{optAllowOnce, optAllowAlways, optRejectOnce},
+			ToolCall:  toolCall,
+			Options:   []acpsdk.PermissionOption{optAllowOnce, optAllowAlways, optRejectOnce},
 		}
 
 		resp, err := conn.RequestPermission(pCtx, req)
@@ -499,8 +516,7 @@ func (a *Agent) Prompt(ctx context.Context, params acpsdk.PromptRequest) (acpsdk
 	}
 
 	resp := acpsdk.PromptResponse{
-		StopReason:    acpsdk.StopReasonEndTurn,
-		UserMessageId: params.MessageId,
+		StopReason: acpsdk.StopReasonEndTurn,
 	}
 	return resp, nil
 }

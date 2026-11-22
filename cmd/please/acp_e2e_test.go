@@ -16,6 +16,16 @@ type e2eClient struct {
 	messages []string
 }
 
+var _ acpsdk.Client = (*e2eClient)(nil)
+
+func (c *e2eClient) CompleteElicitation(ctx context.Context, params acpsdk.CompleteElicitationNotification) error {
+	return nil
+}
+
+func (c *e2eClient) CreateElicitation(ctx context.Context, params acpsdk.CreateElicitationRequest) (acpsdk.CreateElicitationResponse, error) {
+	return acpsdk.CreateElicitationResponse{}, nil
+}
+
 func (c *e2eClient) ReadTextFile(ctx context.Context, params acpsdk.ReadTextFileRequest) (acpsdk.ReadTextFileResponse, error) {
 	return acpsdk.ReadTextFileResponse{}, nil
 }
