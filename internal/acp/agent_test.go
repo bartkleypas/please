@@ -648,9 +648,10 @@ func TestACPAgent_Cancel(t *testing.T) {
 	}
 
 	// Register a mock cancel func
-	cancelled := false
+	cancelled := make(chan struct{})
+	var cancelOnce sync.Once
 	agent.sessionCancels.Store(newResp.SessionId, context.CancelFunc(func() {
-		cancelled = true
+		cancelOnce.Do(func() { close(cancelled) })
 	}))
 
 	err = connClient.Cancel(ctx, acpsdk.CancelNotification{
@@ -660,14 +661,9 @@ func TestACPAgent_Cancel(t *testing.T) {
 		t.Fatalf("Cancel failed: %v", err)
 	}
 
-	for i := 0; i < 50; i++ {
-		if cancelled {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	if !cancelled {
+	select {
+	case <-cancelled:
+	case <-time.After(500 * time.Millisecond):
 		t.Errorf("expected session cancel func to be triggered")
 	}
 }
