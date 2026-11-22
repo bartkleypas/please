@@ -56,13 +56,22 @@ func TestEventBus_PubSub(t *testing.T) {
 
 func TestEventsEndpoint_SSE(t *testing.T) {
 	tmpDir := t.TempDir()
-	storage, _ := storage.NewSQLiteStorage(tmpDir+"/vault.db", "")
-	graph := graph.NewGraph()
-	mgr := engine.NewManager(graph, storage)
+	strg, err := storage.NewSQLiteStorage(tmpDir+"/vault.db", "")
+	if err != nil {
+		t.Fatalf("NewSQLiteStorage failed: %v", err)
+	}
+	defer strg.Close()
+
+	g := graph.NewGraph()
+	mgr := engine.NewManager(g, strg)
 	srv := NewServer(mgr)
+	defer srv.Actors.StopAll()
 
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
+
+	client := &http.Client{}
+	defer client.CloseIdleConnections()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -72,7 +81,7 @@ func TestEventsEndpoint_SSE(t *testing.T) {
 		t.Fatalf("failed to create request: %v", err)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("failed to connect to SSE stream: %v", err)
 	}
@@ -83,15 +92,21 @@ func TestEventsEndpoint_SSE(t *testing.T) {
 	}
 
 	// Trigger node creation via REST API
+	postDone := make(chan struct{})
 	go func() {
+		defer close(postDone)
 		time.Sleep(50 * time.Millisecond)
 		nodePayload := map[string]interface{}{
 			"role":    "user",
 			"content": "Live event test message",
 		}
 		jsonBytes, _ := json.Marshal(nodePayload)
-		_, _ = http.Post(ts.URL+"/api/v1/nodes", "application/json", bytes.NewReader(jsonBytes))
+		postResp, postErr := client.Post(ts.URL+"/api/v1/nodes", "application/json", bytes.NewReader(jsonBytes))
+		if postErr == nil && postResp != nil {
+			_ = postResp.Body.Close()
+		}
 	}()
+	defer func() { <-postDone }()
 
 	scanner := bufio.NewScanner(resp.Body)
 	receivedEvent := false

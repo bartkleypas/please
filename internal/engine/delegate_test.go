@@ -26,6 +26,7 @@ func TestSubagentOrchestrator_ReadOnlyWorktreePruned(t *testing.T) {
 
 	dbPath := t.TempDir() + "/vault.db"
 	sqlStore, _ := storage.NewSQLiteStorage(dbPath, "")
+	defer sqlStore.Close()
 
 	g := graph.NewGraph()
 	mgr := NewManager(g, sqlStore)
@@ -105,6 +106,7 @@ func TestSubagentOrchestrator_BudgetExhaustion(t *testing.T) {
 
 	dbPath := t.TempDir() + "/vault.db"
 	sqlStore, _ := storage.NewSQLiteStorage(dbPath, "")
+	defer sqlStore.Close()
 
 	g := graph.NewGraph()
 	mgr := NewManager(g, sqlStore)
@@ -176,6 +178,7 @@ func TestSubagentOrchestrator_Cancellation(t *testing.T) {
 
 	dbPath := t.TempDir() + "/vault.db"
 	sqlStore, _ := storage.NewSQLiteStorage(dbPath, "")
+	defer sqlStore.Close()
 
 	g := graph.NewGraph()
 	mgr := NewManager(g, sqlStore)
@@ -215,6 +218,7 @@ func TestSubagentOrchestrator_ReconcileSubagent(t *testing.T) {
 
 	dbPath := filepath.Join(t.TempDir(), "vault.db")
 	sqlStore, _ := storage.NewSQLiteStorage(dbPath, "")
+	defer sqlStore.Close()
 
 	g := graph.NewGraph()
 	mgr := NewManager(g, sqlStore)
@@ -335,6 +339,7 @@ func TestSubagentOrchestrator_InspectSubagent(t *testing.T) {
 
 	dbPath := filepath.Join(t.TempDir(), "vault.db")
 	sqlStore, _ := storage.NewSQLiteStorage(dbPath, "")
+	defer sqlStore.Close()
 
 	g := graph.NewGraph()
 	mgr := NewManager(g, sqlStore)
@@ -519,6 +524,7 @@ func TestSubagentOrchestrator_CandidateMemoriesPromotion(t *testing.T) {
 
 	dbPath := filepath.Join(t.TempDir(), "vault.db")
 	sqlStore, _ := storage.NewSQLiteStorage(dbPath, "")
+	defer sqlStore.Close()
 
 	g := graph.NewGraph()
 	mgr := NewManager(g, sqlStore)
@@ -629,6 +635,7 @@ func TestSubagentOrchestrator_TargetDir_DelegationAndReconciliation(t *testing.T
 
 	dbPath := filepath.Join(t.TempDir(), "vault.db")
 	sqlStore, _ := storage.NewSQLiteStorage(dbPath, "")
+	defer sqlStore.Close()
 
 	g := graph.NewGraph()
 	mgr := NewManager(g, sqlStore)
@@ -717,6 +724,7 @@ func TestSubagentOrchestrator_InheritsParentBranchGenesisRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create sqlite storage: %v", err)
 	}
+	defer sqlStore.Close()
 
 	g := graph.NewGraph()
 	mgr := NewManager(g, sqlStore)
@@ -840,6 +848,7 @@ func TestSubagentOrchestrator_PolicyCeilingAndGateInheritance(t *testing.T) {
 
 		dbPath := filepath.Join(t.TempDir(), "vault.db")
 		sqlStore, _ := storage.NewSQLiteStorage(dbPath, "")
+	defer sqlStore.Close()
 		g := graph.NewGraph()
 		mgr := NewManager(g, sqlStore)
 		mgr.WorkspaceDir = repoDir
@@ -925,6 +934,7 @@ func TestSubagentOrchestrator_PolicyCeilingAndGateInheritance(t *testing.T) {
 
 		dbPath := filepath.Join(t.TempDir(), "vault.db")
 		sqlStore, _ := storage.NewSQLiteStorage(dbPath, "")
+	defer sqlStore.Close()
 		g := graph.NewGraph()
 		mgr := NewManager(g, sqlStore)
 		mgr.WorkspaceDir = repoDir
@@ -994,6 +1004,7 @@ func TestSubagentOrchestrator_PolicyCeilingAndGateInheritance(t *testing.T) {
 
 		dbPath := filepath.Join(t.TempDir(), "vault.db")
 		sqlStore, _ := storage.NewSQLiteStorage(dbPath, "")
+	defer sqlStore.Close()
 		g := graph.NewGraph()
 		mgr := NewManager(g, sqlStore)
 		mgr.WorkspaceDir = repoDir
